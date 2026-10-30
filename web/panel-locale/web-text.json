@@ -1,0 +1,79 @@
+{
+  "en_US": {
+    "settingsResetProfile": "Reset TypeR",
+    "settingsResetProfileConfirm": "Delete all of TypeR's data and settings?",
+    "settingsResetProfileSuccess": "TypeR has been reset. The panel will reload.",
+    "settingsResetProfileError": "Unable to reset TypeR.",
+    "settingsResetProfileHint": "Deletes your settings, styles, scripts and saved work."
+  },
+  "fr_FR": {
+    "settingsResetProfile": "Réinitialiser TypeR",
+    "settingsResetProfileConfirm": "Supprimer toutes les données et tous les réglages de TypeR ?",
+    "settingsResetProfileSuccess": "TypeR réinitialisé. Le panneau va redémarrer.",
+    "settingsResetProfileError": "Impossible de réinitialiser TypeR.",
+    "settingsResetProfileHint": "Supprime les réglages, styles, scripts et travaux sauvegardés."
+  },
+  "es_SP": {
+    "settingsResetProfile": "Restablecer TypeR",
+    "settingsResetProfileConfirm": "¿Eliminar todos los datos y ajustes de TypeR?",
+    "settingsResetProfileSuccess": "TypeR restablecido. El panel se volverá a cargar.",
+    "settingsResetProfileError": "No se pudo restablecer TypeR.",
+    "settingsResetProfileHint": "Elimina los ajustes, estilos, guiones y trabajos guardados."
+  },
+  "it_IT": {
+    "settingsResetProfile": "Ripristina TypeR",
+    "settingsResetProfileConfirm": "Eliminare tutti i dati e le impostazioni di TypeR?",
+    "settingsResetProfileSuccess": "TypeR ripristinato. Il pannello verrà ricaricato.",
+    "settingsResetProfileError": "Impossibile ripristinare TypeR.",
+    "settingsResetProfileHint": "Elimina impostazioni, stili, script e lavori salvati."
+  },
+  "de_DE": {
+    "settingsResetProfile": "TypeR zurücksetzen",
+    "settingsResetProfileConfirm": "Alle Daten und Einstellungen von TypeR löschen?",
+    "settingsResetProfileSuccess": "TypeR zurückgesetzt. Das Bedienfeld wird neu geladen.",
+    "settingsResetProfileError": "TypeR konnte nicht zurückgesetzt werden.",
+    "settingsResetProfileHint": "Löscht Einstellungen, Stile, Skripte und gespeicherte Arbeiten."
+  },
+  "pt_BR": {
+    "settingsResetProfile": "Redefinir o TypeR",
+    "settingsResetProfileConfirm": "Excluir todos os dados e configurações do TypeR?",
+    "settingsResetProfileSuccess": "TypeR redefinido. O painel será recarregado.",
+    "settingsResetProfileError": "Não foi possível redefinir o TypeR.",
+    "settingsResetProfileHint": "Exclui as configurações, estilos, roteiros e trabalhos salvos."
+  },
+  "ru_RU": {
+    "settingsResetProfile": "Сбросить TypeR",
+    "settingsResetProfileConfirm": "Удалить все данные и настройки TypeR?",
+    "settingsResetProfileSuccess": "TypeR сброшен. Панель будет перезагружена.",
+    "settingsResetProfileError": "Не удалось сбросить TypeR.",
+    "settingsResetProfileHint": "Удаляет настройки, стили, сценарии и сохранённые работы."
+  },
+  "uk_UA": {
+    "settingsResetProfile": "Скинути TypeR",
+    "settingsResetProfileConfirm": "Видалити всі дані й налаштування TypeR?",
+    "settingsResetProfileSuccess": "TypeR скинуто. Панель буде перезавантажено.",
+    "settingsResetProfileError": "Не вдалося скинути TypeR.",
+    "settingsResetProfileHint": "Видаляє налаштування, стилі, сценарії та збережені роботи."
+  },
+  "tr_TR": {
+    "settingsResetProfile": "TypeR'ı sıfırla",
+    "settingsResetProfileConfirm": "TypeR'ın tüm verileri ve ayarları silinsin mi?",
+    "settingsResetProfileSuccess": "TypeR sıfırlandı. Panel yeniden yüklenecek.",
+    "settingsResetProfileError": "TypeR sıfırlanamadı.",
+    "settingsResetProfileHint": "Ayarları, stilleri, betikleri ve kayıtlı çalışmaları siler."
+  },
+  "vi_VN": {
+    "settingsResetProfile": "Đặt lại TypeR",
+    "settingsResetProfileConfirm": "Xóa toàn bộ dữ liệu và cài đặt của TypeR?",
+    "settingsResetProfileSuccess": "Đã đặt lại TypeR. Bảng sẽ tải lại.",
+    "settingsResetProfileError": "Không thể đặt lại TypeR.",
+    "settingsResetProfileHint": "Xóa cài đặt, kiểu chữ, kịch bản và công việc đã lưu."
+  },
+  "ar_AE": {
+    "settingsResetProfile": "إعادة تعيين TypeR",
+    "settingsResetProfileConfirm": "هل تريد حذف جميع بيانات وإعدادات TypeR؟",
+    "settingsResetProfileSuccess": "تمت إعادة تعيين TypeR. ستتم إعادة تحميل اللوحة.",
+    "settingsResetProfileError": "تعذرت إعادة تعيين TypeR.",
+    "settingsResetProfileHint": "يحذف الإعدادات والأنماط والنصوص والأعمال المحفوظة."
+  }
+}
