@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>TypeR: Browser Version</title>
+  <meta name="description" content="TypeR's real panel and paste engine in a Photoshop-like workspace, in your browser. Open and save PSD files. Nothing leaves your computer.">
+  <link rel="canonical" href="https://typer.hayasaku.fr/web/">
+  <link rel="icon" type="image/png" href="../images/icon.png">
+  <link rel="stylesheet" href="app.css">
+  <script>window.TYPER_SUPPORTED = ["en", "fr", "es", "it", "de", "pt", "ru", "uk", "pl", "nl", "tr", "ar", "vi", "id", "th", "ja", "ko", "zh"]</script>
+  <script src="../i18n.js"></script>
+  <script>if (window.TYPER_I18N.lang !== "en") document.write('<script src="strings/' + window.TYPER_I18N.lang + '.js"><\/script>')</script>
+  <script>document.documentElement.classList.add("js")</script>
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="mbar">
+      <a class="mbar__logo" href="../" title="TypeR"><img src="../assets/brand/typer-logo.png" width="24" height="24" alt="TypeR"></a>
+      <nav class="mbar__menus" id="menus" role="menubar" aria-label="Menu"></nav>
+      <span class="mbar__title">TypeR: Browser Version</span>
+      <div class="mbar__end">
+        <select class="mbar__language" id="language" aria-label="Language"></select>
+        <a class="mbar__link" href="https://github.com/ScanR/TypeR/releases/latest" id="get-plugin"></a>
+      </div>
+    </header>
+
+    <div class="obar" id="options" role="toolbar"></div>
+
+    <div class="work" id="work">
+      <aside class="tools" id="tools" role="toolbar" aria-orientation="vertical"></aside>
+
+      <main class="docs">
+        <div class="tabs" id="tabs" role="tablist"></div>
+        <div class="stage" id="stage" tabindex="0">
+          <canvas class="stage__canvas" id="canvas"></canvas>
+          <svg class="stage__over" id="over" aria-hidden="true">
+            <g id="over-doc">
+              <path class="ants ants--a" id="ants-a"/>
+              <path class="ants ants--b" id="ants-b"/>
+              <path class="drag" id="drag"/>
+              <path class="drag drag--ants" id="drag-b"/>
+            </g>
+            <g id="over-screen">
+              <rect class="box" id="layer-box" hidden/>
+              <g id="handles"></g>
+              <circle class="brush-ring" id="brush-ring" hidden/>
+            </g>
+          </svg>
+          <textarea class="editor" id="editor" spellcheck="false" hidden></textarea>
+          <div class="hud" id="hud" hidden></div>
+
+          <div class="start" id="start" hidden>
+            <img src="../assets/brand/typer-logo.png" width="96" height="96" alt="">
+            <h1>TypeR: Browser Version</h1>
+            <p id="start-text"></p>
+            <div class="start__actions">
+              <button type="button" class="btn btn--main" id="start-open"></button>
+              <button type="button" class="btn" id="start-kit"></button>
+              <button type="button" class="btn" id="start-new"></button>
+            </div>
+          </div>
+
+          <div class="drop" id="drop" hidden></div>
+        </div>
+        <div class="status" id="status">
+          <span class="status__zoom"><input type="text" id="status-zoom" aria-label="Zoom" value="100%"></span>
+          <span id="status-doc"></span>
+          <span class="status__grow"></span>
+          <span id="status-hint"></span>
+        </div>
+      </main>
+
+      <div class="split" id="split-typer" role="separator" aria-orientation="vertical"></div>
+      <aside class="dock dock--typer" id="dock-typer">
+        <div class="dock__head"><span>TypeR</span></div>
+        <iframe id="panel-frame" title="TypeR"></iframe>
+      </aside>
+
+      <div class="split" id="split-side" role="separator" aria-orientation="vertical"></div>
+      <aside class="dock dock--side" id="dock-side">
+        <section class="pane pane--layers" id="pane-layers">
+          <div class="dock__head"><span id="head-layers"></span></div>
+          <div class="layers__tools" id="layers-tools"></div>
+          <ul class="layers" id="layers" role="listbox"></ul>
+          <div class="layers__foot" id="layers-foot"></div>
+        </section>
+        <section class="pane pane--character" id="pane-character">
+          <div class="dock__head"><span id="head-character"></span></div>
+          <div class="character" id="character"></div>
+        </section>
+        <section class="pane pane--history" id="pane-history">
+          <div class="dock__head"><span id="head-history"></span></div>
+          <ol class="history" id="history"></ol>
+        </section>
+      </aside>
+    </div>
+
+    <nav class="phonebar" id="phonebar" aria-label="Panels"></nav>
+  </div>
+
+  <section class="breaks" id="breaks" hidden>
+    <header class="breaks__head" id="breaks-head">
+      <span class="breaks__title" id="breaks-title"></span>
+      <button type="button" class="icon-btn" id="breaks-fewer">−</button>
+      <span class="breaks__count" id="breaks-count"></span>
+      <button type="button" class="icon-btn" id="breaks-more">+</button>
+      <button type="button" class="icon-btn" id="breaks-balance"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 4h5M3 8h10M5.5 12h5"/></svg></button>
+      <select id="breaks-language"></select>
+      <button type="button" class="breaks__help" id="breaks-help">?</button>
+      <button type="button" class="tab__close" id="breaks-close">×</button>
+    </header>
+    <div class="breaks__lines" id="breaks-lines"></div>
+    <p class="breaks__hint" id="breaks-hint"></p>
+    <div class="breaks__caret" id="breaks-caret" hidden><span class="breaks__badge" id="breaks-badge"></span></div>
+  </section>
+
+  <div class="busy" id="busy" role="status" hidden></div>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <dialog class="modal" id="modal"></dialog>
+  <input type="file" id="file-open" accept=".psd,.psb,image/png,image/jpeg,image/webp" multiple hidden>
+  <input type="file" id="file-fonts" accept=".ttf,.otf,.ttc,.otc,.woff,.woff2" multiple hidden>
+  <input type="file" id="file-kit" accept=".zip,.json" multiple hidden>
+
+  <noscript><p>TypeR: Browser Version needs JavaScript.</p></noscript>
+
+  <script>window.TYPER_I18N.apply()</script>
+  <script src="fonts.js"></script>
+  <script src="kit.js"></script>
+  <script src="photoshop.js"></script>
+  <script src="psd.js"></script>
+  <script src="session.js"></script>
+  <script src="app.js"></script>
+  <script src="hyphenation.js"></script>
+  <script src="breaks.js"></script>
+</body>
+</html>
