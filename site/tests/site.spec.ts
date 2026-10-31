@@ -55,6 +55,70 @@ test("the tour is gone from the story", async ({ page }) => {
   await expect(page.locator(".ring, .guide")).toHaveCount(0);
 });
 
+test("the trailer loads nothing until it is played, with sound", async ({ page }) => {
+  await page.goto("/");
+  const video = page.locator(".trailer video");
+  await expect(page.locator("main > section").nth(1)).toHaveId("trailer");
+  await expect(video).toHaveAttribute("preload", "none");
+  expect(await video.evaluate((v: HTMLVideoElement) => [v.readyState, v.controls])).toEqual([0, false]);
+
+  await page.getByRole("button", { name: "Play the trailer" }).click();
+  await expect(page.getByRole("button", { name: "Play the trailer" })).toHaveCount(0);
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThan(0.2);
+  expect(await video.evaluate((v: HTMLVideoElement) => [v.controls, v.muted, v.duration > 100])).toEqual([false, false, true]);
+  expect(await video.evaluate((v: HTMLVideoElement) => v.currentSrc)).toMatch(/\/videos\/trailer-av1\.mp4$/);
+});
+
+test("the trailer's player goes where it is asked, and stays there", async ({ page }) => {
+  await page.goto("/");
+  const video = page.locator(".trailer video");
+  const now = () => video.evaluate((v: HTMLVideoElement) => v.currentTime);
+  await page.getByRole("button", { name: "Play the trailer" }).click();
+  await expect.poll(now).toBeGreaterThan(0.2);
+
+  // A click far ahead of what has loaded, then back
+  const seek = page.getByRole("slider", { name: "Seek" });
+  const { width, height } = (await seek.boundingBox())!;
+  await seek.click({ position: { x: width * 0.75, y: height / 2 } });
+  await page.waitForTimeout(1500);
+  expect(await now()).toBeGreaterThan(75);
+  await seek.click({ position: { x: width * 0.25, y: height / 2 } });
+  await page.waitForTimeout(1500);
+  const back = await now();
+  expect(back).toBeGreaterThan(25);
+  expect(back).toBeLessThan(35);
+  await expect(page.locator(".player__time")).toContainText("/ 1:47");
+
+  // The keyboard
+  await page.keyboard.press("ArrowRight");
+  expect(await now()).toBeGreaterThan(back + 4);
+  await page.keyboard.press("m");
+  expect(await video.evaluate((v: HTMLVideoElement) => v.muted)).toBe(true);
+  await expect(page.getByRole("button", { name: "Unmute" })).toBeVisible();
+  await page.getByRole("button", { name: "Pause" }).click();
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  expect(await video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
+
+  // The controls leave while it plays, and come back
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await page.waitForTimeout(3000);
+  await expect(page.locator(".player")).toBeHidden();
+  await page.locator(".trailer video").hover({ position: { x: 40, y: 40 } });
+  await expect(page.locator(".player")).toBeVisible();
+});
+
+test("the trailer has an H.264 fallback that plays", async ({ page }) => {
+  await page.goto("/");
+  const video = page.locator(".trailer video");
+  await video.evaluate((v: HTMLVideoElement) => {
+    v.querySelector("source")?.remove();
+    v.load();
+  });
+  await page.getByRole("button", { name: "Play the trailer" }).click();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime)).toBeGreaterThan(0.2);
+  expect(await video.evaluate((v: HTMLVideoElement) => v.currentSrc)).toMatch(/\/videos\/trailer\.mp4$/);
+});
+
 test("the story plays the clip of the current step", async ({ page }) => {
   await page.goto("/");
   await page.locator(".step").nth(2).scrollIntoViewIfNeeded();
@@ -81,7 +145,7 @@ test("install: the command of each system, then the installers", async ({ page, 
   await expect(install.locator(".rosetta")).toContainText("Activity Monitor");
   await expect(install.locator(".setup pre")).toHaveText("curl -fsSL https://raw.githubusercontent.com/ScanR/TypeR/master/get.sh | bash");
   await expect(install.locator(".setup")).toContainText("Terminal");
-  await expect(install.locator(".dl")).toContainText("install_mac.sh");
+  await expect(install.locator(".dl")).toContainText("install_mac.command");
 
   await install.getByRole("button", { name: "Copy" }).click();
   await expect(install.getByRole("button", { name: "Copied" })).toBeVisible();

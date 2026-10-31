@@ -47,7 +47,7 @@ export default function Hero() {
               </span>
             </figure>
             <figure className="stage__panel" data-depth="24">
-              <img src="/images/hero-panel-head.png" alt="" width={338} height={20} />
+              <img src="/images/hero-panel-head.png" alt="" width={338} height={29} />
               <picture>
                 <source srcSet="/images/hero-panel-body.webp" type="image/webp" />
                 <img src="/images/hero-panel-body.png" alt="" width={338} height={530} />
