@@ -15,6 +15,9 @@
   const T = (english) => strings[english] || english;
   const fill = (text, values) => Object.keys(values).reduce((out, key) => out.split(`{${key}}`).join(values[key]), text);
   const IS_MAC = /mac/i.test(navigator.platform || "");
+  const Shell = window.TypeRShell;
+  const DISCORD = "https://discord.com/invite/Pdmfmqk";
+  const KOFI = "https://ko-fi.com/typertools";
 
   const ui = {
     work: $("work"),
@@ -79,6 +82,32 @@
     swap: SVG('<path d="M4 9a5 5 0 0 1 5-5h6M12 1l3 3-3 3M20 15a5 5 0 0 1-5 5H9M12 23l-3-3 3-3"/>'),
     fullScreen: SVG('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
     fullScreenExit: SVG('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'),
+    alignMiddle: SVG('<rect x="4" y="4" width="16" height="16"/><path d="M8 10h8M8 14h8"/>'),
+    warp: SVG('<path d="M7.500 5h9L21 19H3Z"/><path d="M12 5v14M5.200 12h13.600"/>'),
+    pencil: SVG('<path d="m4 20 1-4L16 5a2.100 2.100 0 0 1 3 3L8 19ZM14.500 6.500l3 3"/>'),
+    lines: SVG('<path d="M4 6h16M4 12h11a3 3 0 0 1 0 6H9M12 15l-3 3 3 3"/>'),
+    shapes: SVG('<path d="M8 5h8M5 10h14M4 15h16M8 20h8"/>'),
+    font: SVG('<path d="m3 19 5-14h1l5 14M5 14h7M17 19c-2 0-3-1-3-2.500s1.200-2.500 3-2.500h3M20 19v-6.500c0-1.500-1-2.500-2.500-2.500-1 0-2 .4-2.500 1"/>'),
+    nudge: SVG('<path d="M12 3v6M12 15v6M3 12h6M15 12h6M12 3 9.500 5.500M12 3l2.500 2.500M12 21l-2.500-2.500M12 21l2.500-2.500M3 12l2.500-2.500M3 12l2.500 2.500M21 12l-2.500-2.500M21 12l-2.500 2.500"/>'),
+    close: SVG('<path d="M6 6l12 12M18 6 6 18"/>'),
+    up: SVG('<path d="M12 20V4M5 11l7-7 7 7"/>'),
+    down: SVG('<path d="M12 4v16M5 13l7 7 7-7"/>'),
+    back: SVG('<path d="m15 5-7 7 7 7"/>'),
+    forward: SVG('<path d="m9 5 7 7-7 7"/>'),
+    script: SVG('<path d="M6 3h9l4 4v14H6ZM14 3v5h5M9 12h7M9 16h7"/>'),
+    styles: SVG('<path d="M4 7V5h10v2M9 5v14M7 19h4M14 13v-1.500h7V13M17.500 11.500V19M16 19h3"/>'),
+    layers: SVG('<path d="m12 3 9 5-9 5-9-5ZM3 13l9 5 9-5"/>'),
+    more: SVG('<path d="M4 7h16M4 12h16M4 17h16"/>'),
+    share: SVG('<path d="M12 15V3M8 7l4-4 4 4M5 12v9h14v-9"/>'),
+    tag: SVG('<path d="M4 4h7l9 9-7 7-9-9ZM8 8h.01"/>'),
+    cut: SVG('<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.500 8 20 19M8.500 16 20 5"/>'),
+    deselect: SVG('<rect x="4" y="4" width="16" height="16" stroke-dasharray="3 2.400"/><path d="m9 9 6 6M15 9l-6 6"/>'),
+    inverse: SVG('<rect x="4" y="4" width="16" height="16"/><path d="M12 4v16M12 8l8-4M12 14l8-5M12 20l8-5"/>'),
+    grow: SVG('<rect x="8" y="8" width="8" height="8" stroke-dasharray="2 2"/><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>'),
+    shrink: SVG('<rect x="4" y="4" width="16" height="16" stroke-dasharray="2 2"/><path d="M9 5v4H5M15 5v4h4M19 15h-4v4M5 15h4v4"/>'),
+    fill: SVG('<path d="m5 12 7-7 7 7-7 7ZM20 17c.8 1 1 1.700 1 2.300a1.500 1.500 0 0 1-3 0c0-.6.200-1.300 2-2.300ZM5 12h14"/>'),
+    paste: SVG('<path d="M12 4v10M8 10l4 4 4-4M4 20h16"/>'),
+    heart: SVG('<path d="M12 20s-8-5-8-11a4.500 4.500 0 0 1 8-2.800A4.500 4.500 0 0 1 20 9c0 6-8 11-8 11Z"/>'),
   };
 
   /* ------------------------------- notices ------------------------------ */
@@ -96,7 +125,7 @@
   };
 
   // A dialog: resolves with the values of its fields, or null when cancelled
-  const dialog = ({ title, body, fields, ok, cancel }) => new Promise((resolve) => {
+  const dialog = ({ title, body, fields, ok, cancel, link }) => new Promise((resolve) => {
     const modal = ui.modal;
     modal.textContent = "";
     const head = document.createElement("div");
@@ -148,6 +177,15 @@
       no.addEventListener("click", () => done(null));
       foot.appendChild(no);
     }
+    if (link) {
+      const away = document.createElement("a");
+      away.className = "btn";
+      away.href = link.href;
+      away.target = "_blank";
+      away.rel = "noopener";
+      away.textContent = link.label;
+      foot.appendChild(away);
+    }
     const yes = document.createElement("button");
     yes.type = "button";
     yes.className = "btn btn--main";
@@ -198,7 +236,7 @@
   const fitView = () => {
     const doc = app.doc;
     if (!doc) return;
-    const margin = stageW < 500 ? 8 : 28;
+    const margin = Math.min(stageW, stageH) < 500 ? 8 : 28;
     const zoom = Math.min((stageW - margin * 2) / doc.width, (stageH - margin * 2) / doc.height);
     doc.view.zoom = Math.max(0.02, zoom);
     doc.view.x = (stageW - doc.width * doc.view.zoom) / 2;
@@ -267,7 +305,7 @@
     ctx.fillStyle = checker;
     ctx.fillRect(x, y, dw, dh);
     ctx.imageSmoothingEnabled = v.zoom < 2;
-    ctx.imageSmoothingQuality = "high";
+    ctx.imageSmoothingQuality = pinch ? "low" : "high";
     ctx.drawImage(docCanvas, x, y, dw, dh);
     ctx.strokeStyle = "#111";
     ctx.lineWidth = 1;
@@ -300,6 +338,7 @@
     renderStatus();
     renderTabs();
     placeEditor();
+    PS.announce("view");
   };
 
   /* ------------------------------ the overlay ----------------------------- */
@@ -328,17 +367,165 @@
   };
   const activeTexts = () => activeLayers().filter((layer) => layer.kind === "text");
 
-  const HANDLE = 7;
+  // Fingers get bigger handles, and reach them from further away
+  const handleSize = () => (Shell.touch ? 13 : 7);
   // Corners: the size of the text. Sides: the text box.
   const HANDLES = [["nw", 0, 0], ["n", 0.5, 0], ["ne", 1, 0], ["e", 1, 0.5], ["se", 1, 1], ["s", 0.5, 1], ["sw", 0, 1], ["w", 0, 0.5]];
   const HANDLE_CURSOR = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize", sw: "nesw-resize", n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize" };
   let handleBoxes = [];
+  let handleArea = 0;
   const svgEl = (tag, attributes, parent) => {
     const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
     Object.keys(attributes).forEach((key) => el.setAttribute(key, attributes[key]));
     parent.appendChild(el);
     return el;
   };
+  // The text being laid on a surface: its corners and the middle of its edges have handles
+  let warping = null;
+  let toolBeforeSurface = null;
+  const warpedLayer = () => {
+    const doc = app.doc;
+    if (!warping || !doc || app.tool !== "move" || doc.state.activeIds.length !== 1 || doc.state.activeIds[0] !== warping) return null;
+    const layer = doc.state.layers.find((item) => item.id === warping);
+    return layer && layer.warp ? layer : null;
+  };
+  const drawSurface = ({ warp }) => {
+    const { at } = PS.surfaceOf(warp);
+    const line = (points) => points.map((point, index) => {
+      const [x, y] = toScreen(point[0], point[1]);
+      return `${index ? "L" : "M"}${x} ${y}`;
+    }).join("");
+    const STEPS = 24;
+    const along = (from, to) => Array.from({ length: STEPS + 1 }, (_, step) => {
+      const t = step / STEPS;
+      return at(from[0] + (to[0] - from[0]) * t, from[1] + (to[1] - from[1]) * t);
+    });
+    let grid = "";
+    [0.25, 0.5, 0.75].forEach((part) => {
+      grid += line(along([0, part], [1, part])) + line(along([part, 0], [part, 1]));
+    });
+    svgEl("path", { class: "warp-grid", d: grid }, ui.handles);
+    svgEl("path", { class: "warp-edge", d: `${line([...along([0, 0], [1, 0]), ...along([1, 0], [1, 1]), ...along([1, 1], [0, 1]), ...along([0, 1], [0, 0])])}Z` }, ui.handles);
+    const HANDLE = handleSize();
+    handleArea = 72;
+    warp.corners.forEach((corner, index) => {
+      const [x, y] = toScreen(corner[0], corner[1]);
+      svgEl("rect", { class: "handle", x: Math.round(x - HANDLE / 2) + 0.5, y: Math.round(y - HANDLE / 2) + 0.5, width: HANDLE, height: HANDLE }, ui.handles);
+      handleBoxes.push({ x, y, kind: `warp-${index}` });
+    });
+    [["warp-top", 0], ["warp-bottom", 1]].forEach(([kind, v]) => {
+      const point = at(0.5, v);
+      const [x, y] = toScreen(point[0], point[1]);
+      svgEl("circle", { class: "handle handle--bend", cx: x, cy: y, r: Shell.touch ? 8 : 4.5 }, ui.handles);
+      handleBoxes.push({ x, y, kind });
+    });
+  };
+  // Where a handle takes the surface. The bends go together, as both edges of a can or a
+  // page curve alike. Alt: this edge only. Shift: straight along an axis, or across the edge.
+  const movedSurface = (current, point, event) => {
+    const { warp } = current.layer;
+    const next = Object.assign({}, warp);
+    if (current.handle === "warp-top" || current.handle === "warp-bottom") {
+      const { flat } = PS.surfaceOf(warp);
+      const v = current.handle === "warp-top" ? 0 : 1;
+      const base = flat(0.5, v);
+      let bend = [point[0] - base[0], point[1] - base[1]];
+      if (event.shiftKey) {
+        const a = flat(0, v);
+        const b = flat(1, v);
+        const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        const normal = [-(b[1] - a[1]) / length, (b[0] - a[0]) / length];
+        const amount = bend[0] * normal[0] + bend[1] * normal[1];
+        bend = [normal[0] * amount, normal[1] * amount];
+      }
+      if (event.altKey) next[v ? "bendBottom" : "bendTop"] = bend;
+      else {
+        next.bendTop = bend;
+        next.bendBottom = bend;
+      }
+      return next;
+    }
+    const index = Number(current.handle.slice(5));
+    const start = warp.corners[index];
+    const moved = [point[0], point[1]];
+    if (event.shiftKey) {
+      if (Math.abs(moved[0] - start[0]) > Math.abs(moved[1] - start[1])) moved[1] = start[1];
+      else moved[0] = start[0];
+    }
+    next.corners = warp.corners.map((corner, at) => (at === index ? moved : corner));
+    return next;
+  };
+  const enterSurface = (layer) => {
+    if (!layer || (layer.raster && layer.rotated)) return;
+    if (layer.raster && Fonts.isMissing(layer.params.layerText.textStyleRange[0].textStyle.fontPostScriptName)) toast(T("This text's font is missing: it will be drawn with another font."), true);
+    if (!layer.warp) ops.startTextWarp(layer.id);
+    warping = layer.id;
+    toolBeforeSurface = app.tool;
+    setTool("move");
+    characterKey = "";
+    renderCharacter();
+    renderStatus();
+    schedule(false);
+    ui.stage.focus({ preventScroll: true });
+  };
+  const leaveSurface = () => {
+    warping = null;
+    if (Shell.touch && toolBeforeSurface) setTool(toolBeforeSurface);
+    renderOptions();
+    renderStatus();
+    schedule(false);
+  };
+  // Ready-made shapes, in proportion to the surface as it stands
+  const applySurface = (layer, kind) => {
+    const { warp } = layer;
+    const [a, b, c, d] = warp.corners;
+    const width = (Math.hypot(b[0] - a[0], b[1] - a[1]) + Math.hypot(c[0] - d[0], c[1] - d[1])) / 2;
+    const unit = (x, y) => {
+      const length = Math.hypot(x, y) || 1;
+      return [x / length, y / length];
+    };
+    const right = unit(b[0] - a[0] + c[0] - d[0], b[1] - a[1] + c[1] - d[1]);
+    const below = unit(d[0] + c[0] - a[0] - b[0], d[1] + c[1] - a[1] - b[1]);
+    const bend = (x, y) => [(right[0] * x + below[0] * y) * width, (right[1] * x + below[1] * y) * width];
+    const SHAPES = { wall: [[0, 0], 0], can: [[0, 0.12], 65], left: [[0.18, -0.07], 0], right: [[-0.18, -0.07], 0] };
+    const [[x, y], wrap] = SHAPES[kind];
+    ops.setTextWarp(layer, Object.assign({}, warp, { bendTop: bend(x, y), bendBottom: bend(x, y), wrap }));
+  };
+  const surfaceOptions = (bar, layer) => {
+    const action = (label, run) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn--small";
+      button.textContent = T(label);
+      button.addEventListener("click", run);
+      return button;
+    };
+    const group = document.createElement("span");
+    group.className = "obar__group";
+    group.style.gap = "4px";
+    [["Wall", "wall"], ["Can", "can"], ["Left page", "left"], ["Right page", "right"]].forEach(([label, kind]) => {
+      group.appendChild(action(label, () => applySurface(warpedLayer() || layer, kind)));
+    });
+    const wrap = document.createElement("input");
+    wrap.type = "range";
+    wrap.min = 0;
+    wrap.max = 85;
+    wrap.value = layer.warp.wrap || 0;
+    wrap.addEventListener("input", () => {
+      const current = warpedLayer();
+      if (current) ops.setTextWarp(current, Object.assign({}, current.warp, { wrap: Number(wrap.value) }), "warp-wrap");
+    });
+    wrap.addEventListener("change", () => {
+      wrap.blur();
+      renderOptions();
+    });
+    bar.append(group, labelled(T("Wrap"), wrap), action("Remove", () => {
+      const current = warpedLayer();
+      if (current) ops.removeTextWarp(current.id);
+      leaveSurface();
+    }), action("Done", leaveSurface));
+  };
+
   const drawOverlay = () => {
     const doc = app.doc;
     const v = view();
@@ -346,9 +533,22 @@
     ui.handles.textContent = "";
     handleBoxes = [];
     ui.box.setAttribute("hidden", "");
+    const surface = warpedLayer();
+    if (surface) {
+      drawSurface(surface);
+      return;
+    }
+    // Another layer, another tool, an undo: the surface's mode ends with them
+    if (warping) {
+      warping = null;
+      renderOptions();
+      renderStatus();
+    }
     const typing = !ui.editor.hidden && editing;
-    if (!doc || (app.tool !== "move" && !typing)) return;
-    const list = (typing ? doc.state.layers.filter((layer) => layer.id === editing.id) : activeLayers().filter((layer) => layer.kind !== "group" && !layer.isBackground)).map((layer) => (doc.preview && doc.preview.id === layer.id ? doc.preview : layer));
+    // On a touch screen a pasted text can be handled right away, without changing tool
+    const wandShows = Shell.touch && app.tool === "wand";
+    if (!doc || (app.tool !== "move" && !typing && !wandShows)) return;
+    const list = (typing ? doc.state.layers.filter((layer) => layer.id === editing.id) : activeLayers().filter((layer) => layer.kind !== "group" && !layer.isBackground && (!wandShows || layer.kind === "text"))).map((layer) => (doc.preview && doc.preview.id === layer.id ? doc.preview : layer));
     if (!list.length) return;
     const live = doc.live;
     let left = Infinity;
@@ -373,8 +573,10 @@
     ui.box.setAttribute("height", Math.max(1, Math.round(y1 - y0)));
     ui.box.removeAttribute("hidden");
     // A rotated text from a PSD keeps its pixels: it only moves
-    if (list.length !== 1 || list[0].kind !== "text" || (list[0].rotated && list[0].raster)) return;
-    const roomy = x1 - x0 > 26 && y1 - y0 > 26;
+    if (list.length !== 1 || list[0].kind !== "text" || (list[0].rotated && list[0].raster) || list[0].warp) return;
+    const HANDLE = handleSize();
+    const roomy = x1 - x0 > (Shell.touch ? 64 : 26) && y1 - y0 > (Shell.touch ? 64 : 26);
+    handleArea = Math.min(x1 - x0, y1 - y0);
     HANDLES.forEach(([kind, fx, fy]) => {
       if (!roomy && kind.length === 1) return;
       const x = x0 + (x1 - x0) * fx;
@@ -399,8 +601,10 @@
     const rect = ui.stage.getBoundingClientRect();
     ui.hud.textContent = text;
     ui.hud.hidden = false;
-    ui.hud.style.left = `${event.clientX - rect.left + 16}px`;
-    ui.hud.style.top = `${event.clientY - rect.top + 16}px`;
+    // Above a finger, which would hide it
+    const finger = event.pointerType === "touch";
+    ui.hud.style.left = `${Math.max(8, event.clientX - rect.left + (finger ? -30 : 16))}px`;
+    ui.hud.style.top = `${Math.max(8, event.clientY - rect.top + (finger ? -64 : 16))}px`;
   };
 
   /* -------------------------------- tools -------------------------------- */
@@ -422,8 +626,8 @@
   ];
   const TOOL_HINT = {
     move: "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.",
-    rectangle: "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Shift before: add, Alt before: subtract.",
-    ellipse: "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Shift before: add, Alt before: subtract.",
+    rectangle: "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.",
+    ellipse: "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.",
     lasso: "Draw around an area. Shift before: add, Alt before: subtract.",
     wand: "Click a bubble: TypeR pastes the next line in it. Shift: add, Alt: subtract.",
     brush: "Paints on the active pixel layer. [ and ] change the size.",
@@ -463,6 +667,7 @@
       button.type = "button";
       button.className = "tool";
       button.dataset.tool = id;
+      button.dataset.name = T(name);
       button.innerHTML = ICON[id];
       const label = `${T(name)} (${key.replace("Shift", IS_MAC ? "⇧" : "Shift")})`;
       button.title = label;
@@ -567,6 +772,26 @@
     });
     return input;
   };
+  // − and + around a number, for screens that have no arrow keys
+  const withSteps = (input, step = 1) => {
+    const box = document.createElement("span");
+    box.className = "steps";
+    const button = (label, sign) => {
+      const press = document.createElement("button");
+      press.type = "button";
+      press.className = "steps__button";
+      press.textContent = label;
+      press.setAttribute("aria-hidden", "true");
+      press.tabIndex = -1;
+      press.addEventListener("click", () => {
+        input.value = Math.round((Number(input.value) + sign * step) * 100) / 100;
+        input.dispatchEvent(new Event("change"));
+      });
+      return press;
+    };
+    box.append(button("−", -1), input, button("+", 1));
+    return box;
+  };
   const checkbox = (text, checked, onChange) => {
     const input = document.createElement("input");
     input.type = "checkbox";
@@ -590,27 +815,11 @@
     return button;
   };
 
-  const fontDatalist = () => {
-    let list = $("font-list");
-    if (!list) {
-      list = document.createElement("datalist");
-      list.id = "font-list";
-      document.body.appendChild(list);
-    }
-    const families = Array.from(new Set(Fonts.list().map((font) => font.family)));
-    if (list.dataset.count !== String(families.length)) {
-      list.textContent = "";
-      families.forEach((family) => {
-        const option = document.createElement("option");
-        option.value = family;
-        list.appendChild(option);
-      });
-      list.dataset.count = String(families.length);
-    }
-    return list;
-  };
-
   const facesOf = (family) => Fonts.list().filter((font) => font.family === family);
+
+  // The face a family is picked and shown with: faces are in alphabetical order, so the
+  // first one is often Bold
+  const mainFace = (faces) => faces.find((face) => /^(regular|normal|roman|book)$/i.test(face.style)) || faces.find((face) => !face.italic && !/bold|italic|oblique/i.test(face.style)) || faces[0];
 
   const applyTextPatch = (patch, paragraph, coalesce) => {
     const ids = activeTexts().map((layer) => layer.id);
@@ -618,7 +827,7 @@
   };
 
   const setFontFamily = (family) => {
-    const face = facesOf(family)[0];
+    const face = mainFace(facesOf(family));
     if (!face) {
       toast(fill(T("{font} isn't loaded. Use File > Use Installed Fonts, or load its file."), { font: family }));
       return;
@@ -628,6 +837,178 @@
     Fonts.ensure(face.postScriptName).then(() => applyTextPatch(patch, null, "font"));
   };
 
+  // Every family, written in itself, with a search field. A computer can have hundreds of
+  // fonts: the browser skips the rows out of sight (content-visibility in app.css).
+  const folded = (value) => String(value).normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[\s\-_]+/g, "");
+  let closeFontMenu = null;
+  const openFontMenu = (anchor, current) => {
+    const back = document.activeElement;
+    const menu = document.createElement("div");
+    menu.className = "font-menu";
+    const search = document.createElement("input");
+    search.type = "text";
+    search.className = "font-menu__search";
+    search.placeholder = T("Search fonts…");
+    search.setAttribute("aria-label", T("Search fonts…"));
+    search.autocomplete = "off";
+    search.spellcheck = false;
+    const list = document.createElement("ul");
+    list.className = "font-menu__list";
+    list.setAttribute("role", "listbox");
+    list.setAttribute("aria-label", T("Font"));
+    menu.append(search, list);
+
+    let rows = [];
+    let active = -1;
+    const setActive = (index, reveal) => {
+      if (rows[active]) rows[active].classList.remove("is-active");
+      active = index;
+      if (!rows[active]) return;
+      rows[active].classList.add("is-active");
+      if (reveal) rows[active].scrollIntoView({ block: "nearest" });
+    };
+    const draw = () => {
+      const query = folded(search.value);
+      const startsWith = (family) => (folded(family).startsWith(query) ? 0 : 1);
+      const families = new Map();
+      Fonts.list().forEach((font) => {
+        if (!families.has(font.family)) families.set(font.family, []);
+        families.get(font.family).push(font);
+      });
+      const found = Array.from(families.keys()).filter((family) => !query || folded(family).includes(query) || families.get(family).some((face) => folded(face.postScriptName).includes(query)));
+      if (query) found.sort((a, b) => startsWith(a) - startsWith(b));
+      list.textContent = "";
+      rows = found.map((family) => {
+        const face = mainFace(families.get(family));
+        const row = document.createElement("li");
+        row.className = "font-menu__item";
+        row.setAttribute("role", "option");
+        row.setAttribute("aria-selected", String(family === current));
+        row.dataset.family = family;
+        row.title = family;
+        row.textContent = family;
+        // An installed font not used yet is reached by its name, without loading it
+        row.style.fontFamily = `"${String(face.ready ? face.css : face.family).replace(/"/g, "")}", sans-serif`;
+        row.style.fontWeight = face.weight || 400;
+        row.style.fontStyle = face.italic ? "italic" : "normal";
+        return row;
+      });
+      list.append(...rows);
+      if (!rows.length) {
+        const empty = document.createElement("li");
+        empty.className = "font-menu__empty";
+        empty.textContent = fill(T("{font} isn't loaded. Use File > Use Installed Fonts, or load its file."), { font: search.value.trim() });
+        list.appendChild(empty);
+      }
+      active = -1;
+      setActive(Math.max(0, found.indexOf(current)), true);
+    };
+
+    const close = (giveFocusBack) => {
+      closeFontMenu = null;
+      menu.remove();
+      anchor.setAttribute("aria-expanded", "false");
+      document.removeEventListener("pointerdown", outside, true);
+      window.removeEventListener("blur", away);
+      window.removeEventListener("resize", away);
+      if (giveFocusBack && back && back.isConnected && !Shell.touch) back.focus();
+    };
+    // A click in TypeR's panel only shows as the page losing focus
+    const away = () => close(false);
+    const outside = (event) => {
+      if (!menu.contains(event.target) && !anchor.contains(event.target)) close(false);
+    };
+    const choose = (family) => {
+      close(true);
+      setFontFamily(family);
+      characterKey = "";
+      renderOptions();
+      renderCharacter();
+    };
+
+    search.addEventListener("input", draw);
+    search.addEventListener("keydown", (event) => {
+      event.stopPropagation();
+      const steps = { ArrowDown: 1, ArrowUp: -1, PageDown: 8, PageUp: -8 }[event.key];
+      if (steps) {
+        event.preventDefault();
+        if (rows.length) setActive(Math.max(0, Math.min(rows.length - 1, active + steps)), true);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        if (rows[active]) choose(rows[active].dataset.family);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        close(true);
+      }
+    });
+    list.addEventListener("pointermove", (event) => {
+      const row = event.target.closest(".font-menu__item");
+      if (row) setActive(rows.indexOf(row), false);
+    });
+    list.addEventListener("click", (event) => {
+      const row = event.target.closest(".font-menu__item");
+      if (row) choose(row.dataset.family);
+    });
+    // A phone has no fonts to offer a web page: its own files are the way
+    if (Shell.touch) {
+      const load = document.createElement("button");
+      load.type = "button";
+      load.className = "font-menu__more";
+      load.textContent = T("Load Font Files…");
+      load.addEventListener("click", () => {
+        close(false);
+        chooseFonts();
+      });
+      menu.appendChild(load);
+    }
+    if (Fonts.canListInstalled() && !Fonts.installedListed()) {
+      const more = document.createElement("button");
+      more.type = "button";
+      more.className = "font-menu__more";
+      more.textContent = T("Use Installed Fonts…");
+      more.addEventListener("click", async () => {
+        await useInstalledFonts();
+        if (Fonts.installedListed()) more.remove();
+        draw();
+        search.focus();
+      });
+      menu.appendChild(more);
+    }
+
+    document.body.appendChild(menu);
+    const box = anchor.getBoundingClientRect();
+    const width = Math.min(window.innerWidth - 16, Math.max(box.width, 280));
+    const below = window.innerHeight - box.bottom - 10;
+    const above = box.top - 10;
+    const opensBelow = below >= 260 || below >= above;
+    menu.style.width = `${width}px`;
+    menu.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, box.left))}px`;
+    menu.style.maxHeight = `${Math.min(460, opensBelow ? below : above)}px`;
+    if (opensBelow) menu.style.top = `${box.bottom + 2}px`;
+    else menu.style.bottom = `${window.innerHeight - box.top + 2}px`;
+    anchor.setAttribute("aria-expanded", "true");
+    closeFontMenu = () => close(true);
+    document.addEventListener("pointerdown", outside, true);
+    // On a touch screen the keyboard resizes the window, and it stays down until asked for
+    if (!Shell.touch) {
+      window.addEventListener("blur", away);
+      window.addEventListener("resize", away);
+    }
+    draw();
+    if (!Shell.touch) search.focus();
+  };
+
+  const STORE_VERTICAL = "typer.web.verticalAlign";
+  try {
+    if (window.localStorage.getItem(STORE_VERTICAL) === "top") app.textDefaults.verticalAlign = "top";
+  } catch (error) {
+    app.textDefaults.verticalAlign = "center";
+  }
+  const inBoxOf = (layer) => {
+    const shape = layer.params.layerText.textShape && layer.params.layerText.textShape[0];
+    return shape && shape.textType === "box" && shape.box;
+  };
+
   const ANTI_ALIAS_NAMES = [["antiAliasNone", "None"], ["antiAliasSharp", "Sharp"], ["antiAliasCrisp", "Crisp"], ["antiAliasStrong", "Strong"], ["antiAliasSmooth", "Smooth"]];
 
   const textControls = (host, compact) => {
@@ -635,19 +1016,27 @@
     const style = layer ? layer.params.layerText.textStyleRange[0].textStyle : null;
     const paragraph = layer ? layer.params.layerText.paragraphStyleRange[0].paragraphStyle : {};
     const d = app.textDefaults;
-    const family = document.createElement("input");
-    family.type = "text";
-    family.className = "obar__wide";
-    family.setAttribute("list", fontDatalist().id);
-    family.value = style ? style.fontName || "" : d.family;
+    const currentFamily = style ? style.fontName : d.family;
+    const currentPs = style ? style.fontPostScriptName : d.font;
+    const family = document.createElement("button");
+    family.type = "button";
+    family.className = "font-field obar__wide";
     family.title = T("Font");
     family.setAttribute("aria-label", T("Font"));
-    family.addEventListener("change", () => setFontFamily(family.value));
+    family.setAttribute("aria-haspopup", "listbox");
+    family.setAttribute("aria-expanded", "false");
+    const familyName = document.createElement("span");
+    familyName.textContent = currentFamily || "";
+    family.appendChild(familyName);
+    // Pressing it leaves the focus where it is, on the text being typed for instance
+    family.addEventListener("pointerdown", (event) => event.preventDefault());
+    family.addEventListener("click", () => {
+      if (closeFontMenu) closeFontMenu();
+      else openFontMenu(family, currentFamily);
+    });
     const faces = document.createElement("select");
     faces.title = T("Font style");
     faces.setAttribute("aria-label", T("Font style"));
-    const currentFamily = style ? style.fontName : d.family;
-    const currentPs = style ? style.fontPostScriptName : d.font;
     facesOf(currentFamily).forEach((face) => {
       const option = document.createElement("option");
       option.value = face.postScriptName;
@@ -689,6 +1078,30 @@
     [["left", "alignLeft", "Align left"], ["center", "alignCenter", "Centre"], ["right", "alignRight", "Align right"]].forEach(([value, icon, title]) => {
       aligns.appendChild(iconButton(icon, T(title), (paragraph.alignment || "center") === value, () => applyTextPatch(null, { alignment: value })));
     });
+    // Point text has no box: there, the button only says what the next box will do
+    const inBox = layer && inBoxOf(layer);
+    const centred = (inBox ? inBox.verticalAlign || "top" : d.verticalAlign) === "center";
+    const middle = iconButton("alignMiddle", T("Centre the text vertically in its box"), centred, () => {
+      const value = centred ? "top" : "center";
+      d.verticalAlign = value;
+      try {
+        window.localStorage.setItem(STORE_VERTICAL, value);
+      } catch (error) {
+        console.warn("TypeR web: could not keep the vertical alignment", error);
+      }
+      const texts = activeTexts();
+      if (texts.some((item) => item.raster && inBoxOf(item) && Fonts.isMissing(item.params.layerText.textStyleRange[0].textStyle.fontPostScriptName))) toast(T("This text's font is missing: it will be drawn with another font."), true);
+      ops.setTextVerticalAlign(texts.map((item) => item.id), value);
+      characterKey = "";
+      renderOptions();
+      renderCharacter();
+    });
+    middle.classList.add("obar__gap");
+    aligns.appendChild(middle);
+    const surface = iconButton("warp", T("Perspective"), Boolean(layer && layer.warp), () => enterSurface(activeTexts()[0]));
+    surface.classList.add("obar__gap");
+    surface.disabled = activeTexts().length !== 1 || Boolean(layer.raster && layer.rotated);
+    aligns.appendChild(surface);
     const antiAlias = document.createElement("select");
     antiAlias.title = T("Anti-aliasing method");
     antiAlias.setAttribute("aria-label", T("Anti-aliasing method"));
@@ -738,6 +1151,12 @@
     const headIcon = head.querySelector("svg");
     if (headIcon) Object.assign(headIcon.style, { fill: "none", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" });
     bar.appendChild(head);
+    const surface = warpedLayer();
+    if (surface) {
+      surfaceOptions(bar, surface);
+      if (document.fullscreenEnabled) bar.appendChild(fullScreen);
+      return;
+    }
     if (SELECTION_TOOLS.has(tool)) {
       const modes = document.createElement("span");
       modes.className = "obar__group";
@@ -820,6 +1239,12 @@
   let spacing = false;
   const pointers = new Map();
   let pinch = null;
+  // Two fingers tapping undo, three redo. A pen in the game leaves the drawing to it,
+  // and fingers pan.
+  let multi = null;
+  let penSeen = false;
+  const DRAWN_TOOLS = new Set(["brush", "eraser", "rectangle", "ellipse", "lasso"]);
+  const isFinger = (event) => Shell.touch && event.pointerType !== "mouse";
 
   const selectionMode = (event) => {
     if (event.shiftKey && event.altKey) return "intersect";
@@ -861,36 +1286,109 @@
     return [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)];
   };
 
+  const isMarquee = (kind) => kind === "rectangle" || kind === "ellipse";
+
+  // Space during a marquee carries it: both corners follow the pointer, the shape stays
+  const carryMarquee = (current, point) => {
+    if (!spacing || !isMarquee(current.kind)) return;
+    current.start = [current.start[0] + point[0] - current.last[0], current.start[1] + point[1] - current.last[1]];
+  };
+
   const hitHandle = (event) => {
     const rect = ui.stage.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-    return handleBoxes.find((box) => Math.abs(box.x - x) <= 7 && Math.abs(box.y - y) <= 7) || null;
+    if (!isFinger(event)) return handleBoxes.find((box) => Math.abs(box.x - x) <= 7 && Math.abs(box.y - y) <= 7) || null;
+    // The nearest one. In a small text the handles leave room to grab the text itself.
+    const reach = Math.max(10, Math.min(24, handleArea / 3));
+    let nearest = null;
+    let best = reach;
+    handleBoxes.forEach((box) => {
+      const distance = Math.hypot(box.x - x, box.y - y);
+      if (distance <= best) {
+        nearest = box;
+        best = distance;
+      }
+    });
+    return nearest;
+  };
+
+  // A stroke starts once the finger moves: two fingers arriving to zoom leave no dot behind
+  const startStroke = (current) => {
+    const layer = paintTarget();
+    if (!layer) return false;
+    const ok = ops.beginStroke(layer.id, app.tool === "eraser" ? { size: app.brush.size, erase: true } : { size: app.brush.size, color: toRgb(app.fg) });
+    if (!ok) return false;
+    ops.extendStroke(current.start[0], current.start[1]);
+    schedule(true);
+    current.kind = "stroke";
+    return true;
+  };
+
+  // What one finger means. With the wand, the tool a phone opens with, nothing needs a change
+  // of tool: a tap on a bubble pastes, a tap on a text selects it, a second tap edits it, a
+  // drag moves it, and a drag anywhere else moves the page.
+  const fingerGesture = (event, base, tool, point) => {
+    const doc = app.doc;
+    const pan = (extra) => Object.assign(base, { kind: "pan", vx: doc.view.x, vy: doc.view.y }, extra);
+    if (event.pointerType === "touch" && penSeen && DRAWN_TOOLS.has(tool)) return pan();
+    if (tool === "brush" || tool === "eraser") return Object.assign(base, { kind: "pendingStroke" });
+    if (tool === "text") {
+      const hit = textAt(point);
+      return hit ? pan({ tapEdit: hit }) : null;
+    }
+    if (tool !== "wand" && tool !== "move") return null;
+    // A finger is wide: the text it's really on first, then the one it just misses
+    const text = textAt(point, 0) || textAt(point, 12 / doc.view.zoom);
+    if (text && doc.state.activeIds.includes(text.id)) {
+      if (ops.beginLiveMove(doc.state.activeIds).length) return Object.assign(base, { kind: "move", tapEdit: text });
+      ops.endLiveMove(false);
+      return pan({ tapEdit: text });
+    }
+    if (tool === "wand") return text ? pan({ tapText: text }) : pan({ tapWand: selectionMode(event) });
+    return ops.hitLayer(point[0], point[1]) ? null : pan();
   };
 
   ui.stage.addEventListener("pointerdown", (event) => {
     if (event.target.closest(".start, .editor")) return;
-    // While typing, the handles still work: only a click elsewhere ends the edit
+    // While typing, the handles still work: only a click elsewhere ends the edit. A finger
+    // can also move the page, to see where the text goes: only its tap ends the edit.
     const handleWhileTyping = !ui.editor.hidden && hitHandle(event);
-    if (!ui.editor.hidden && !handleWhileTyping) {
+    const fingerWhileTyping = !ui.editor.hidden && !handleWhileTyping && isFinger(event);
+    if (!ui.editor.hidden && !handleWhileTyping && !fingerWhileTyping) {
       endEdit();
       if (app.tool === "text") return;
     }
-    if (!handleWhileTyping) ui.stage.focus({ preventScroll: true });
+    if (!handleWhileTyping && !fingerWhileTyping) ui.stage.focus({ preventScroll: true });
+    if (event.pointerType === "pen") penSeen = true;
     pointers.set(event.pointerId, [event.clientX, event.clientY]);
+    if (event.pointerType === "touch" && pointers.size >= 2) {
+      if (!multi) multi = { time: performance.now(), count: 0, moved: false };
+      multi.count = Math.max(multi.count, pointers.size);
+    }
     if (pointers.size === 2) {
       const [a, b] = Array.from(pointers.values());
-      pinch = { distance: Math.hypot(a[0] - b[0], a[1] - b[1]), mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], zoom: view().zoom };
+      pinch = { distance: Math.hypot(a[0] - b[0], a[1] - b[1]), mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], zoom: view().zoom, from: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], gap: Math.hypot(a[0] - b[0], a[1] - b[1]) };
       if (gesture && gesture.kind === "stroke") ops.endStroke();
+      if (gesture && gesture.kind === "move") ops.endLiveMove(false);
       gesture = null;
       setDrag("");
+      hud(null);
+      event.preventDefault();
       return;
     }
+    if (multi) return;
     const doc = app.doc;
     if (!doc) return;
     const tool = app.tool;
     const point = toDoc(event);
-    const base = { id: event.pointerId, start: point, last: point, x: event.clientX, y: event.clientY, moved: false, shiftAtStart: event.shiftKey, altAtStart: event.altKey };
+    const base = { id: event.pointerId, start: point, last: point, x: event.clientX, y: event.clientY, moved: false, slop: event.pointerType === "touch" ? 8 : 3, shiftAtStart: event.shiftKey, altAtStart: event.altKey };
+    if (fingerWhileTyping) {
+      gesture = Object.assign(base, { kind: "pan", vx: doc.view.x, vy: doc.view.y, tapEnds: true });
+      ui.stage.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
     if (event.button === 1 || spacing || tool === "hand") {
       gesture = Object.assign(base, { kind: "pan", vx: doc.view.x, vy: doc.view.y });
       ui.stage.classList.add("is-panning");
@@ -913,15 +1411,24 @@
       }
       return;
     }
-    const handle = tool === "move" || handleWhileTyping ? hitHandle(event) : null;
+    const handle = tool === "move" || handleWhileTyping || (Shell.touch && tool === "wand") ? hitHandle(event) : null;
     const handled = handle && (handleWhileTyping ? doc.state.layers.find((layer) => layer.id === editing.id) : activeTexts()[0]);
     if (handled) {
       gestureCount++;
-      gesture = Object.assign(base, { kind: handle.kind.length === 2 ? "scale" : "side", handle: handle.kind, layer: handled, frame: PS.frameOf(handled, doc), token: `gesture:${gestureCount}` });
+      gesture = Object.assign(base, { kind: handle.kind.startsWith("warp") ? "warp" : handle.kind.length === 2 ? "scale" : "side", handle: handle.kind, layer: handled, frame: PS.frameOf(handled, doc), token: `gesture:${gestureCount}` });
       if (Fonts.isMissing(handled.params.layerText.textStyleRange[0].textStyle.fontPostScriptName) && handled.raster) toast(T("This text's font is missing: it will be drawn with another font."), true);
       ui.stage.setPointerCapture(event.pointerId);
       event.preventDefault();
       return;
+    }
+    if (isFinger(event)) {
+      const made = fingerGesture(event, base, tool, point);
+      if (made) {
+        gesture = made;
+        ui.stage.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        return;
+      }
     }
     if (tool === "text") {
       const hit = textAt(point);
@@ -972,6 +1479,7 @@
       return;
     }
     gesture = Object.assign(base, { kind: tool, mode, points: [point] });
+    ui.stage.classList.toggle("is-marquee", isMarquee(tool));
     ui.stage.setPointerCapture(event.pointerId);
   });
 
@@ -985,10 +1493,12 @@
       panBy(mid[0] - pinch.mid[0], mid[1] - pinch.mid[1]);
       zoomTo(pinch.zoom * (distance / pinch.distance), mid[0] - rect.left, mid[1] - rect.top);
       pinch.mid = mid;
+      if (multi && (Math.hypot(mid[0] - pinch.from[0], mid[1] - pinch.from[1]) > 12 || Math.abs(distance - pinch.gap) > 12)) multi.moved = true;
       return;
     }
+    if (multi) return;
     const tool = app.tool;
-    if (tool === "brush" || tool === "eraser") {
+    if ((tool === "brush" || tool === "eraser") && !(event.pointerType === "touch" && !gesture)) {
       const rect = ui.stage.getBoundingClientRect();
       ui.brushRing.setAttribute("cx", event.clientX - rect.left);
       ui.brushRing.setAttribute("cy", event.clientY - rect.top);
@@ -997,7 +1507,7 @@
     }
     if ((tool === "move" || !ui.editor.hidden) && !gesture && app.doc) {
       const over = hitHandle(event);
-      ui.stage.style.cursor = over ? HANDLE_CURSOR[over.kind] : "";
+      ui.stage.style.cursor = over ? HANDLE_CURSOR[over.kind] || "grab" : "";
     }
     if (!gesture || event.pointerId !== gesture.id) {
       if (SELECTION_TOOLS.has(tool) && app.doc && !event.shiftKey && !event.altKey && app.selectionMode === "new") {
@@ -1007,10 +1517,15 @@
       return;
     }
     const current = gesture;
-    if (Math.hypot(event.clientX - current.x, event.clientY - current.y) > 3) current.moved = true;
+    if (Math.hypot(event.clientX - current.x, event.clientY - current.y) > current.slop) current.moved = true;
     if (!current.moved) return;
     const point = toDoc(event);
+    carryMarquee(current, point);
     current.last = point;
+    if (current.kind === "pendingStroke" && !startStroke(current)) {
+      gesture = null;
+      return;
+    }
     if (current.kind === "pan") {
       const doc = app.doc;
       doc.view.x = current.vx + event.clientX - current.x;
@@ -1026,6 +1541,8 @@
       }
       ops.updateLiveMove(dx, dy);
       hud(`Δ ${Math.round(dx)}, ${Math.round(dy)} px`, event);
+    } else if (current.kind === "warp") {
+      ops.setTextWarp(current.layer, movedSurface(current, point, event), current.token);
     } else if (current.kind === "scale") {
       // Around the opposite corner; with Alt, around the centre
       const f = current.frame;
@@ -1099,20 +1616,48 @@
 
   const finishGesture = (event) => {
     pointers.delete(event.pointerId);
-    if (pointers.size < 2) pinch = null;
+    if (pointers.size < 2 && pinch) {
+      pinch = null;
+      schedule(false);
+    }
+    if (multi && !pointers.size) {
+      const { count, moved, time } = multi;
+      multi = null;
+      if (!moved && event.type !== "pointercancel" && performance.now() - time < 400) {
+        if (count === 2 && app.doc && app.doc.historyIndex > 0) {
+          ops.undo();
+          toast(T("Undo"));
+        } else if (count >= 3 && app.doc && app.doc.historyIndex < app.doc.history.length - 1) {
+          ops.redo();
+          toast(T("Redo"));
+        }
+      }
+      return;
+    }
     if (!gesture || event.pointerId !== gesture.id) return;
     const current = gesture;
     gesture = null;
     setDrag("");
     hud(null);
-    ui.stage.classList.remove("is-panning");
+    ui.stage.classList.remove("is-panning", "is-marquee");
+    if (event.pointerType === "touch") ui.brushRing.setAttribute("hidden", "");
     const cancelled = event.type === "pointercancel";
     const point = cancelled ? current.last : toDoc(event);
     const { kind, mode } = current;
-    if (kind === "move") ops.endLiveMove(!cancelled);
-    else if (kind === "stroke") ops.endStroke();
+    if (kind === "move") {
+      ops.endLiveMove(!cancelled);
+      if (!cancelled && !current.moved && current.tapEdit) beginEdit(current.tapEdit);
+    } else if (kind === "stroke") ops.endStroke();
     else if (cancelled) return;
-    else if (kind === "textBox") {
+    else if (kind === "pendingStroke") {
+      if (startStroke(current)) ops.endStroke();
+    } else if (kind === "pan") {
+      if (current.moved) return;
+      if (current.tapEnds) endEdit();
+      else if (current.tapEdit) beginEdit(current.tapEdit);
+      else if (current.tapText) ops.selectLayer(current.tapText.id);
+      else if (current.tapWand) ops.wandAt(point[0], point[1], current.tapWand);
+    } else if (kind === "textBox") {
       const doc = app.doc;
       if (current.moved) {
         const [x0, y0, x1, y1] = marqueeBox(Object.assign({}, current, { last: point }), event);
@@ -1130,6 +1675,7 @@
       if (!current.moved) ops.wandAt(point[0], point[1], mode);
     } else if (kind === "rectangle" || kind === "ellipse") {
       if (current.moved) {
+        carryMarquee(current, point);
         const [x0, y0, x1, y1] = marqueeBox(Object.assign({}, current, { last: point }), event);
         ops[kind](x0, y0, x1, y1, mode);
       } else if (mode === "new") ops.deselect();
@@ -1143,13 +1689,13 @@
   ui.stage.addEventListener("pointerleave", () => ui.brushRing.setAttribute("hidden", ""));
   ui.stage.addEventListener("contextmenu", (event) => event.preventDefault());
 
-  const textAt = (point) => {
+  const textAt = (point, slack = 6) => {
     const doc = app.doc;
     for (let i = doc.state.layers.length - 1; i >= 0; i--) {
       const layer = doc.state.layers[i];
       if (layer.kind !== "text" || layer.visible === false) continue;
       const box = PS.frameOf(layer, doc);
-      if (point[0] >= box.left - 6 && point[0] <= box.right + 6 && point[1] >= box.top - 6 && point[1] <= box.bottom + 6) return layer;
+      if (point[0] >= box.left - slack && point[0] <= box.right + slack && point[1] >= box.top - slack && point[1] <= box.bottom + slack) return layer;
     }
     return null;
   };
@@ -1183,6 +1729,40 @@
     const z = view().zoom;
     const layout = PS.layoutLayer(layer, doc);
     const style = layer.params.layerText.textStyleRange[0].textStyle;
+    const docked = Shell.touch;
+    ui.editor.classList.toggle("is-warped", Boolean(layer.warp) || docked);
+    ui.editor.classList.toggle("is-docked", docked);
+    // On a phone the page is too small to type on, and the keyboard hides half of it: the
+    // text is typed just above the keyboard, and shows on the page as it's typed
+    if (docked) {
+      const rows = ui.editor.value.split("\n").length + 1;
+      const height = Math.round(Math.min(stageH * 0.45, rows * 26 + 20));
+      ui.editor.style.font = PS.cssFont(style, 17);
+      ui.editor.style.lineHeight = "26px";
+      ui.editor.style.textAlign = "left";
+      ui.editor.style.whiteSpace = "pre-wrap";
+      ui.editor.style.width = "";
+      ui.editor.style.left = "";
+      ui.editor.style.top = "";
+      ui.editor.style.height = `${height}px`;
+      return;
+    }
+    // A caret can't follow a surface: the text is typed in a little box below it, and
+    // shows on the surface as it's typed
+    if (layer.warp) {
+      const f = PS.frameOf(layer, doc);
+      const [x, y] = toScreen(f.left, f.bottom);
+      const height = (ui.editor.value.split("\n").length + 1) * 22 + 8;
+      ui.editor.style.font = PS.cssFont(style, 16);
+      ui.editor.style.lineHeight = "22px";
+      ui.editor.style.textAlign = "left";
+      ui.editor.style.whiteSpace = "pre-wrap";
+      ui.editor.style.width = `${Math.max(240, f.width * z)}px`;
+      ui.editor.style.height = `${height}px`;
+      ui.editor.style.left = `${Math.max(8, x)}px`;
+      ui.editor.style.top = `${Math.max(8, Math.min(stageH - height - 8, y + 8))}px`;
+      return;
+    }
     const sizePx = (((style.impliedFontSize || style.size || 14) * doc.resolution) / 72) * z;
     const paragraph = layer.params.layerText.paragraphStyleRange[0].paragraphStyle;
     const align = paragraph.alignment || "center";
@@ -1225,7 +1805,8 @@
     ui.editor.hidden = false;
     placeEditor();
     ui.editor.focus();
-    if (!isNew) ui.editor.select();
+    if (Shell.touch) ui.editor.setSelectionRange(ui.editor.value.length, ui.editor.value.length);
+    else if (!isNew) ui.editor.select();
     schedule(false);
     PS.announce("editing");
   };
@@ -1293,7 +1874,21 @@
     host.append(blend, labelled(T("Opacity"), opacity));
     const foot = $("layers-foot");
     foot.textContent = "";
+    const reorder = (icon, title, direction) => {
+      const button = iconButton(icon, T(title), false, () => shiftLayerOrder(direction));
+      button.classList.add("touch-only");
+      return button;
+    };
+    const rename = iconButton("pencil", T("Rename"), false, () => {
+      const row = ui.layers.querySelector(".layer.is-on .layer__name");
+      const layer = activeLayer();
+      if (row && layer) renameRow(layer, row);
+    });
+    rename.classList.add("touch-only");
     foot.append(
+      reorder("up", "Bring Forward", 1),
+      reorder("down", "Send Backward", -1),
+      rename,
       iconButton("lock", T("Lock layer"), false, () => {
         const layer = activeLayer();
         if (layer) ops.setLayerProps(layer.id, { locked: !layer.locked }, layer.locked ? "Unlock Layer" : "Lock Layer");
@@ -1542,7 +2137,7 @@
     const host = ui.character;
     if (host.contains(document.activeElement) && document.activeElement.tagName === "INPUT" && document.activeElement.type !== "checkbox" && document.activeElement.type !== "color") return;
     const layer = activeTexts()[0];
-    const key = layer ? JSON.stringify([layer.id, layer.params.layerText.textStyleRange[0], layer.params.layerText.paragraphStyleRange[0], layer.params.layerText.antiAlias, layer.stroke, Fonts.generation]) : "none";
+    const key = layer ? JSON.stringify([layer.id, layer.params.layerText.textStyleRange[0], layer.params.layerText.paragraphStyleRange[0], layer.params.layerText.antiAlias, layer.params.layerText.textShape, Boolean(layer.warp), layer.stroke, Fonts.generation]) : "none";
     if (key === characterKey) return;
     characterKey = key;
     host.textContent = "";
@@ -1569,7 +2164,7 @@
       warn.textContent = fill(T("Missing font: {font}"), { font: style.fontPostScriptName });
       host.appendChild(warn);
     }
-    host.append(labelled(T("Size"), c.size));
+    host.append(labelled(T("Size"), withSteps(c.size)));
     const leading = document.createElement("input");
     leading.type = "text";
     leading.title = T("Leading");
@@ -1583,8 +2178,8 @@
     const aaRow = labelled("aa", c.antiAlias);
     aaRow.classList.add("wide");
     host.append(aaRow);
-    host.append(labelled(T("Tracking"), numberInput(style.tracking || 0, -1000, 2000, (value) => applyTextPatch({ tracking: value }, null, "tracking"))));
-    host.append(labelled(T("Width %"), numberInput(style.horizontalScale === undefined ? 100 : style.horizontalScale, 10, 500, (value) => applyTextPatch({ horizontalScale: value }, null, "scale"))));
+    host.append(labelled(T("Tracking"), withSteps(numberInput(style.tracking || 0, -1000, 2000, (value) => applyTextPatch({ tracking: value }, null, "tracking")), 10)));
+    host.append(labelled(T("Width %"), withSteps(numberInput(style.horizontalScale === undefined ? 100 : style.horizontalScale, 10, 500, (value) => applyTextPatch({ horizontalScale: value }, null, "scale")))));
     const row = document.createElement("div");
     row.className = "character__row wide";
     row.append(c.color, c.aligns,
@@ -1626,6 +2221,8 @@
   /* --------------------------- tabs and status bar -------------------------- */
 
   const renderTabs = () => {
+    // A touch screen has its pages elsewhere (touch.js)
+    if (Shell.touch) return;
     const key = JSON.stringify([app.docs.map((doc) => [doc.id, doc.name, PS.isDirty(doc)]), app.doc ? app.doc.id : 0, Math.round(view().zoom * 1000)]);
     if (ui.tabs.dataset.key === key) return;
     ui.tabs.dataset.key = key;
@@ -1660,7 +2257,7 @@
     const zoomInput = $("status-zoom");
     if (document.activeElement !== zoomInput) zoomInput.value = `${Math.round(view().zoom * 1000) / 10}%`;
     $("status-doc").textContent = doc ? `${doc.width} × ${doc.height} px, ${Math.round(doc.resolution)} ppi` : "";
-    const hint = T(TOOL_HINT[app.tool] || "");
+    const hint = warpedLayer() ? T("Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.") : T(TOOL_HINT[app.tool] || "");
     $("status-hint").textContent = hint.replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl");
     ui.start.hidden = Boolean(doc);
   };
@@ -1727,8 +2324,26 @@
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = name;
+    document.body.appendChild(link);
     link.click();
+    link.remove();
     setTimeout(() => URL.revokeObjectURL(link.href), 8000);
+  };
+
+  // A phone keeps files through its share sheet (Files, Photos, another app), and falls back
+  // on a download. Refused because the file took too long to make: a download as well.
+  const shareOrDownload = async (entries) => {
+    const files = entries.map(({ blob, name }) => new File([blob], name, { type: blob.type }));
+    if (Shell.touch && navigator.canShare && navigator.canShare({ files })) {
+      try {
+        await navigator.share({ files });
+        return;
+      } catch (error) {
+        if (error.name === "AbortError") throw error;
+        console.warn("TypeR web: sharing refused", error);
+      }
+    }
+    entries.forEach(({ blob, name }) => download(blob, name));
   };
 
   const psdName = (name) => name.replace(/\.[^.]+$/, "") + ".psd";
@@ -1760,7 +2375,7 @@
         doc.handle = handle;
         doc.name = handle.name;
       } else {
-        download(await buildPsd(doc), name);
+        await shareOrDownload([{ blob: await buildPsd(doc), name }]);
         doc.name = name;
       }
     } catch (error) {
@@ -1818,11 +2433,209 @@
       if (window.showSaveFilePicker) {
         const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: extension.slice(1).toUpperCase(), accept: { [type]: [extension] } }] });
         await writeTo(handle, blob);
-      } else download(blob, name);
+      } else await shareOrDownload([{ blob, name }]);
       toast(fill(T("Saved {name}."), { name }));
     } catch (error) {
       if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
     }
+  };
+
+  // The whole chapter, one image per open page
+  const exportAllPages = async (type) => {
+    if (!ui.editor.hidden) endEdit();
+    const extension = type === "image/png" ? ".png" : ".jpg";
+    const entries = [];
+    working(T("Exporting…"));
+    await nextPaint();
+    for (const doc of app.docs) {
+      const canvas = flattened(doc, type === "image/jpeg" ? "#fff" : null);
+      entries.push({ blob: await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92)), name: doc.name.replace(/\.[^.]+$/, "") + extension });
+    }
+    working(null);
+    try {
+      await shareOrDownload(entries);
+      toast(fill(T("{count} pages exported."), { count: entries.length }));
+    } catch (error) {
+      if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+    }
+  };
+
+  const BATCH_STORE = "typer.web.batchSave";
+  const batchSettings = () => {
+    let saved = {};
+    try {
+      saved = JSON.parse(window.localStorage.getItem(BATCH_STORE)) || {};
+    } catch (error) {
+      console.warn("TypeR web: could not read the batch save settings", error);
+    }
+    return { format: ["psd", "jpeg", "both"].includes(saved.format) ? saved.format : "both", quality: Math.max(1, Math.min(100, Math.round(Number(saved.quality)) || 92)) };
+  };
+
+  const askBatchSave = async (count, toFolder) => {
+    const settings = batchSettings();
+    const body = document.createElement("div");
+    body.className = "batch";
+    const about = document.createElement("p");
+    about.textContent = `${fill(T("Open documents: {count}"), { count })}. ${T(toFolder ? "You'll choose the folder next." : "The files will go to your downloads.")}`;
+    const formatRow = document.createElement("label");
+    const formatName = document.createElement("span");
+    formatName.textContent = T("Format");
+    const format = document.createElement("select");
+    [["psd", "PSD"], ["jpeg", "JPEG"], ["both", "PSD + JPEG"]].forEach(([value, text]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = text;
+      format.appendChild(option);
+    });
+    format.value = settings.format;
+    formatRow.append(formatName, format);
+    const qualityRow = document.createElement("label");
+    const qualityName = document.createElement("span");
+    qualityName.textContent = T("JPEG quality");
+    const slider = document.createElement("span");
+    slider.className = "batch__slider";
+    const quality = document.createElement("input");
+    quality.type = "range";
+    quality.min = 1;
+    quality.max = 100;
+    quality.value = settings.quality;
+    const shown = document.createElement("output");
+    const refresh = () => {
+      shown.textContent = quality.value;
+      quality.disabled = format.value === "psd";
+      qualityRow.classList.toggle("is-off", quality.disabled);
+    };
+    quality.addEventListener("input", refresh);
+    format.addEventListener("change", refresh);
+    refresh();
+    slider.append(quality, shown);
+    qualityRow.append(qualityName, slider);
+    body.append(about, formatRow, qualityRow);
+    if (!(await dialog({ title: T("Save All Open Documents"), body, ok: T("Save") }))) return null;
+    const answer = { format: format.value, quality: Number(quality.value) };
+    try {
+      window.localStorage.setItem(BATCH_STORE, JSON.stringify(answer));
+    } catch (error) {
+      console.warn("TypeR web: could not keep the batch save settings", error);
+    }
+    return answer;
+  };
+
+  // Two pages can end up with one file name: 01.psd and 01.png, or two 01.psd from two folders
+  const batchFiles = (docs, format) => {
+    const taken = new Set();
+    const unique = (base, extension) => {
+      let name = base + extension;
+      for (let copy = 2; taken.has(name.toLowerCase()); copy++) name = `${base} (${copy})${extension}`;
+      taken.add(name.toLowerCase());
+      return name;
+    };
+    return docs.map((doc) => {
+      const base = doc.name.replace(/\.[^.]+$/, "");
+      return {
+        doc,
+        psd: format === "jpeg" ? null : unique(base, ".psd"),
+        jpeg: format === "psd" ? null : unique(base, ".jpg"),
+      };
+    });
+  };
+
+  const confirmReplace = async (folder, files) => {
+    const names = files.flatMap((file) => [file.psd, file.jpeg]).filter(Boolean);
+    const existing = [];
+    for (const name of names) {
+      if (await folder.getFileHandle(name).catch(() => null)) existing.push(name);
+    }
+    if (!existing.length) return true;
+    const body = document.createElement("div");
+    body.className = "batch";
+    const about = document.createElement("p");
+    about.textContent = T("Already in this folder, and will be replaced:");
+    const list = document.createElement("ul");
+    existing.forEach((name) => {
+      const item = document.createElement("li");
+      item.textContent = name;
+      list.appendChild(item);
+    });
+    body.append(about, list);
+    return Boolean(await dialog({ title: T("Save All Open Documents"), body, ok: T("Replace") }));
+  };
+
+  // Every open page, in one folder when the browser can write to one, else through the downloads.
+  // A page that fails doesn't stop the others.
+  const batchSave = async () => {
+    if (!app.docs.length) return;
+    if (!ui.editor.hidden) endEdit();
+    const toFolder = typeof window.showDirectoryPicker === "function";
+    const choice = await askBatchSave(app.docs.length, toFolder);
+    if (!choice) return;
+    const docs = app.docs.slice();
+    const files = batchFiles(docs, choice.format);
+    let folder = null;
+    if (toFolder) {
+      try {
+        folder = await window.showDirectoryPicker({ id: "typer-batch-save", mode: "readwrite" });
+        if (!(await confirmReplace(folder, files))) return;
+      } catch (error) {
+        if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        return;
+      }
+    }
+    const entries = [];
+    // Written as soon as made: a chapter of PSDs doesn't fit in memory all at once
+    const keep = async (blob, name) => {
+      if (folder) {
+        const handle = await folder.getFileHandle(name, { create: true });
+        await writeTo(handle, blob);
+        return handle;
+      }
+      if (Shell.touch) entries.push({ blob, name });
+      else {
+        download(blob, name);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      return null;
+    };
+    let saved = 0;
+    const failed = [];
+    const written = [];
+    for (const [index, file] of files.entries()) {
+      working(fill(T("Saving {current}/{total}: {name}…"), { current: index + 1, total: files.length, name: file.doc.name }));
+      await nextPaint();
+      try {
+        if (file.psd) {
+          const handle = await keep(new Blob([await window.TypeRPSD.write(file.doc)], { type: "image/vnd.adobe.photoshop" }), file.psd);
+          written.push({ file, handle });
+        }
+        if (file.jpeg) {
+          const canvas = flattened(file.doc, "#fff");
+          const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", choice.quality / 100));
+          if (!blob) throw new Error("the browser could not make the JPEG");
+          await keep(blob, file.jpeg);
+        }
+        saved++;
+      } catch (error) {
+        console.error(error);
+        failed.push(file.doc.name);
+      }
+    }
+    working(null);
+    if (entries.length) {
+      try {
+        await shareOrDownload(entries);
+      } catch (error) {
+        if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        return;
+      }
+    }
+    // Only now: a page cancelled in the share sheet still has unsaved changes
+    written.forEach(({ file, handle }) => {
+      if (handle) file.doc.handle = handle;
+      file.doc.name = file.psd;
+      ops.markSaved(file.doc);
+    });
+    if (failed.length) toast(fill(T("Saved: {saved}. Could not save: {names}"), { saved, names: failed.join(", ") }), true);
+    else toast(fill(T("Documents saved: {count}."), { count: saved }));
   };
 
   const closeDoc = async (doc = app.doc) => {
@@ -2026,7 +2839,7 @@
 
   // Pasting: a picture becomes a layer, a line of text a text layer
   document.addEventListener("paste", (event) => {
-    if (isField(document.activeElement) || !app.doc) return;
+    if (isText(document.activeElement) || !app.doc) return;
     const items = Array.from(event.clipboardData ? event.clipboardData.items : []);
     const image = items.find((item) => item.type.indexOf("image/") === 0);
     if (image) {
@@ -2081,19 +2894,7 @@
     if (target) ops.reorderLayer(layer.id, target.id, direction > 0 ? "above" : "below");
   };
 
-  const toggleDock = (name) => {
-    // In a narrow window one dock shows at a time: the two take turns
-    if (window.matchMedia("(max-width: 1100px)").matches) ui.work.classList.toggle("show-side", name === "side");
-    else ui.work.classList.toggle(name === "typer" ? "no-typer" : "no-side");
-    measureStage();
-    renderMenusState();
-  };
-
-  const togglePane = (id) => {
-    const pane = $(id);
-    pane.hidden = !pane.hidden;
-    renderMenusState();
-  };
+  const Workspace = () => window.TypeRWorkspace;
 
   const MENUS = [
     ["File", [
@@ -2106,6 +2907,7 @@
       { label: "Save As…", keys: "Shift+Cmd+S", enabled: hasDoc, action: () => saveAs() },
       { label: "Export as PNG…", enabled: hasDoc, action: () => exportImage("image/png") },
       { label: "Export as JPEG…", enabled: hasDoc, action: () => exportImage("image/jpeg") },
+      { label: "Save All Open Documents…", enabled: hasDoc, action: batchSave },
       null,
       { label: "Import Styles and Fonts (.zip, .json)…", action: () => $("file-kit").click() },
       { label: "Use Installed Fonts…", action: useInstalledFonts },
@@ -2116,13 +2918,14 @@
       { label: "Undo", keys: "Cmd+Z", enabled: () => hasDoc() && app.doc.historyIndex > 0, action: () => ops.undo() },
       { label: "Redo", keys: "Shift+Cmd+Z", enabled: () => hasDoc() && app.doc.historyIndex < app.doc.history.length - 1, action: () => ops.redo() },
       null,
-      { label: "Copy", keys: "Cmd+C", enabled: hasDoc, action: copySelection },
+      { label: "Copy", keys: "Cmd+C", enabled: hasDoc, browserWhenOff: true, action: copySelection },
       { label: "Fill with Foreground Colour", keys: "Alt+Backspace", enabled: hasSelection, action: () => fillSelectionCheck(toRgb(app.fg)) },
       { label: "Fill with Background Colour", keys: "Cmd+Backspace", enabled: hasSelection, action: () => fillSelectionCheck(toRgb(app.bg)) },
       { label: "Clear", keys: "Backspace", enabled: () => hasSelection() || hasLayer(), action: () => clearOrDelete() },
     ]],
     ["Layer", [
-      { label: "New Layer", keys: "Shift+Cmd+N", enabled: hasDoc, action: () => ops.newLayer(nextLayerName()) },
+      // Photoshop's Shift+Cmd+N opens a private window from a browser tab: it only arrives in the installed app or full screen
+      { label: "New Layer", keys: "Alt+Shift+Cmd+N", alias: "Shift+Cmd+N", enabled: hasDoc, action: () => ops.newLayer(nextLayerName()) },
       { label: "New Group", enabled: hasDoc, action: () => ops.newGroup(T("Group")) },
       { label: "Duplicate Layer", keys: "Cmd+J", enabled: hasLayer, action: () => ops.duplicateLayers() },
       { label: "Delete Layer", enabled: hasLayer, action: () => ops.deleteLayers() },
@@ -2132,6 +2935,7 @@
       null,
       { label: "Convert to Paragraph Text", enabled: () => activeTexts().some((layer) => !isParagraph(layer)), action: () => activeTexts().forEach((layer) => { if (!isParagraph(layer)) ops.convertText(layer.id); }) },
       { label: "Convert to Point Text", enabled: () => activeTexts().some(isParagraph), action: () => activeTexts().forEach((layer) => { if (isParagraph(layer)) ops.convertText(layer.id); }) },
+      { label: "Perspective", keys: "Shift+P", enabled: () => activeTexts().length === 1 && !(activeTexts()[0].raster && activeTexts()[0].rotated), action: () => enterSurface(activeTexts()[0]) },
       { label: "Rasterize Type", enabled: () => activeTexts().length > 0, action: () => activeTexts().forEach((layer) => ops.rasterizeText(layer.id)) },
       { label: "Merge Down", keys: "Cmd+E", enabled: hasLayer, action: () => ops.mergeDown() },
       { label: "Flatten Image", enabled: hasDoc, action: () => ops.flatten() },
@@ -2146,20 +2950,22 @@
       { label: "Contract…", enabled: hasSelection, action: () => askRadius(T("Contract selection"), (r) => ops.grow(-r)) },
     ]],
     ["View", [
-      { label: "Zoom In", keys: "Cmd+=", enabled: hasDoc, action: () => zoomStep(1) },
-      { label: "Zoom Out", keys: "Cmd+-", enabled: hasDoc, action: () => zoomStep(-1) },
-      { label: "Fit on Screen", keys: "Cmd+0", enabled: hasDoc, action: fitView },
-      { label: "100%", keys: "Cmd+1", enabled: hasDoc, action: () => zoomTo(1) },
+      { label: "Zoom In", keys: "Cmd+=", enabled: hasDoc, browserWhenOff: true, action: () => zoomStep(1) },
+      { label: "Zoom Out", keys: "Cmd+-", enabled: hasDoc, browserWhenOff: true, action: () => zoomStep(-1) },
+      { label: "Fit on Screen", keys: "Cmd+0", enabled: hasDoc, browserWhenOff: true, action: fitView },
+      { label: "100%", keys: "Cmd+1", enabled: hasDoc, browserWhenOff: true, action: () => zoomTo(1) },
     ]],
     ["Window", [
-      { label: "TypeR", check: () => (window.matchMedia("(max-width: 1100px)").matches ? !ui.work.classList.contains("show-side") : !ui.work.classList.contains("no-typer")), action: () => toggleDock("typer") },
-      { label: "Side Panels", check: () => (window.matchMedia("(max-width: 1100px)").matches ? ui.work.classList.contains("show-side") : !ui.work.classList.contains("no-side")), action: () => toggleDock("side") },
+      { label: "TypeR", check: () => Workspace().isVisible("typer"), action: () => Workspace().toggle("typer") },
+      { label: "Side Panels", check: () => Workspace().sideVisible(), action: () => Workspace().toggleSide() },
       null,
-      { label: "Layers", check: () => !$("pane-layers").hidden, action: () => togglePane("pane-layers") },
-      { label: "Character", check: () => !$("pane-character").hidden, action: () => togglePane("pane-character") },
-      { label: "History", check: () => !$("pane-history").hidden, action: () => togglePane("pane-history") },
+      { label: "Layers", check: () => Workspace().isVisible("layers"), action: () => Workspace().toggle("layers") },
+      { label: "Character", check: () => Workspace().isVisible("character"), action: () => Workspace().toggle("character") },
+      { label: "History", check: () => Workspace().isVisible("history"), action: () => Workspace().toggle("history") },
+      { label: "Line Breaks", keys: "Shift+L", check: () => Workspace().isVisible("breaks"), action: () => Workspace().toggle("breaks") },
       null,
-      { label: "Line Breaks", keys: "Shift+L", check: () => Boolean(window.TypeRBreaks && window.TypeRBreaks.open), action: () => window.TypeRBreaks.toggle() },
+      { label: "Reset Workspace", action: () => Workspace().reset() },
+      { label: "Touch Interface", action: () => Shell.prefer("touch") },
     ]],
     ["Help", [
       { label: "TypeR Tutorial", action: () => startPanel({ tour: true }) },
@@ -2167,6 +2973,8 @@
       null,
       { label: "Download the Photoshop Plugin", action: () => window.open("https://github.com/ScanR/TypeR/releases/latest", "_blank", "noopener") },
       { label: "Report a Problem", action: () => window.open("https://github.com/ScanR/TypeR/issues/new", "_blank", "noopener") },
+      { label: "Discord Server", action: () => window.open(DISCORD, "_blank", "noopener") },
+      { label: "Support the Project", action: () => window.open(KOFI, "_blank", "noopener") },
       { label: "Back to the Site", action: () => { window.location.href = "../"; } },
     ]],
   ];
@@ -2185,13 +2993,20 @@
     return list;
   };
 
+  // AltGr reads as Ctrl+Alt: with it, a key only types its character
+  const isCommand = (event) => (event.metaKey || event.ctrlKey) && !event.getModifierState("AltGraph");
+
   const matches = (event, keys) => {
     const parts = keys.split("+");
     const key = parts.pop();
     const wantCmd = parts.includes("Cmd");
     const wantShift = parts.includes("Shift");
     const wantAlt = parts.includes("Alt");
-    if (wantCmd !== (event.metaKey || event.ctrlKey) || wantShift !== event.shiftKey || wantAlt !== event.altKey) return false;
+    if (wantCmd !== isCommand(event)) return false;
+    // AZERTY needs Option or AltGr for "[" and "]", and most layouts Shift for "+": the character is what counts
+    const bracket = (key === "[" || key === "]") && event.key === key;
+    if (!bracket && wantAlt !== event.altKey) return false;
+    if (!bracket && !(key === "=" && event.key === "+") && wantShift !== event.shiftKey) return false;
     const pressed = event.key.length === 1 ? event.key.toLowerCase() : event.key;
     if (key === "=") return pressed === "=" || pressed === "+";
     if (key.length === 1) return pressed === key.toLowerCase() || event.code === `Key${key.toUpperCase()}` || event.code === `Digit${key}`;
@@ -2303,6 +3118,21 @@
   /* ------------------------------- keyboard ------------------------------- */
 
   const isField = (element) => Boolean(element) && (element.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName));
+  const isText = (element) => isField(element) && element.tagName !== "SELECT" && !/^(checkbox|radio|color|range)$/.test(element.type);
+
+  // TypeR's panel has nothing to do while a window is open or text is being typed in the page
+  PS.muteKeys(() => ui.modal.open || isText(document.activeElement));
+
+  // A choice made with the mouse gives the keyboard back, in the page and in the panel
+  const watchChoices = (root) => {
+    let pointing = false;
+    root.addEventListener("pointerdown", () => { pointing = true; }, true);
+    root.addEventListener("keydown", () => { pointing = false; }, true);
+    root.addEventListener("change", (event) => {
+      if (pointing && !isText(event.target)) event.target.blur();
+    });
+  };
+  watchChoices(document);
 
   const clearOrDelete = () => {
     const doc = app.doc;
@@ -2318,21 +3148,32 @@
     else ops.moveLayers(doc.state.activeIds, dx, dy, "nudge");
   };
 
+  // By its physical key: on a Mac, Alt+Space types a non-breaking space
+  const isSpace = (event) => event.code === "Space" || event.key === " ";
+
   const handleKey = (event, fromPanel) => {
     if (ui.modal.open) return;
     const active = fromPanel ? event.target : document.activeElement;
-    if (isField(active)) return;
-    const command = event.metaKey || event.ctrlKey;
+    const command = isCommand(event);
+    // A menu or a checkbox only keeps the plain keys, which it uses itself
+    if (isField(active) && (isText(active) || !command)) return;
+    const key = event.key.toLowerCase();
+    // TypeR's cleaning layers shortcut: Windows browsers would open their history
+    if (key === "h" && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) event.preventDefault();
     for (const item of allShortcuts()) {
-      if (matches(event, item.keys)) {
-        if (item.enabled && !item.enabled()) return;
+      if (matches(event, item.keys) || (item.alias && matches(event, item.alias))) {
+        // With nothing to act on, Cmd+D must not bookmark the page, but the browser's zoom can stay
+        if (item.enabled && !item.enabled()) {
+          if (!item.browserWhenOff) event.preventDefault();
+          return;
+        }
         event.preventDefault();
         item.action();
         return;
       }
     }
-    if (fromPanel) return;
-    const key = event.key.toLowerCase();
+    // Space belongs to the panel's buttons, and everything to its Settings and what it handled itself
+    if (fromPanel && (isSpace(event) || event.defaultPrevented || event.target.ownerDocument.querySelector(".app-modal:not(.app-modal--walkthrough):not(.app-modal--coached)"))) return;
     if (key.indexOf("arrow") === 0 && !command) {
       event.preventDefault();
       const step = event.shiftKey ? 10 : 1;
@@ -2342,7 +3183,7 @@
       if (key === "arrowdown") nudge(0, step);
       return;
     }
-    if (event.key === " " && !command) {
+    if (isSpace(event) && !command) {
       event.preventDefault();
       if (!spacing) {
         spacing = true;
@@ -2350,16 +3191,20 @@
       }
       return;
     }
+    if (warpedLayer() && (event.key === "Escape" || event.key === "Enter")) {
+      leaveSurface();
+      return;
+    }
     if (event.key === "Escape") {
       closeMenus();
       return;
     }
-    if (command || event.altKey) return;
-    if (key === "[" || key === "]") {
+    if (!command && (key === "[" || key === "]")) {
       app.brush.size = Math.max(1, Math.round(app.brush.size * (key === "]" ? 1.25 : 0.8)));
       renderOptions();
       return;
     }
+    if (command || event.altKey) return;
     if (key === "d") {
       app.fg = { r: 0, g: 0, b: 0 };
       app.bg = { r: 255, g: 255, b: 255 };
@@ -2383,7 +3228,7 @@
     PS.setKeys({ meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, key: PS.keyName(event) });
   });
   document.addEventListener("keyup", (event) => {
-    if (event.key === " ") {
+    if (isSpace(event)) {
       spacing = false;
       ui.stage.classList.remove("is-spacing");
     }
@@ -2392,7 +3237,7 @@
   window.addEventListener("blur", () => {
     spacing = false;
     ui.stage.classList.remove("is-spacing");
-    PS.setKeys({ meta: false, ctrl: false, alt: false, shift: false, key: "" });
+    PS.clearKeys();
   });
 
   /* ------------------------- dropping files, layout ------------------------ */
@@ -2447,62 +3292,11 @@
   };
   new ResizeObserver(measureStage).observe(ui.stage);
 
-  const STORE_WIDTHS = "typer.web.widths";
-  const applyWidths = (widths) => {
-    if (widths.typer) ui.work.style.setProperty("--typer-w", `${widths.typer}px`);
-    if (widths.side) ui.work.style.setProperty("--side-w", `${widths.side}px`);
-  };
-  let widths = {};
-  try {
-    widths = JSON.parse(window.localStorage.getItem(STORE_WIDTHS) || "{}");
-  } catch (error) {
-    widths = {};
-  }
-  applyWidths(widths);
-  const dragSplit = (element, key, min, max, target) => {
-    element.addEventListener("pointerdown", (event) => {
-      element.setPointerCapture(event.pointerId);
-      ui.frame.style.pointerEvents = "none";
-      const start = event.clientX;
-      const from = target.getBoundingClientRect().width;
-      const move = (next) => {
-        widths[key] = Math.max(min, Math.min(max, from + start - next.clientX));
-        applyWidths(widths);
-      };
-      const up = () => {
-        ui.frame.style.pointerEvents = "";
-        element.removeEventListener("pointermove", move);
-        element.removeEventListener("pointerup", up);
-        window.localStorage.setItem(STORE_WIDTHS, JSON.stringify(widths));
-      };
-      element.addEventListener("pointermove", move);
-      element.addEventListener("pointerup", up);
-    });
-  };
-  dragSplit($("split-typer"), "typer", 280, 640, $("dock-typer"));
-  dragSplit($("split-side"), "side", 200, 480, $("dock-side"));
-
   $("status-zoom").addEventListener("change", (event) => {
     const value = parseFloat(event.target.value);
     if (value > 0) zoomTo(value / 100);
     event.target.blur();
   });
-
-  // On a phone: the page, TypeR, the layers, one at a time
-  const buildPhoneBar = () => {
-    const bar = $("phonebar");
-    [["", "Page"], ["typer", "TypeR"], ["side", "Layers"]].forEach(([value, name], index) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = T(name);
-      if (index === 0) button.className = "is-on";
-      button.addEventListener("click", () => {
-        ui.work.dataset.phone = value;
-        bar.querySelectorAll("button").forEach((other) => other.classList.toggle("is-on", other === button));
-      });
-      bar.appendChild(button);
-    });
-  };
 
   /* ------------------------------- TypeR's panel --------------------------- */
 
@@ -2549,6 +3343,7 @@
       renderOptions();
     } else if (type === "storage-full") toast(T("The browser's storage is full: your last TypeR settings couldn't be kept."), true);
     else if (type === "documents-not-kept") toast(T("Your open documents couldn't be kept in this browser (its storage may be full). Save them before reloading the page."), true);
+    else if (type === "workspace") renderMenusState();
     else if (type === "saved") renderTabs();
     else if (type === "psd-opened") {
       const { missing, notes } = detail;
@@ -2607,6 +3402,9 @@
   });
 
   $("get-plugin").textContent = T("Get the Photoshop plugin");
+  $("support-text").textContent = T("Support the project");
+  $("support").title = T("Support the project");
+  $("support").setAttribute("aria-label", T("Support the project"));
   $("start-text").textContent = T("TypeR's real panel and engine in a Photoshop-like workspace. Open a PSD, a PNG or a JPEG, or drop it here. Everything stays on your computer.");
   $("start-open").textContent = T("Open a file");
   $("start-kit").textContent = T("Import my styles (.zip)");
@@ -2614,6 +3412,7 @@
   $("start-open").addEventListener("click", openDialog);
   $("start-kit").addEventListener("click", () => $("file-kit").click());
   $("start-new").addEventListener("click", newDocument);
+  $("start-practice").textContent = T("Try it on a practice page");
   $("head-layers").textContent = T("Layers");
   $("head-character").textContent = T("Character");
   $("head-history").textContent = T("History");
@@ -2630,12 +3429,31 @@
   app.names = { background: T("Background"), layer: T("Layer"), group: T("Group") };
   buildMenus();
   buildTools();
+  window.TypeRWorkspace.init(T);
   buildLayerTools();
-  buildPhoneBar();
   setTool("wand");
   measureStage();
   renderAfterState();
   renderStatus();
+
+  // The beta is said once, the first time someone comes here
+  const SEEN_BETA = "typer.web.betaNotice";
+  const showBetaOnce = () => {
+    if (ui.modal.open) return;
+    try {
+      if (window.localStorage.getItem(SEEN_BETA)) return;
+      window.localStorage.setItem(SEEN_BETA, "1");
+    } catch (error) {
+      return;
+    }
+    dialog({
+      title: T("This is a beta"),
+      body: T("The web version of TypeR is still in beta, so some bugs can happen. If you run into one, you can report it on the Discord server."),
+      link: { href: DISCORD, label: T("Open Discord") },
+      cancel: false,
+      ok: T("Got it"),
+    });
+  };
 
   const boot = async () => {
     await PS.ops.fontsReady();
@@ -2644,22 +3462,54 @@
     await window.TypeRSession.restore({
       progress: (name) => working(name ? fill(T("Opening {name}…"), { name }) : null),
       failed: (name, error) => toast(fill(T("{name} can't be read: {error}"), { name, error: error.message || error }), true),
+      elsewhere: () => toast(T("Some of your documents are open in another tab. Close that tab, then reload this page to get them here."), true),
     });
+    showBetaOnce();
   };
   boot();
 
   window.TypeRApp = {
     handleKey,
+    watchChoices,
     fitView,
+    zoomTo,
+    view,
+    viewChanged,
+    openDialog,
     openFiles,
     importKits,
     save,
     saveAs,
+    exportImage,
+    exportAllPages,
+    batchSave,
+    closeDoc,
+    switchDoc,
+    newDocument,
     setTool,
     toScreen,
     startPanel,
     T,
+    fill,
+    ICON,
+    MENUS,
+    KOFI,
+    dialog,
+    toast,
+    renderMenusState,
+    renderOptions,
+    activeTexts,
+    activeLayer,
+    beginEdit,
+    endEdit,
+    enterSurface,
+    leaveSurface,
+    warpedLayer,
+    nudge,
+    flattened,
+    applyTextPatch,
     isEditing: () => !ui.editor.hidden,
+    editingId: () => (editing ? editing.id : null),
     warnMissingFont(layer) {
       if (layer.raster && Fonts.isMissing(layer.params.layerText.textStyleRange[0].textStyle.fontPostScriptName)) toast(T("This text's font is missing: it will be drawn with another font."), true);
     },

@@ -27,9 +27,11 @@
     if (!seeded && kit.keeps(path)) kit.forget(path);
   };
   let startingStorage = !seeded && kit.read(ROOT + "/storage");
+  const shell = window.parent.TypeRShell;
   if (!startingStorage) {
-    // A new user starts as in Photoshop: no styles, no script, and TypeR's own tutorial
-    startingStorage = JSON.stringify(seeded ? seed.storage(language) : kit.freshStorage(true));
+    // A new user starts as in Photoshop: no styles, no script, and TypeR's own tutorial.
+    // On a touch screen the tutorial's gestures don't apply.
+    startingStorage = JSON.stringify(seeded ? seed.storage(language) : shell.touch ? kit.freshTouchStorage(window.parent.TypeRApp.T("Dialogue")) : kit.freshStorage(true));
   } else if (params.get("tour")) {
     const stored = JSON.parse(startingStorage);
     stored.notFirstTime = false;
@@ -71,6 +73,7 @@
     },
     writeFile(path, data) {
       files[path] = String(data);
+      if (window.parent.TypeRTouch) window.parent.TypeRTouch.panelChanged();
       if (kit.keeps(path)) remember(path, files[path]);
       // A file written outside TypeR's own folder is an export: it is downloaded
       else if (String(path).indexOf(ROOT + "/") !== 0) downloadFile(String(path).split(/[\\/]/).pop(), files[path]);
@@ -94,6 +97,7 @@
     // Saving goes to the browser's downloads (see writeFile)
     showSaveDialogEx(title, initial, types, name) {
       const extension = types && types[0] ? "." + types[0] : "";
+      if (extension === ".zip") lendZipHost();
       return { err: FS.NO_ERROR, data: "/downloads/" + (name || "TypeR" + extension) };
     },
   });
@@ -108,13 +112,64 @@
     setTimeout(() => URL.revokeObjectURL(link.href), 4000);
   };
 
+  const toBase64 = (bytes) => {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
+  };
+
+  // The fonts a .zip can carry: the files loaded in this browser, and the computer's own
+  // when the browser may read them. The built-in fonts stay out, like any font without a file.
+  const fontFileBytes = async (font) => {
+    if (font.source === "file") return new Uint8Array(await (await fetch(font.url)).arrayBuffer());
+    if (font.source !== "local" || !window.parent.queryLocalFonts) return null;
+    const [local] = await window.parent.queryLocalFonts({ postscriptNames: [font.postScriptName] });
+    return local ? new Uint8Array(await (await local.blob()).arrayBuffer()) : null;
+  };
+
+  const findFont = (ref) => {
+    const Fonts = window.parent.TypeRFonts;
+    return Fonts.get(ref.postScriptName) || Fonts.list().find((font) => font.family === ref.fontName && font.style === (ref.fontStyleName || "Regular"));
+  };
+
+  const fontFileName = (font, bytes) => {
+    const tag = String.fromCharCode.apply(null, bytes.subarray(0, 4));
+    return `fonts/${font.postScriptName}.${tag === "OTTO" ? "otf" : tag === "ttcf" ? "ttc" : "ttf"}`;
+  };
+
+  const exportZip = async ({ zipPath, jsonFileName, jsonString, fontRefs }) => {
+    const entries = [{ name: jsonFileName, data: new TextEncoder().encode(jsonString) }];
+    const missing = [];
+    const used = new Set();
+    for (const ref of fontRefs || []) {
+      const font = findFont(ref);
+      const bytes = font ? await fontFileBytes(font).catch(() => null) : null;
+      if (!bytes) missing.push(ref.label);
+      else if (!used.has(font.postScriptName)) {
+        used.add(font.postScriptName);
+        entries.push({ name: fontFileName(font, bytes), data: bytes });
+      }
+    }
+    downloadFile(String(zipPath).split(/[\\/]/).pop(), await kit.writeArchive(entries));
+    return { ok: true, missing, fontCount: used.size };
+  };
+
+  // fontFileExport.js leaves a .zip to the plugin's host when window.typerUXP exists. The
+  // panel calls it right after the save dialog, before any timer runs, and everything else
+  // only looks for that host when it loads: it stays here for that one step.
+  const lendZipHost = () => {
+    window.typerUXP = { request: (name, data) => (name === "exportZipWithFonts" ? exportZip(data) : Promise.reject(new Error(name))) };
+    setTimeout(() => { delete window.typerUXP; }, 0);
+  };
+
   const pickFiles = (multiple, types) => new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
     input.multiple = Boolean(multiple);
     // A style file can also be the .zip TypeR exports with its fonts
     const styleFile = types && types.includes("json");
-    if (types && types.length) input.accept = types.map((type) => "." + type).concat(styleFile ? [".zip"] : []).join(",");
+    // Not on a touch screen: iOS greys out the extensions it doesn't know (see touch.js)
+    if (types && types.length && !shell.touch) input.accept = types.map((type) => "." + type).concat(styleFile ? [".zip"] : []).join(",");
     input.addEventListener("change", async () => {
       const picked = Array.from(input.files);
       // A .zip is imported by the window around the panel
@@ -127,6 +182,8 @@
       for (const file of Array.from(input.files)) {
         const key = photoshop.ops.registerFile(file);
         if (/\.(json|txt|properties)$/i.test(file.name)) files[key] = await file.text();
+        // A tool preset is binary: the panel asks for it in Base64
+        else if (/\.tpl$/i.test(file.name)) files[key] = toBase64(new Uint8Array(await file.arrayBuffer()));
         paths.push(key);
       }
       resolve({ err: FS.NO_ERROR, data: paths });
@@ -265,6 +322,26 @@
     }
   };
 
+  const syncKeyboard = () => shell.syncKeyboard();
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", syncKeyboard);
+  ["focusin", "focusout"].forEach((name) => window.addEventListener(name, () => {
+    [100, 350, 700].forEach((wait) => setTimeout(syncKeyboard, wait));
+  }));
+
+  // Reading the script on a touch screen: the whole row picks the line, its end pastes it.
+  // The row's own buttons are the size of a mouse pointer.
+  const pressSvg = (host) => {
+    const icon = host && host.querySelector("svg");
+    if (icon) icon.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  };
+  document.addEventListener("click", (event) => {
+    const root = document.documentElement;
+    if (!root.classList.contains("t-touch") || root.classList.contains("t-writing")) return;
+    const row = event.target.closest && event.target.closest(".text-line");
+    if (!row || event.target.closest(".text-line-select svg, .text-line-insert svg")) return;
+    pressSvg(event.clientX > row.getBoundingClientRect().right - 48 ? row.querySelector(".text-line-insert") : row.querySelector(".text-line-select"));
+  });
+
   // Keys for TypeR's shortcut poll, read in the page and in the panel
   const track = (event) => {
     photoshop.setKeys({ meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, key: event.type === "keydown" ? photoshop.keyName(event) : "" });
@@ -274,7 +351,8 @@
     if (window.parent.TypeRApp) window.parent.TypeRApp.handleKey(event, true);
   });
   window.addEventListener("keyup", track, true);
-  window.addEventListener("blur", () => photoshop.setKeys({ meta: false, ctrl: false, alt: false, shift: false, key: "" }));
+  window.addEventListener("blur", () => photoshop.clearKeys());
+  if (window.parent.TypeRApp) window.parent.TypeRApp.watchChoices(document);
 
   const load = (url) => fetch(url).then((response) => (response.ok ? response.text() : "")).catch(() => "");
 
@@ -290,12 +368,17 @@
 
   // Sentences that say something else here than in Photoshop: there are no profiles
   const loadWebText = () => fetch("../panel-locale/web-text.json").then((response) => response.json()).catch(() => ({}));
+  // The profiles' section is hidden (see panel/index.html): without their titles, the
+  // settings search doesn't offer it either
+  const withoutProfileTitles = (text) => text.replace(/^(profilesTitle|profilesManageTitle|profilesCreateTitle)=.*$/gm, "");
 
   Promise.all([
     load("locale/messages.properties"),
     appLocale === "en_US" ? "" : load(EXTRA_LOCALES.includes(appLocale) ? `../panel-locale/${appLocale}/messages.properties` : `locale/${appLocale}/messages.properties`),
     loadWebText(),
-  ]).then(([base, local, webText]) => {
+  ]).then(([fullBase, fullLocal, webText]) => {
+    const base = withoutProfileTitles(fullBase);
+    const local = withoutProfileTitles(fullLocal);
     files[ROOT + "/locale/messages.properties"] = base;
     if (local) files[`${ROOT}/locale/${appLocale}/messages.properties`] = local;
     bundle = Object.assign({}, parseProperties(base), webText.en_US, parseProperties(local), webText[appLocale]);

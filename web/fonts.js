@@ -104,10 +104,12 @@
     changed();
   };
 
+  let installedListed = false;
   const useInstalled = async () => {
     if (!canListInstalled()) return 0;
     const entries = await window.queryLocalFonts();
     addInstalled(entries);
+    installedListed = true;
     return entries.length;
   };
 
@@ -293,6 +295,7 @@
     builtinsLoaded,
     canListInstalled,
     useInstalled,
+    installedListed: () => installedListed,
     addFiles,
     removeFile,
     loadedFiles: () => Array.from(fonts.values()).filter((font) => font.source === "file").sort((a, b) => a.name.localeCompare(b.name)),

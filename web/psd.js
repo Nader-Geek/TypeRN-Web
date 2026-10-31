@@ -257,9 +257,13 @@
       paragraphStyle: { justification: JUSTIFY_OUT[paragraph && paragraph.alignment] || "center" },
     };
     if (box) {
-      // A little room, so that Photoshop's own line heights don't hide the last line
+      // A little room, so that Photoshop's own line heights don't hide the last line.
+      // Photoshop always starts at the top of a box: to keep a centred text where it shows,
+      // the top of its box comes down to it.
       const layout = PS().layoutLayer(layer, doc);
-      const height = layout.overflow ? box.height : Math.max(box.autoHeight ? 0 : box.height, layout.contentHeight * 1.08);
+      const shift = layout.relative.shift;
+      out.transform[5] += shift;
+      const height = layout.overflow ? box.height : Math.max(box.autoHeight ? 0 : box.height - shift, layout.contentHeight * 1.08);
       out.boxBounds = [0, 0, box.width, height];
     }
     if (ranges.length > 1) {
@@ -349,6 +353,20 @@
     return node;
   };
 
+  // Photoshop's text can't follow a surface. It gets what shows, as pixels, with the text
+  // itself below it, hidden: still editable there, and nothing else in the file depends on it.
+  const nodesFor = (layer, doc, flags) => {
+    if (layer.kind !== "text" || !layer.warp) return [nodeFor(layer, doc, flags)];
+    const text = nodeFor(Object.assign({}, layer, { warp: null }), doc, flags);
+    text.name = `${layer.name} (text)`;
+    text.hidden = true;
+    const shown = { name: layer.name, hidden: layer.visible === false, opacity: layer.opacity === undefined ? 1 : layer.opacity, blendMode: layer.blend || "normal" };
+    if (layer.clipping) shown.clipping = true;
+    const visual = PS().visualOf(layer, doc);
+    if (visual) place(shown, visual.canvas, visual.x, visual.y);
+    return [text, shown];
+  };
+
   const write = async (doc) => {
     const lib = await library();
     await nextFrame();
@@ -374,7 +392,7 @@
     };
     doc.state.layers.forEach((layer) => {
       if (layer.kind === "group") ensureGroup(layer.id);
-      else parentList(layer.group).push(nodeFor(layer, doc, flags));
+      else parentList(layer.group).push(...nodesFor(layer, doc, flags));
     });
 
     const composite = engine.newCanvas(doc.width, doc.height);

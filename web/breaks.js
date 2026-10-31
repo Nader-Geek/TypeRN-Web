@@ -1,4 +1,4 @@
-// The Line Breaks window, which Photoshop doesn't have: the lines of the active text,
+// The Line Breaks panel, which Photoshop doesn't have: the lines of the active text,
 // and the mouse. Moving over the text shows where a line can break, with the result on
 // the page before any click. Click to break, click a mark to join, drag a mark to move
 // it. Inside a word the break snaps to its syllables and adds the hyphen; Alt cuts
@@ -14,37 +14,32 @@
   const $ = (id) => document.getElementById(id);
   const root = $("breaks");
   const lines = $("breaks-lines");
-  const head = $("breaks-head");
   const caret = $("breaks-caret");
   const badge = $("breaks-badge");
   const count = $("breaks-count");
   const hint = $("breaks-hint");
+  const empty = $("breaks-empty");
   const STORE = "typer.web.breaks";
   const Hyphenation = window.TypeRHyphenation;
+  const Shell = window.TypeRShell;
 
   /* --------------------------------- state --------------------------------- */
 
-  let open = true;
-  // By default on the page's corner; the window can go anywhere in the app
-  const stageBox = $("stage").getBoundingClientRect();
-  let position = { left: stageBox.left + 12, top: stageBox.top + 12 };
   // "auto" lets each text decide its own language
   let choice = "auto";
   let showHint = true;
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORE) || "{}");
-    if (saved.open === false) open = false;
-    if (saved.left !== undefined) position = { left: saved.left, top: saved.top };
     if (Hyphenation.LANGUAGES.includes(saved.choice)) choice = saved.choice;
     if (saved.hint === false) showHint = false;
   } catch (error) {
-    open = true;
+    choice = "auto";
   }
   const remember = () => {
     try {
-      window.localStorage.setItem(STORE, JSON.stringify({ open, left: position.left, top: position.top, choice, hint: showHint }));
+      window.localStorage.setItem(STORE, JSON.stringify({ choice, hint: showHint }));
     } catch (error) {
-      console.warn("TypeR web: could not keep the window's place", error);
+      console.warn("TypeR web: could not keep the panel's settings", error);
     }
   };
 
@@ -57,6 +52,9 @@
   let shownKey = "";
   let hover = null;
   let drag = null;
+  let openedMenu = false;
+  // No Alt key on a touch screen: this button stands for it
+  let cutAnywhere = false;
 
   const activeText = () => {
     const doc = app.doc;
@@ -95,25 +93,29 @@
 
   /* -------------------------------- drawing -------------------------------- */
 
-  const FONT_SIZE = 17;
+  // Bigger on a touch screen: a finger picks between two letters
+  const fontSize = () => (Shell.touch ? 26 : 17);
+  const smallest = () => (Shell.touch ? 16 : 12);
   // The marks hang in the sides of the lines
-  const SIDES = 44;
-  const NOTE_WIDTH = 340;
+  const sides = () => (Shell.touch ? 76 : 44);
 
-  // The window is as wide as the text, so all of it shows. It grows at once, and only
-  // tightens once the pointer has left: the letters don't run away from it with each break.
-  // A line wider than the screen wraps in the window, with no ↵ at the end of its rows.
-  const fitWindow = () => {
+  // All the text shows: in a narrow panel the letters get smaller, and a line that still
+  // doesn't fit wraps, with no ↵ at the end of its rows. With the pointer over the text they
+  // only get smaller: they don't run away from it with each break.
+  const fitLines = () => {
     if (!model || lines.querySelector(".bl__rotated")) return;
-    const current = root.offsetWidth;
+    const FONT_SIZE = fontSize();
+    const current = parseFloat(lines.style.fontSize) || FONT_SIZE;
     lines.classList.remove("is-wrapped");
+    lines.style.fontSize = `${FONT_SIZE}px`;
     let widest = 0;
     lines.querySelectorAll(".bl__line").forEach((row) => { widest = Math.max(widest, row.offsetWidth); });
-    root.style.width = "0";
-    const needed = Math.max(head.scrollWidth, widest + SIDES);
-    const width = root.matches(":hover") ? Math.max(needed, current) : needed;
-    root.style.width = `${Math.min(window.innerWidth - 16, width)}px`;
-    lines.classList.toggle("is-wrapped", widest > lines.clientWidth - SIDES);
+    const room = lines.clientWidth - sides();
+    if (room <= 0) return;
+    let size = widest > room ? Math.max(smallest(), Math.floor((FONT_SIZE * room) / widest)) : FONT_SIZE;
+    if (root.matches(":hover") && !Shell.touch) size = Math.min(size, current);
+    lines.style.fontSize = `${size}px`;
+    lines.classList.toggle("is-wrapped", (widest * size) / FONT_SIZE > room);
   };
 
   const render = () => {
@@ -125,7 +127,6 @@
       note.className = "bl__rotated";
       note.textContent = T("This text is rotated: it keeps Photoshop's pixels, and its lines can't be changed here yet.");
       lines.appendChild(note);
-      root.style.width = `${NOTE_WIDTH}px`;
       hint.hidden = true;
       count.textContent = "";
       count.removeAttribute("title");
@@ -137,7 +138,7 @@
     const lt = layer.params.layerText;
     const style = lt.textStyleRange[0].textStyle;
     const paragraph = lt.paragraphStyleRange[0].paragraphStyle;
-    lines.style.font = PS.cssFont(style, FONT_SIZE);
+    lines.style.font = PS.cssFont(style, fontSize());
     lines.style.lineHeight = "1.25";
     lines.style.textAlign = paragraph.alignment || "center";
     lines.style.textTransform = style.fontCaps === "allCaps" ? "uppercase" : "none";
@@ -182,28 +183,27 @@
     $("breaks-more").disabled = total > allGaps().length;
     $("breaks-balance").disabled = false;
     hint.hidden = !showHint;
-    fitWindow();
+    fitLines();
   };
   const fill = (text, values) => Object.keys(values).reduce((out, key) => out.split(`{${key}}`).join(values[key]), text);
 
-  // Below the menu bar and whole on the screen: as it grows, it moves away from the edges
-  const place = () => {
-    const menuBar = document.querySelector(".mbar").offsetHeight;
-    root.style.left = `${Math.max(0, Math.min(window.innerWidth - root.offsetWidth, position.left))}px`;
-    root.style.top = `${Math.max(menuBar, Math.min(window.innerHeight - root.offsetHeight, position.top))}px`;
-  };
-
   const update = () => {
     const doc = app.doc;
-    const next = open && !App.isEditing() ? activeText() : null;
+    const next = root.hidden ? null : activeText();
+    root.classList.toggle("is-typing", App.isEditing());
+    empty.hidden = Boolean(next) || root.hidden;
+    root.classList.toggle("is-empty", !next);
     if (!next || !doc) {
-      if (!root.hidden) clearPreview();
-      root.hidden = true;
+      if (layer) clearPreview();
       layer = null;
+      model = null;
       shownKey = "";
+      hint.hidden = true;
+      Array.from(lines.querySelectorAll(".bl__row, .bl__rotated")).forEach((row) => row.remove());
+      count.textContent = "";
+      ["breaks-fewer", "breaks-more", "breaks-balance"].forEach((id) => { $(id).disabled = true; });
       return;
     }
-    root.hidden = false;
     const text = next.params.layerText.textKey;
     language = choice === "auto" ? Hyphenation.resolve(text) : choice;
     const key = JSON.stringify([next.id, text, next.params.layerText.textStyleRange[0].textStyle.fontPostScriptName, next.params.layerText.textShape, language, Hyphenation.isLoaded(language)]);
@@ -218,7 +218,6 @@
     findSyllables();
     showLanguage();
     render();
-    place();
     if (!Hyphenation.isLoaded(language)) {
       Hyphenation.load(language).then(() => {
         shownKey = "";
@@ -255,7 +254,7 @@
       for (let at = start + 1; at < end; at++) {
         if (chars[at - 1].ch === "-" || syllableSet.has(at)) options.push(at);
       }
-      if (event.altKey) {
+      if (event.altKey || cutAnywhere) {
         const free = event.clientX < rect.left + rect.width / 2 ? index : index + 1;
         if (free > start && free < end) options.splice(0, options.length, free);
       }
@@ -410,6 +409,7 @@
     if (layer) clearPreview();
   });
   lines.addEventListener("pointerdown", (event) => {
+    openedMenu = false;
     if (!layer || event.button !== 0) return;
     event.preventDefault();
     const mark = event.target.closest && event.target.closest(".bl__m");
@@ -419,7 +419,7 @@
     }
   });
   lines.addEventListener("pointerup", (event) => {
-    if (!layer) return;
+    if (!layer || event.button !== 0 || openedMenu) return;
     if (drag) {
       const current = drag;
       drag = null;
@@ -434,6 +434,32 @@
   lines.addEventListener("pointercancel", () => {
     drag = null;
     clearPreview();
+  });
+
+  // The break before the line under the pointer, if it's on the line's first word or left of it
+  const breakOfLineStart = (event) => {
+    const row = Array.from(lines.querySelectorAll(".bl__row")).find((item) => {
+      const box = item.getBoundingClientRect();
+      return event.clientY >= box.top && event.clientY < box.bottom;
+    });
+    const first = row && row.querySelector(".bl__c");
+    const at = first ? Number(first.dataset.i) : -1;
+    if (!breakSet.has(at)) return null;
+    let last = at;
+    while (last + 1 < model.chars.length && model.chars[last + 1].ch !== " " && !breakSet.has(last + 1)) last++;
+    const start = first.getBoundingClientRect();
+    // A line wrapped by the panel: only its first row is its start
+    return event.clientX <= spans[last].getBoundingClientRect().right && event.clientY <= start.bottom + 2 ? at : null;
+  };
+  // Right-click: the same as clicking the ↵, from the start of the next line. On a Mac,
+  // Ctrl+click comes as a left click followed by this, and that click mustn't cut anything.
+  lines.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    openedMenu = true;
+    if (!layer || !model) return;
+    const mark = event.target.closest && event.target.closest(".bl__m");
+    const at = mark ? Number(mark.dataset.at) : breakOfLineStart(event);
+    if (at !== null) commit(Array.from(breakSet).filter((item) => item !== at));
   });
 
   const footButton = (id, compute) => {
@@ -452,41 +478,12 @@
   footButton("breaks-more", () => balanced(breakSet.size + 2));
   footButton("breaks-balance", () => balanced(breakSet.size + 1));
 
-  /* ------------------------------- the window ------------------------------ */
+  /* ------------------------------- the panel ------------------------------- */
 
-  head.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("button, select")) return;
-    event.preventDefault();
-    head.setPointerCapture(event.pointerId);
-    const box = root.getBoundingClientRect();
-    const startX = event.clientX - box.left;
-    const startY = event.clientY - box.top;
-    const move = (next) => {
-      position = { left: next.clientX - startX, top: next.clientY - startY };
-      place();
-    };
-    const up = () => {
-      head.removeEventListener("pointermove", move);
-      head.removeEventListener("pointerup", up);
-      remember();
-    };
-    head.addEventListener("pointermove", move);
-    head.addEventListener("pointerup", up);
+  root.addEventListener("pointerleave", () => {
+    if (!drag) fitLines();
   });
-  const refit = () => {
-    if (root.hidden || drag) return;
-    fitWindow();
-    place();
-  };
-  root.addEventListener("pointerleave", refit);
-  window.addEventListener("resize", refit);
-
-  const setOpen = (value) => {
-    open = value;
-    remember();
-    update();
-  };
-  $("breaks-close").addEventListener("click", () => setOpen(false));
+  new ResizeObserver(fitLines).observe(lines);
 
   const languageSelect = $("breaks-language");
   ["auto"].concat(Hyphenation.LANGUAGES).forEach((code) => {
@@ -515,17 +512,31 @@
   $("breaks-balance").setAttribute("aria-label", T("Balance"));
 
   // Alt stands out in the explanations: cutting anywhere is the easy one to miss
-  const explanations = T("Click between two words, or inside a word for a hyphen. Click a ↵ to join, drag it to move it. Alt: cut anywhere.");
-  explanations.split("Alt").forEach((part, index) => {
-    if (index) {
-      const key = document.createElement("kbd");
-      key.textContent = "Alt";
-      hint.appendChild(key);
-    }
-    hint.appendChild(document.createTextNode(part));
-  });
+  const explanations = T("Alt: cut anywhere. Right-click the start of a line or a ↵ to join it to the one above.");
   const helpButton = $("breaks-help");
-  helpButton.title = explanations;
+  const showExplanations = () => {
+    hint.textContent = "";
+    if (Shell.touch) {
+      hint.textContent = T("Slide a finger along the text and lift it where the line should break. Tap a ↵ to join, drag it to move it.");
+      helpButton.title = hint.textContent;
+      return;
+    }
+    explanations.split("Alt").forEach((part, index) => {
+      if (index) {
+        const key = document.createElement("kbd");
+        key.textContent = "Alt";
+        hint.appendChild(key);
+      }
+      hint.appendChild(document.createTextNode(part));
+    });
+    helpButton.title = explanations;
+  };
+  showExplanations();
+  Shell.onChange(() => {
+    showExplanations();
+    shownKey = "";
+    update();
+  });
   helpButton.setAttribute("aria-label", T("Help"));
   const showHelpState = () => {
     helpButton.classList.toggle("is-on", showHint);
@@ -537,23 +548,32 @@
     hint.hidden = !showHint;
     showHelpState();
     remember();
-    place();
+  });
+
+  const cutButton = $("breaks-cut");
+  cutButton.innerHTML = App.ICON.cut;
+  cutButton.title = T("Cut anywhere");
+  cutButton.setAttribute("aria-label", T("Cut anywhere"));
+  cutButton.addEventListener("click", () => {
+    cutAnywhere = !cutAnywhere;
+    cutButton.classList.toggle("is-on", cutAnywhere);
+    cutButton.setAttribute("aria-pressed", String(cutAnywhere));
   });
 
   $("breaks-fewer").title = T("One line less");
   $("breaks-fewer").setAttribute("aria-label", T("One line less"));
   $("breaks-more").title = T("One line more");
   $("breaks-more").setAttribute("aria-label", T("One line more"));
-  $("breaks-close").setAttribute("aria-label", T("Close"));
+  empty.textContent = T("Select a text layer to set its line breaks.");
 
   PS.on((type) => {
-    if (type === "render" || type === "history" || type === "document" || type === "editing") update();
+    if (type === "render" || type === "history" || type === "document" || type === "editing" || type === "workspace") update();
   });
   update();
 
   window.TypeRBreaks = {
-    get open() { return open; },
-    toggle: () => setOpen(!open),
+    get open() { return window.TypeRWorkspace.isVisible("breaks"); },
+    toggle: () => window.TypeRWorkspace.toggle("breaks"),
     get model() { return model; },
   };
 })();
