@@ -48,6 +48,13 @@ test("the web version replaces the demo", async ({ page }) => {
   await expect(page.locator(".mbar__logo")).toBeVisible();
 });
 
+test("the web version doesn't take the former site's i18n.js from the cache", async ({ page }) => {
+  await page.route(/\/i18n\.js$/, (route) => route.fulfill({ contentType: "text/javascript", body: "// the former site's file" }));
+  await page.goto("/web/");
+  await expect(page.locator("#menus button").first()).toBeVisible();
+  await expect(page.locator("#tools button").first()).toBeVisible();
+});
+
 test("the tour is gone from the story", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".step")).toHaveCount(5);
