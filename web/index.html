@@ -18,7 +18,8 @@
   <link rel="stylesheet" href="touch.css">
   <script src="shell.js"></script>
   <script>window.TYPER_SUPPORTED = ["en", "fr", "es", "it", "de", "pt", "ru", "uk", "pl", "nl", "tr", "ar", "vi", "id", "th", "ja", "ko", "zh"]</script>
-  <script src="../i18n.js"></script>
+  <!-- The query keeps browsers from reusing the i18n.js of the former site, which had the same address. -->
+  <script src="../i18n.js?v=3"></script>
   <script>if (window.TYPER_I18N.lang !== "en") document.write('<script src="strings/' + window.TYPER_I18N.lang + '.js"><\/script>')</script>
   <script>document.documentElement.classList.add("js")</script>
 </head>
