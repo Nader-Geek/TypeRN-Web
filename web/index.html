@@ -2,12 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <title>TypeR: Browser Version</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#232121">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="TypeR">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="../assets/brand/typer-logo.png">
+  <title>TypeR: Browser Version (beta)</title>
   <meta name="description" content="TypeR's real panel and paste engine in a Photoshop-like workspace, in your browser. Open and save PSD files. Nothing leaves your computer.">
   <link rel="canonical" href="https://typer.hayasaku.fr/web/">
   <link rel="icon" type="image/png" href="../images/icon.png">
   <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="touch.css">
+  <script src="shell.js"></script>
   <script>window.TYPER_SUPPORTED = ["en", "fr", "es", "it", "de", "pt", "ru", "uk", "pl", "nl", "tr", "ar", "vi", "id", "th", "ja", "ko", "zh"]</script>
   <script src="../i18n.js"></script>
   <script>if (window.TYPER_I18N.lang !== "en") document.write('<script src="strings/' + window.TYPER_I18N.lang + '.js"><\/script>')</script>
@@ -18,9 +27,10 @@
     <header class="mbar">
       <a class="mbar__logo" href="../" title="TypeR"><img src="../assets/brand/typer-logo.png" width="24" height="24" alt="TypeR"></a>
       <nav class="mbar__menus" id="menus" role="menubar" aria-label="Menu"></nav>
-      <span class="mbar__title">TypeR: Browser Version</span>
+      <span class="mbar__title">TypeR: Browser Version (beta)</span>
       <div class="mbar__end">
         <select class="mbar__language" id="language" aria-label="Language"></select>
+        <a class="mbar__link mbar__support" href="https://ko-fi.com/typertools" id="support" target="_blank" rel="noopener"><img src="../images/kofi.svg" width="14" height="14" alt=""><span id="support-text"></span></a>
         <a class="mbar__link" href="https://github.com/ScanR/TypeR/releases/latest" id="get-plugin"></a>
       </div>
     </header>
@@ -52,12 +62,13 @@
 
           <div class="start" id="start" hidden>
             <img src="../assets/brand/typer-logo.png" width="96" height="96" alt="">
-            <h1>TypeR: Browser Version</h1>
+            <h1>TypeR: Browser Version (beta)</h1>
             <p id="start-text"></p>
             <div class="start__actions">
               <button type="button" class="btn btn--main" id="start-open"></button>
               <button type="button" class="btn" id="start-kit"></button>
               <button type="button" class="btn" id="start-new"></button>
+              <button type="button" class="btn t-only" id="start-practice"></button>
             </div>
           </div>
 
@@ -71,13 +82,11 @@
         </div>
       </main>
 
-      <div class="split" id="split-typer" role="separator" aria-orientation="vertical"></div>
       <aside class="dock dock--typer" id="dock-typer">
         <div class="dock__head"><span>TypeR</span></div>
         <iframe id="panel-frame" title="TypeR"></iframe>
       </aside>
 
-      <div class="split" id="split-side" role="separator" aria-orientation="vertical"></div>
       <aside class="dock dock--side" id="dock-side">
         <section class="pane pane--layers" id="pane-layers">
           <div class="dock__head"><span id="head-layers"></span></div>
@@ -89,6 +98,22 @@
           <div class="dock__head"><span id="head-character"></span></div>
           <div class="character" id="character"></div>
         </section>
+        <section class="pane pane--breaks breaks" id="breaks">
+          <div class="dock__head"><span id="breaks-title"></span></div>
+          <div class="breaks__tools">
+            <button type="button" class="icon-btn" id="breaks-fewer">−</button>
+            <span class="breaks__count" id="breaks-count"></span>
+            <button type="button" class="icon-btn" id="breaks-more">+</button>
+            <button type="button" class="icon-btn" id="breaks-balance"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 4h5M3 8h10M5.5 12h5"/></svg></button>
+            <button type="button" class="icon-btn touch-only" id="breaks-cut" aria-pressed="false"></button>
+            <select id="breaks-language"></select>
+            <button type="button" class="breaks__help" id="breaks-help">?</button>
+          </div>
+          <div class="breaks__lines" id="breaks-lines"></div>
+          <p class="breaks__empty" id="breaks-empty" hidden></p>
+          <p class="breaks__hint" id="breaks-hint"></p>
+          <div class="breaks__caret" id="breaks-caret" hidden><span class="breaks__badge" id="breaks-badge"></span></div>
+        </section>
         <section class="pane pane--history" id="pane-history">
           <div class="dock__head"><span id="head-history"></span></div>
           <ol class="history" id="history"></ol>
@@ -96,24 +121,11 @@
       </aside>
     </div>
 
-    <nav class="phonebar" id="phonebar" aria-label="Panels"></nav>
+    <header class="tbar t-only" id="t-bar"></header>
+    <div class="tbottom t-only" id="t-bottom"></div>
+    <nav class="tnav t-only" id="t-nav"></nav>
+    <section class="sheet t-only" id="t-sheet"></section>
   </div>
-
-  <section class="breaks" id="breaks" hidden>
-    <header class="breaks__head" id="breaks-head">
-      <span class="breaks__title" id="breaks-title"></span>
-      <button type="button" class="icon-btn" id="breaks-fewer">−</button>
-      <span class="breaks__count" id="breaks-count"></span>
-      <button type="button" class="icon-btn" id="breaks-more">+</button>
-      <button type="button" class="icon-btn" id="breaks-balance"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 4h5M3 8h10M5.5 12h5"/></svg></button>
-      <select id="breaks-language"></select>
-      <button type="button" class="breaks__help" id="breaks-help">?</button>
-      <button type="button" class="tab__close" id="breaks-close">×</button>
-    </header>
-    <div class="breaks__lines" id="breaks-lines"></div>
-    <p class="breaks__hint" id="breaks-hint"></p>
-    <div class="breaks__caret" id="breaks-caret" hidden><span class="breaks__badge" id="breaks-badge"></span></div>
-  </section>
 
   <div class="busy" id="busy" role="status" hidden></div>
   <div class="toast" id="toast" role="status" hidden></div>
@@ -130,8 +142,10 @@
   <script src="photoshop.js"></script>
   <script src="psd.js"></script>
   <script src="session.js"></script>
+  <script src="workspace.js"></script>
   <script src="app.js"></script>
   <script src="hyphenation.js"></script>
   <script src="breaks.js"></script>
+  <script src="touch.js"></script>
 </body>
 </html>

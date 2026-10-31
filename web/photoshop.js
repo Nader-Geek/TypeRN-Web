@@ -239,11 +239,22 @@
         bottom = Math.max(bottom, baseline + m.descent);
       }
     });
-    if (!isFinite(left)) {
+    const hasInk = isFinite(left);
+    if (!hasInk) {
       left = right = 0;
       top = bottom = 0;
     }
-    const result = { lines: out, box: rectFrom(left, top, right, bottom), frame: frame ? { width: frame.width, height: frame.autoHeight ? contentBottom : frame.height } : null, overflow, contentHeight: contentBottom, firstOffset, wrapped: lines };
+    // Centred in its box: what shows, or the line an empty text starts on. Text that
+    // doesn't fit stays at the top, where Photoshop cuts it.
+    let shift = 0;
+    if (frame && frame.verticalAlign === "center" && !frame.autoHeight && !overflow) {
+      const height = hasInk ? bottom - top : contentBottom;
+      shift = Math.max(0, (frame.height - height) / 2 - top);
+      out.forEach((line) => { line.baseline += shift; });
+      top += shift;
+      bottom += shift;
+    }
+    const result = { lines: out, box: rectFrom(left, top, right, bottom), frame: frame ? { width: frame.width, height: frame.autoHeight ? contentBottom : frame.height } : null, overflow, contentHeight: contentBottom, firstOffset, shift, wrapped: lines };
     layoutCache.set(key, result);
     return result;
   };
@@ -266,10 +277,85 @@
     };
   };
 
+  /* ------------------------------ text on a surface ----------------------------- */
+
+  // A text in perspective, or around a can or a page, stays a text: `warp` says where its
+  // rectangle (`source`, around its anchor) lands on the page. The four corners give the
+  // perspective. The bends push the middle of the top and bottom edges, which turns them
+  // into curves. `wrap` is the angle the text covers on a cylinder: the letters get
+  // narrower towards its sides. At 0 the formulas below are a plain curve on a flat plane.
+  const surfaceOf = (warp) => {
+    const [a, b, c, d] = warp.corners;
+    const dx1 = b[0] - c[0];
+    const dx2 = d[0] - c[0];
+    const sx = a[0] - b[0] + c[0] - d[0];
+    const dy1 = b[1] - c[1];
+    const dy2 = d[1] - c[1];
+    const sy = a[1] - b[1] + c[1] - d[1];
+    const den = dx1 * dy2 - dx2 * dy1;
+    const g = den ? (sx * dy2 - dx2 * sy) / den : 0;
+    const h = den ? (dx1 * sy - sx * dy1) / den : 0;
+    const a11 = b[0] - a[0] + g * b[0];
+    const a12 = d[0] - a[0] + h * d[0];
+    const a21 = b[1] - a[1] + g * b[1];
+    const a22 = d[1] - a[1] + h * d[1];
+    const wrap = ((warp.wrap || 0) * Math.PI) / 180;
+    const flat = (x, v) => {
+      const w = Math.max(0.001, g * x + h * v + 1);
+      return [(a11 * x + a12 * v + a[0]) / w, (a21 * x + a22 * v + a[1]) / w];
+    };
+    const at = (u, v) => {
+      let x = u;
+      let bump = 4 * u * (1 - u);
+      if (wrap > 0.001) {
+        const theta = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, (2 * u - 1) * wrap));
+        x = (Math.sin(theta) / Math.sin(wrap) + 1) / 2;
+        bump = (Math.cos(theta) - Math.cos(wrap)) / (1 - Math.cos(wrap));
+      }
+      const p = flat(x, v);
+      return [p[0] + ((1 - v) * warp.bendTop[0] + v * warp.bendBottom[0]) * bump, p[1] + ((1 - v) * warp.bendTop[1] + v * warp.bendBottom[1]) * bump];
+    };
+    return { at, flat };
+  };
+
+  const boundsOfPoints = (points) => {
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    points.forEach(([x, y]) => {
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+    });
+    return rectFrom(left, top, right, bottom);
+  };
+
+  // The edge of a part of the surface, in parts of the text's rectangle
+  const surfaceEdge = (warp, u0, v0, u1, v1) => {
+    const { at } = surfaceOf(warp);
+    const points = [];
+    for (let i = 0; i <= 24; i++) {
+      const u = u0 + ((u1 - u0) * i) / 24;
+      points.push(at(u, v0), at(u, v1));
+    }
+    for (let i = 1; i < 8; i++) {
+      const v = v0 + ((v1 - v0) * i) / 8;
+      points.push(at(u0, v), at(u1, v));
+    }
+    return points;
+  };
+
   // A text layer read from a PSD shows Photoshop's own pixels until its text changes
   const boxOf = (layer, doc) => {
     if (layer.kind === "text") {
       if (layer.raster) return rectFrom(layer.raster.left, layer.raster.top, layer.raster.left + layer.raster.bitmap.width, layer.raster.top + layer.raster.bitmap.height);
+      if (layer.warp) {
+        const { source } = layer.warp;
+        const b = relativeLayout(layer.params.layerText, doc.resolution).box;
+        return boundsOfPoints(surfaceEdge(layer.warp, (b.left - source.left) / source.width, (b.top - source.top) / source.height, (b.right - source.left) / source.width, (b.bottom - source.top) / source.height));
+      }
       return layoutLayer(layer, doc).box;
     }
     const visual = visualOf(layer, doc);
@@ -330,6 +416,7 @@
   // The box the handles sit on: a paragraph's own box, the room a point text takes
   const frameOf = (layer, doc) => {
     if (layer.kind !== "text" || (layer.raster && layer.rotated)) return boxOf(layer, doc);
+    if (layer.warp) return boundsOfPoints(surfaceEdge(layer.warp, 0, 0, 1, 1));
     const layout = layoutLayer(layer, doc);
     if (layout.frame) return layout.frame;
     if (layer.raster) return boxOf(layer, doc);
@@ -704,6 +791,143 @@
   };
 
   const textBitmaps = new WeakMap();
+  // The text drawn again at the size it lands at, so it stays sharp, then laid on the surface
+  // triangle by triangle, at twice the resolution for clean edges. Canvas can't do this:
+  // it only knows parallelograms.
+  const warpedBitmap = (layer, doc, relative, stroke, antiAlias) => {
+    const { warp } = layer;
+    const { at } = surfaceOf(warp);
+    const [p0, p1, p2, p3] = warp.corners;
+    const length = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+    const across = Math.max(length(p0, p1), length(p3, p2));
+    const down = Math.max(length(p0, p3), length(p1, p2));
+    let largest = 0;
+    relative.lines.forEach((line) => line.m.placed.forEach((item) => { largest = Math.max(largest, item.size); }));
+    const pad = Math.ceil(6 + largest * 0.2 + (stroke ? stroke.size * 1.5 : 0));
+    const b = relative.box;
+    const sourceW = b.width + pad * 2;
+    const sourceH = b.height + pad * 2;
+    const scale = Math.min(4096 / sourceW, 4096 / sourceH, Math.max(0.5, 2 * Math.max(across / warp.source.width, down / warp.source.height)));
+    const source = newCanvas(sourceW * scale, sourceH * scale);
+    const sourceCtx = source.getContext("2d", { willReadFrequently: true });
+    sourceCtx.scale(scale, scale);
+    sourceCtx.translate(pad - b.left, pad - b.top);
+    drawLines(sourceCtx, relative.lines, stroke, layer);
+    const pixels = sourceCtx.getImageData(0, 0, source.width, source.height).data;
+    const sw = source.width;
+    const sh = source.height;
+
+    const cols = Math.max(8, Math.min(120, Math.ceil(across / 8)));
+    const rows = Math.max(4, Math.min(60, Math.ceil(down / 8)));
+    const mesh = new Float64Array((cols + 1) * (rows + 1) * 2);
+    let at_ = 0;
+    for (let r = 0; r <= rows; r++) {
+      for (let c = 0; c <= cols; c++) {
+        const x = b.left - pad + (sourceW * c) / cols;
+        const y = b.top - pad + (sourceH * r) / rows;
+        const point = at((x - warp.source.left) / warp.source.width, (y - warp.source.top) / warp.source.height);
+        mesh[at_++] = point[0];
+        mesh[at_++] = point[1];
+      }
+    }
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    for (let i = 0; i < mesh.length; i += 2) {
+      left = Math.min(left, mesh[i]);
+      right = Math.max(right, mesh[i]);
+      top = Math.min(top, mesh[i + 1]);
+      bottom = Math.max(bottom, mesh[i + 1]);
+    }
+    // Only what can show on the page
+    left = Math.floor(Math.max(left, -64)) - 1;
+    top = Math.floor(Math.max(top, -64)) - 1;
+    right = Math.ceil(Math.min(right, doc.width + 64)) + 1;
+    bottom = Math.ceil(Math.min(bottom, doc.height + 64)) + 1;
+    const width = Math.max(1, right - left);
+    const height = Math.max(1, bottom - top);
+    const over = width * height > 6000000 ? 1 : 2;
+    const W = width * over;
+    const H = height * over;
+    const big = new ImageData(W, H);
+    const out = big.data;
+
+    const triangle = (x0, y0, s0, t0, x1, y1, s1, t1, x2, y2, s2, t2) => {
+      const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+      if (Math.abs(area) < 1e-6) return;
+      const inv = 1 / area;
+      const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2)));
+      const maxY = Math.min(H - 1, Math.ceil(Math.max(y0, y1, y2)));
+      const minX = Math.max(0, Math.floor(Math.min(x0, x1, x2)));
+      const maxX = Math.min(W - 1, Math.ceil(Math.max(x0, x1, x2)));
+      const stepA = (y1 - y2) * inv;
+      const stepB = (y2 - y0) * inv;
+      for (let y = minY; y <= maxY; y++) {
+        const py = y + 0.5;
+        const px = minX + 0.5;
+        let wa = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * inv;
+        let wb = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * inv;
+        for (let x = minX; x <= maxX; x++, wa += stepA, wb += stepB) {
+          const wc = 1 - wa - wb;
+          if (wa < -1e-4 || wb < -1e-4 || wc < -1e-4) continue;
+          const sx = wa * s0 + wb * s1 + wc * s2 - 0.5;
+          const sy = wa * t0 + wb * t1 + wc * t2 - 0.5;
+          const ix = Math.floor(sx);
+          const iy = Math.floor(sy);
+          if (ix < 0 || iy < 0 || ix + 1 >= sw || iy + 1 >= sh) continue;
+          const a00 = (iy * sw + ix) * 4;
+          const a10 = a00 + 4;
+          const a01 = a00 + sw * 4;
+          const a11 = a01 + 4;
+          if (!(pixels[a00 + 3] | pixels[a10 + 3] | pixels[a01 + 3] | pixels[a11 + 3])) continue;
+          const fx = sx - ix;
+          const fy = sy - iy;
+          // Weighed by alpha: a transparent pixel has no colour to give
+          const w00 = (1 - fx) * (1 - fy) * pixels[a00 + 3];
+          const w10 = fx * (1 - fy) * pixels[a10 + 3];
+          const w01 = (1 - fx) * fy * pixels[a01 + 3];
+          const w11 = fx * fy * pixels[a11 + 3];
+          const sum = w00 + w10 + w01 + w11;
+          if (sum <= 0) continue;
+          const to = (y * W + x) * 4;
+          out[to] = (w00 * pixels[a00] + w10 * pixels[a10] + w01 * pixels[a01] + w11 * pixels[a11]) / sum;
+          out[to + 1] = (w00 * pixels[a00 + 1] + w10 * pixels[a10 + 1] + w01 * pixels[a01 + 1] + w11 * pixels[a11 + 1]) / sum;
+          out[to + 2] = (w00 * pixels[a00 + 2] + w10 * pixels[a10 + 2] + w01 * pixels[a01 + 2] + w11 * pixels[a11 + 2]) / sum;
+          out[to + 3] = sum;
+        }
+      }
+    };
+    const destX = (i) => (mesh[i * 2] - left) * over;
+    const destY = (i) => (mesh[i * 2 + 1] - top) * over;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i00 = r * (cols + 1) + c;
+        const i10 = i00 + 1;
+        const i01 = i00 + cols + 1;
+        const i11 = i01 + 1;
+        const s0 = (c / cols) * sw;
+        const s1 = ((c + 1) / cols) * sw;
+        const t0 = (r / rows) * sh;
+        const t1 = ((r + 1) / rows) * sh;
+        triangle(destX(i00), destY(i00), s0, t0, destX(i10), destY(i10), s1, t0, destX(i11), destY(i11), s1, t1);
+        triangle(destX(i00), destY(i00), s0, t0, destX(i11), destY(i11), s1, t1, destX(i01), destY(i01), s0, t1);
+      }
+    }
+    const canvas = newCanvas(width, height);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (over === 1) ctx.putImageData(big, 0, 0);
+    else {
+      const large = newCanvas(W, H);
+      large.getContext("2d").putImageData(big, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(large, 0, 0, width, height);
+    }
+    applyAntiAlias(canvas, ctx, antiAlias);
+    return { canvas, x: left, y: top };
+  };
+
   const textVisual = (layer, doc) => {
     if (layer.raster) return { canvas: layer.raster.display || layer.raster.bitmap, x: layer.raster.displayLeft !== undefined ? layer.raster.left + layer.raster.displayLeft : layer.raster.left, y: layer.raster.displayTop !== undefined ? layer.raster.top + layer.raster.displayTop : layer.raster.top };
     const layout = layoutLayer(layer, doc);
@@ -715,6 +939,13 @@
     if (!forLayout) {
       forLayout = new Map();
       textBitmaps.set(relative, forLayout);
+    }
+    if (layer.warp) {
+      const warpKey = strokeKey + "|" + JSON.stringify(layer.warp);
+      // A drag draws hundreds of these: only the latest ones are worth keeping
+      if (!forLayout.has(warpKey) && forLayout.size > 6) forLayout.clear();
+      if (!forLayout.has(warpKey)) forLayout.set(warpKey, warpedBitmap(layer, doc, relative, stroke, antiAlias));
+      return forLayout.get(warpKey);
     }
     let entry = forLayout.get(strokeKey);
     if (!entry) {
@@ -1160,6 +1391,8 @@
     listeners: new Set(),
     panelListeners: {},
     keys: { meta: false, ctrl: false, alt: false, shift: false, key: "" },
+    keysSeen: { meta: false, ctrl: false, alt: false, shift: false, key: "" },
+    keysMuted: null,
     tool: "wand",
     tolerance: 32,
     contiguous: true,
@@ -1169,7 +1402,7 @@
     fg: { r: 0, g: 0, b: 0 },
     bg: { r: 255, g: 255, b: 255 },
     brush: { size: 24 },
-    textDefaults: { font: "WildjessNormal", family: "Wildjess", style: "Normal", size: 38 },
+    textDefaults: { font: "WildjessNormal", family: "Wildjess", style: "Normal", size: 38, verticalAlign: "center" },
     lastAction: 0,
     pendingActions: 0,
     monitor: { lastBounds: null, documentKey: null },
@@ -1392,6 +1625,7 @@
       params.layerText.textClickPoint.horizontal += (dx / doc.width) * 100;
       params.layerText.textClickPoint.vertical += (dy / doc.height) * 100;
       const moved = Object.assign({}, layer, { params });
+      if (layer.warp) moved.warp = Object.assign({}, layer.warp, { corners: layer.warp.corners.map(([x, y]) => [x + dx, y + dy]) });
       if (layer.raster) moved.raster = Object.assign({}, layer.raster, { left: layer.raster.left + dx, top: layer.raster.top + dy });
       return moved;
     }
@@ -1400,6 +1634,8 @@
   };
 
   const centredOn = (layer, doc, x, y) => {
+    // A text on a surface stays there: the surface is what sets its place
+    if (layer.warp) return layer;
     const box = boxOf(layer, doc);
     return shifted(layer, x - box.xMid, y - box.yMid, doc);
   };
@@ -1533,6 +1769,15 @@
       if (!doc) return;
       const ids = additive ? (doc.state.activeIds.includes(id) ? doc.state.activeIds.filter((item) => item !== id) : doc.state.activeIds.concat([id])) : [id];
       doc.state = Object.assign({}, doc.state, { activeIds: ids });
+      emit("history");
+      emit("render");
+      firePanelEvent(EVENT_SELECT);
+    },
+    // No active layer: on a touch screen, what hides the handles and the text's actions
+    clearActiveLayers() {
+      const doc = app.doc;
+      if (!doc || !doc.state.activeIds.length) return;
+      doc.state = Object.assign({}, doc.state, { activeIds: [] });
       emit("history");
       emit("render");
       firePanelEvent(EVENT_SELECT);
@@ -1785,7 +2030,7 @@
       const d = app.textDefaults;
       const text = value || "";
       const style = { fontPostScriptName: d.font, fontName: d.family, fontStyleName: d.style, size: d.size, impliedFontSize: d.size, autoLeading: true, tracking: 0, horizontalScale: 100, verticalScale: 100, color: { red: app.fg.r, green: app.fg.g, blue: app.fg.b } };
-      const params = { layerText: { textKey: text, antiAlias: d.antiAlias || "antiAliasSmooth", textClickPoint: { horizontal: (x / doc.width) * 100, vertical: (y / doc.height) * 100 }, textStyleRange: [{ from: 0, to: text.length, textStyle: style }], paragraphStyleRange: [{ from: 0, to: text.length, paragraphStyle: { alignment: "center", autoLeadingPercentage: 1.2 } }], textShape: [box ? { textType: "box", orientation: "horizontal", box } : { textType: "point", orientation: "horizontal" }] } };
+      const params = { layerText: { textKey: text, antiAlias: d.antiAlias || "antiAliasSmooth", textClickPoint: { horizontal: (x / doc.width) * 100, vertical: (y / doc.height) * 100 }, textStyleRange: [{ from: 0, to: text.length, textStyle: style }], paragraphStyleRange: [{ from: 0, to: text.length, paragraphStyle: { alignment: "center", autoLeadingPercentage: 1.2 } }], textShape: [box ? { textType: "box", orientation: "horizontal", box: Object.assign({ verticalAlign: d.verticalAlign }, box) } : { textType: "point", orientation: "horizontal" }] } };
       const layer = newTextLayer(doc, params, null, text || "Text");
       commitState(doc, "Type Tool", { layers: doc.state.layers.concat([layer]), activeIds: [layer.id] });
       firePanelEvent(EVENT_SELECT);
@@ -1837,7 +2082,9 @@
       const lt = params.layerText;
       if (!boxShape(lt) && base.source !== undefined && base.source !== null && !base.manualBreaks) unwrapText(lt, base.source);
       const orientation = (lt.textShape && lt.textShape[0] && lt.textShape[0].orientation) || "horizontal";
-      lt.textShape = [{ textType: "box", orientation, box: { width: Math.max(1, frame.width), height: Math.max(1, frame.height), autoHeight: Boolean(frame.autoHeight) } }];
+      // A box from a PSD has no vertical alignment yet: resizing it gives it the usual one
+      const verticalAlign = (boxShape(lt) && boxShape(lt).box.verticalAlign) || app.textDefaults.verticalAlign;
+      lt.textShape = [{ textType: "box", orientation, box: { width: Math.max(1, frame.width), height: Math.max(1, frame.height), autoHeight: Boolean(frame.autoHeight), verticalAlign } }];
       lt.textClickPoint = { horizontal: (frame.left / doc.width) * 100, vertical: (frame.top / doc.height) * 100 };
       commitState(doc, "Text Box", { layers: replaceLayer(doc, base, { params, raster: null }) }, coalesce);
       firePanelEvent(EVENT_HISTORY);
@@ -1914,6 +2161,59 @@
       if (!layer) return;
       doc.preview = null;
       commitState(doc, "Line Breaks", { layers: replaceLayer(doc, layer, layerWithBreaks(layer, doc, model, breaks)) });
+      firePanelEvent(EVENT_HISTORY);
+    },
+    // The text's rectangle becomes a surface, with nothing moved yet
+    startTextWarp(id) {
+      const doc = app.doc;
+      const layer = doc && doc.state.layers.find((item) => item.id === id && item.kind === "text");
+      if (!layer || layer.warp || (layer.raster && layer.rotated)) return;
+      const f = frameOf(Object.assign({}, layer, { raster: null }), doc);
+      const [ax, ay] = anchorOf(layer.params.layerText, doc);
+      const width = Math.max(1, f.width);
+      const height = Math.max(1, f.height);
+      const warp = {
+        source: { left: f.left - ax, top: f.top - ay, width, height },
+        corners: [[f.left, f.top], [f.left + width, f.top], [f.left + width, f.top + height], [f.left, f.top + height]],
+        bendTop: [0, 0],
+        bendBottom: [0, 0],
+        wrap: 0,
+      };
+      commitState(doc, "Perspective", { layers: replaceLayer(doc, layer, { warp, raster: null }) });
+      firePanelEvent(EVENT_HISTORY);
+    },
+    // A base layer in, so that a whole gesture starts from the same surface
+    setTextWarp(base, warp, coalesce) {
+      const doc = app.doc;
+      if (!doc || !doc.state.layers.some((item) => item.id === base.id)) return;
+      commitState(doc, "Perspective", { layers: replaceLayer(doc, base, { warp }) }, coalesce);
+      firePanelEvent(EVENT_HISTORY);
+    },
+    // Back to a plain text, where the surface was
+    removeTextWarp(id) {
+      const doc = app.doc;
+      const layer = doc && doc.state.layers.find((item) => item.id === id && item.kind === "text");
+      if (!layer || !layer.warp) return;
+      const place = frameOf(layer, doc);
+      const plain = Object.assign({}, layer, { warp: null });
+      commitState(doc, "Perspective", { layers: replaceLayer(doc, layer, centredOn(plain, doc, place.xMid, place.yMid)) });
+      firePanelEvent(EVENT_HISTORY);
+    },
+    setTextVerticalAlign(ids, value) {
+      const doc = app.doc;
+      if (!doc) return;
+      const set = new Set(ids);
+      let changed = false;
+      const layers = doc.state.layers.map((layer) => {
+        const shape = set.has(layer.id) && layer.kind === "text" && boxShape(layer.params.layerText);
+        if (!shape || (shape.box.verticalAlign || "top") === value) return layer;
+        changed = true;
+        const params = clone(layer.params);
+        boxShape(params.layerText).box.verticalAlign = value;
+        return Object.assign({}, layer, { params, raster: null });
+      });
+      if (!changed) return;
+      commitState(doc, "Text Box", { layers });
       firePanelEvent(EVENT_HISTORY);
     },
     setTextAntiAlias(ids, value) {
@@ -2071,7 +2371,17 @@
 
   /* --------------------- what ExtendScript answers --------------------- */
 
-  const textProps = (layer) => clone(layer.params);
+  // Sizes are in points here, which are pixels only at 72 ppi
+  const typeUnitAt = (resolution) => (resolution === 72 ? "pixelsUnit" : "pointsUnit");
+
+  // Photoshop always names the unit, and the style window can't open without one
+  const textProps = (layer, doc) => Object.assign({ typeUnit: typeUnitAt(doc.resolution) }, clone(layer.params));
+
+  // As Photoshop's host: a stroke switched off keeps its settings but isn't applied
+  const strokeToApply = (stroke) => {
+    if (!stroke || stroke.enabled === false || (!(stroke.size > 0) && stroke.enabled !== true)) return null;
+    return Object.assign(clone(stroke), { enabled: true, size: stroke.size || 3 });
+  };
 
   const newTextLayer = (doc, params, stroke, name) => ({
     id: newId(),
@@ -2082,8 +2392,24 @@
     blend: "normal",
     group: null,
     params,
-    stroke: stroke && stroke.enabled ? clone(stroke) : null,
+    stroke: strokeToApply(stroke),
   });
+
+  const isPunctuationOnly = (text) => typeof text === "string" && /^[!?.,;:'"()\[\]~\-\u00A1\u00AB\u00BB\u00BF\u060C\u061B\u061F\u2013\u2014\u2018\u2019\u201C\u201D\u2026\u203C\u203D\u2047\u2048\u2049\u3001\u3002\u301C\uFF01\uFF1F\uFF5E]+$/.test(text.replace(/[\s\u00A0\u202F]+/g, ""));
+
+  // Style option: a line made only of punctuation ("?!", "!!") is set larger
+  const scaleForPunctuation = (style, text) => {
+    const scale = style ? parseFloat(style.punctuationOnlyScale) : 0;
+    if (!(scale > 1) || !isPunctuationOnly(text)) return style;
+    const scaled = clone(style);
+    const ranges = (scaled.textProps && scaled.textProps.layerText && scaled.textProps.layerText.textStyleRange) || [];
+    ranges.forEach((range) => {
+      ["size", "impliedFontSize", "leading", "impliedLeading"].forEach((field) => {
+        if (range.textStyle && typeof range.textStyle[field] === "number") range.textStyle[field] *= scale;
+      });
+    });
+    return scaled;
+  };
 
   // The style's text with its own runs, ready to be a layer
   const paramsFromStyle = (style, text, richTextRuns, sizeOverride) => {
@@ -2144,9 +2470,11 @@
 
   const classicParams = (doc, data, bounds) => {
     const padding = Number(data.padding) || 0;
-    const params = paramsFromStyle(data.style, data.text, data.richTextRuns, data.textSizeOverride);
+    const params = paramsFromStyle(scaleForPunctuation(data.style, data.text), data.text, data.richTextRuns, data.textSizeOverride);
     const base = params.layerText.textStyleRange[0].textStyle;
-    const lines = wrapWords(data.text, base, Math.max(24, bounds.width * 0.9 - padding * 2), doc.resolution);
+    // The enlarged text must not wrap in a box sized for the selection
+    const enlarged = !data.textSizeOverride && data.style && isPunctuationOnly(data.text) ? Math.max(1, parseFloat(data.style.punctuationOnlyScale) || 1) : 1;
+    const lines = wrapWords(data.text, base, Math.max(24, bounds.width * 0.9 - padding * 2) * enlarged, doc.resolution);
     if (!data.richTextRuns) {
       params.layerText.textKey = lines.join("\r");
       params.layerText.textStyleRange = [{ from: 0, to: params.layerText.textKey.length, textStyle: base }];
@@ -2187,7 +2515,7 @@
     layerId: layer.id,
     bounds: boxOf(layer, doc),
     textType: "point",
-    textProps: textProps(layer),
+    textProps: textProps(layer, doc),
     stroke: layer.stroke || { enabled: false, size: 0, opacity: 100, position: "outer", color: { r: 255, g: 255, b: 255 } },
   });
 
@@ -2206,7 +2534,10 @@
       return host.getUserFonts();
     },
     getHotkeyPressed() {
-      const k = app.keys;
+      // The panel only asks every 75 ms: a key tapped in between still counts
+      const k = app.keysSeen;
+      app.keysSeen = Object.assign({}, app.keys);
+      if (app.keysMuted && app.keysMuted()) return "a";
       let out = "a";
       if (k.meta) out += "WINa";
       if (k.ctrl) out += "CTRLa";
@@ -2325,12 +2656,17 @@
       const layer = activeTextLayer(doc);
       if (!doc || !layer) return "layer";
       const box = boxOf(layer, doc);
-      const style = data.style || { textProps: layer.params };
-      const params = paramsFromStyle(style, data.text, data.richTextRuns);
+      // A style-only apply has no text of its own: the layer keeps its text
+      const text = data.text || layer.params.layerText.textKey;
+      const style = data.style ? scaleForPunctuation(data.style, text) : { textProps: layer.params };
+      const kept = data.preserveActiveTextSize ? layer.params.layerText.textStyleRange[0].textStyle.size : null;
+      const params = paramsFromStyle(style, text, data.richTextRuns, kept);
       params.layerText.textClickPoint = clone(layer.params.layerText.textClickPoint);
       if (boxShape(layer.params.layerText)) params.layerText.textShape = clone(layer.params.layerText.textShape);
       else centreLayer(doc, params, null, box.xMid, box.yMid);
-      commitState(doc, "TyperTools Change", { layers: replaceLayer(doc, layer, { params, raster: null, source: String(data.text || ""), stroke: data.style && data.style.stroke && data.style.stroke.enabled ? clone(data.style.stroke) : layer.stroke, name: String(data.text).replace(/[\r\n]+/g, " ").substring(0, 60) }) });
+      const changes = { params, raster: null, stroke: (data.style && strokeToApply(data.style.stroke)) || layer.stroke };
+      if (data.text) Object.assign(changes, { source: String(data.text), name: String(data.text).replace(/[\r\n]+/g, " ").substring(0, 60) });
+      commitState(doc, "TyperTools Change", { layers: replaceLayer(doc, layer, changes) });
       return "";
     },
     setTextShapeRLayerText(data) {
@@ -2355,7 +2691,8 @@
         const layer = layers.find((entry) => String(entry.id) === String(item.layerId));
         if (!layer) return;
         const box = boxOf(layer, doc);
-        const params = paramsFromStyle(item.style || { textProps: layer.params }, item.text, item.richTextRuns);
+        const text = item.text || layer.params.layerText.textKey;
+        const params = paramsFromStyle(item.style ? scaleForPunctuation(item.style, text) : { textProps: layer.params }, text, item.richTextRuns);
         params.layerText.textClickPoint = clone(layer.params.layerText.textClickPoint);
         centreLayer(doc, params, null, box.xMid, box.yMid);
         layers = layers.map((entry) => (entry.id === layer.id ? Object.assign({}, entry, { params, raster: null }) : entry));
@@ -2463,11 +2800,25 @@
       selected.forEach((layer) => {
         const box = boxOf(layer, doc);
         const params = clone(layer.params);
-        params.layerText.textStyleRange.forEach((range) => {
+        const lt = params.layerText;
+        // The step applies to the displayed size; the other runs, a fixed leading and
+        // a box frame follow by the same ratio
+        const first = lt.textStyleRange[0].textStyle;
+        const shown = first.impliedFontSize || first.size;
+        const ratio = Math.max(1, shown + Number(value)) / shown;
+        lt.textStyleRange.forEach((range) => {
           const style = range.textStyle;
-          style.size = Math.max(1, (style.impliedFontSize || style.size) + Number(value));
+          style.size = Math.max(0.1, (style.impliedFontSize || style.size) * ratio);
           if (style.impliedFontSize != null) style.impliedFontSize = style.size;
+          if (style.autoLeading || style.leading == null) return;
+          style.leading = Math.max(0.1, (style.impliedLeading || style.leading) * ratio);
+          if (style.impliedLeading != null) style.impliedLeading = style.leading;
         });
+        const shape = boxShape(lt);
+        if (shape) {
+          shape.box.width = Math.max(1, shape.box.width * ratio);
+          shape.box.height = Math.max(1, shape.box.height * ratio);
+        }
         centreLayer(doc, params, null, box.xMid, box.yMid);
         layers = layers.map((entry) => (entry.id === layer.id ? Object.assign({}, entry, { params, raster: null }) : entry));
       });
@@ -2525,8 +2876,7 @@
           layers: layers.map(({ name, params, stroke }) => ({
             layerName: name,
             antiAlias: params.layerText.antiAlias || "antiAliasSmooth",
-            // Sizes are in points here, which are pixels only at 72 ppi
-            typeUnit: resolution === 72 ? "pixelsUnit" : "pointsUnit",
+            typeUnit: typeUnitAt(resolution),
             paragraphStyle: params.layerText.paragraphStyleRange[0].paragraphStyle,
             stroke: stroke || null,
             runs: params.layerText.textStyleRange.map((range) => range.textStyle),
@@ -2644,6 +2994,8 @@
       } else return JSON.stringify({ error: "trigger" });
       commitState(doc, "Select Again", { selection });
       emit("selection", selection);
+      // Photoshop reports it too: the panel knows its own replay and ignores it
+      setTimeout(() => firePanelEvent(EVENT_SET, descriptorFor(selection)), 0);
       return JSON.stringify({ ok: true });
     },
   };
@@ -2651,10 +3003,13 @@
   // Calls the panel makes all the time: they do not count as work
   const QUIET_CALL = /^\s*(getHotkeyPressed|getTypeRPanelSnapshot|getTypeRSelectionSnapshot|getActiveLayerTextIfChanged|getSelectionChanged|getCurrentSelection|getSelectedTextLayers|getUserFonts|getHistorySnapshot|smartPasteSelectionProbe|stopSelectionMonitoring|startSelectionMonitoring)\s*\(/;
 
+  // A smart paste doesn't hold clicks back: the panel queues the ones made meanwhile
+  const SMART_PASTE_CALL = /^\s*(smartPasteCapture|smartPasteMeasure|smartPasteCommit|restoreHistoryState)\s*\(/;
+
   // ExtendScript's evalScript: the panel sends a line of JavaScript
   const evalScript = (script, callback) => {
     const source = String(script);
-    const quiet = QUIET_CALL.test(source);
+    const quiet = QUIET_CALL.test(source) || SMART_PASTE_CALL.test(source);
     if (!quiet) {
       app.pendingActions++;
       app.lastAction = Date.now();
@@ -2693,6 +3048,7 @@
     lineModel,
     lineWidth,
     layoutLayer,
+    surfaceOf,
     isDirty,
     newRaster,
     newId,
@@ -2727,6 +3083,17 @@
     },
     setKeys(keys) {
       Object.assign(app.keys, keys);
+      if (keys.key) app.keysSeen = Object.assign({}, app.keys);
+      else ["meta", "ctrl", "alt", "shift"].forEach((name) => {
+        if (keys[name]) app.keysSeen[name] = true;
+      });
+    },
+    clearKeys() {
+      app.keys = { meta: false, ctrl: false, alt: false, shift: false, key: "" };
+      app.keysSeen = Object.assign({}, app.keys);
+    },
+    muteKeys(test) {
+      app.keysMuted = test;
     },
     keyName(event) {
       const key = event.key;
@@ -2735,7 +3102,14 @@
       if (key === "+") return "PLUS";
       if (key === "-") return "MINUS";
       if (key === "=") return "EQUAL";
+      if (key === "/") return "DIVIDE";
+      if (key === "*") return "MULTIPLY";
       if (key === "Escape") return "ESCAPE";
+      // Read as Settings records it: Option+L types "¬", AZERTY's 1 types "&", and both are still L and 1
+      const code = event.keyCode;
+      if ((code >= 48 && code <= 57) || (code >= 65 && code <= 90)) return String.fromCharCode(code);
+      // Option+L on a Mac types "¬", and a Cyrillic layout "д": the shortcut means the physical letter
+      if (/^Key[A-Z]$/.test(event.code || "") && (key === "Dead" || (key.length === 1 && key.charCodeAt(0) > 127))) return event.code.slice(3);
       return key.toUpperCase();
     },
   };

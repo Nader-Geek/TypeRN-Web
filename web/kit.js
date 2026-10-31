@@ -60,6 +60,65 @@
     };
   };
 
+  const deflate = (bytes) => new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer().then((buffer) => new Uint8Array(buffer));
+
+  const CRC_TABLE = Int32Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c;
+  });
+  const crc32 = (bytes) => {
+    let crc = -1;
+    for (let i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ bytes[i]) & 0xff];
+    return (crc ^ -1) >>> 0;
+  };
+
+  // The same archive TypeR writes in Photoshop: { name, data } entries, as a Blob
+  const writeArchive = async (entries) => {
+    const parts = [];
+    const central = [];
+    let offset = 0;
+    const now = new Date();
+    const time = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+    const day = (Math.max(now.getFullYear() - 1980, 0) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+    for (const entry of entries) {
+      const name = new TextEncoder().encode(entry.name);
+      const crc = crc32(entry.data);
+      let packed = await deflate(entry.data);
+      const method = packed.length < entry.data.length ? 8 : 0;
+      if (!method) packed = entry.data;
+      const fields = (view, at) => {
+        view.setUint16(at, 20, true);
+        view.setUint16(at + 2, 0x0800, true); // UTF-8 file names
+        view.setUint16(at + 4, method, true);
+        view.setUint16(at + 6, time, true);
+        view.setUint16(at + 8, day, true);
+        view.setUint32(at + 10, crc, true);
+        view.setUint32(at + 14, packed.length, true);
+        view.setUint32(at + 18, entry.data.length, true);
+        view.setUint16(at + 22, name.length, true);
+      };
+      const local = new DataView(new ArrayBuffer(30));
+      local.setUint32(0, 0x04034b50, true);
+      fields(local, 4);
+      const header = new DataView(new ArrayBuffer(46));
+      header.setUint32(0, 0x02014b50, true);
+      header.setUint16(4, 20, true);
+      fields(header, 6);
+      header.setUint32(42, offset, true);
+      central.push(header, name);
+      parts.push(local, name, packed);
+      offset += 30 + name.length + packed.length;
+    }
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true);
+    end.setUint16(8, entries.length, true);
+    end.setUint16(10, entries.length, true);
+    end.setUint32(12, central.reduce((size, part) => size + part.byteLength, 0), true);
+    end.setUint32(16, offset, true);
+    return new Blob([...parts, ...central, end]);
+  };
+
   const baseName = (name) => name.split(/[\\/]/).pop();
 
   // { json: [{ name, text }], fonts: [{ name, buffer }] }
@@ -109,7 +168,7 @@
   };
 
   const STYLE_FIELDS = ["name", "textType", "textProps", "prefixes", "prefixColor", "prefixesDisabled", "stroke", "sizePresets", "autoSizeByPageWidth", "sizePresetDefaultIndex", "sizePresetMinWidths", "punctuationOnlyScale", "bubbleType"];
-  const SETTING_FIELDS = ["ignoreLinePrefixes", "ignoreTags", "autoClosePSD", "autoScrollStyle", "currentFolderTagPriority", "pastePointText", "smartPaste", "pasteOnClick", "smartPasteAutoClean", "smartPasteDistribute", "smartPasteMinScale", "smartPasteHyphenation", "refontRules"];
+  const SETTING_FIELDS = ["ignoreLinePrefixes", "ignoreTags", "autoClosePSD", "currentFolderTagPriority", "pastePointText", "smartPaste", "pasteOnClick", "smartPasteAutoClean", "smartPasteDistribute", "smartPasteMinScale", "smartPasteHyphenation", "refontRules"];
 
   const newId = () => Math.random().toString(36).substring(2, 8);
 
@@ -118,7 +177,15 @@
     STYLE_FIELDS.forEach((field) => {
       if (style[field] !== undefined) out[field] = style[field];
     });
+    giveTypeUnit(out);
     return out;
+  };
+
+  // The style window can't open a style that doesn't name its unit
+  const giveTypeUnit = (style) => {
+    if (!style.textProps || style.textProps.typeUnit) return false;
+    style.textProps.typeUnit = "pixelsUnit";
+    return true;
   };
 
   // Earlier versions started with a practice folder: it goes, unless it was edited
@@ -212,6 +279,20 @@
       if (!known || row.time >= known.time) memory.set(row.path, { text: row.text, time: row.time });
     });
     cleanPracticeStyles();
+    repairTypeUnits();
+  };
+
+  // Styles taken from a layer here before the host named the unit
+  const repairTypeUnits = () => {
+    memory.forEach((entry, path) => {
+      if (!/^\/typer\/storage(_profile_.+)?$/.test(path)) return;
+      try {
+        const storage = JSON.parse(entry.text);
+        if ((storage.styles || []).filter(giveTypeUnit).length) keep(path, JSON.stringify(storage));
+      } catch (error) {
+        console.warn("TypeR web: could not repair a storage file", error);
+      }
+    });
   };
 
   const cleanPracticeStyles = () => {
@@ -272,6 +353,22 @@
   // What TypeR starts from; a user who imports their styles first skips the tutorial
   const freshStorage = (firstTime) => ({ notFirstTime: !firstTime, whatsNewSeen: "3.0", checkUpdates: false, autoUpdate: false, textShapeRPerformanceTipShown: true });
 
+  // A phone starts ready to work: a tap on a bubble pastes, and the text fits it, which takes
+  // a style. Typing out a style's settings is no way to start on a phone.
+  const freshTouchStorage = (name) => Object.assign(freshStorage(false), {
+    pasteOnClick: true,
+    currentStyleId: "starter",
+    styles: [{
+      id: "starter",
+      name,
+      folder: null,
+      textType: "inherit",
+      prefixes: [],
+      edited: Date.now(),
+      textProps: { typeUnit: "pixelsUnit", layerText: { antiAlias: "antiAliasSmooth", textStyleRange: [{ from: 0, to: 1, textStyle: { fontPostScriptName: "WildjessNormal", fontName: "Wildjess", fontStyleName: "Normal", size: 32, autoLeading: true, color: { red: 0, green: 0, blue: 0 } } }], paragraphStyleRange: [{ from: 0, to: 1, paragraphStyle: { alignment: "center" } }] } },
+    }],
+  });
+
   const activeStoragePath = () => {
     let active = "default";
     try {
@@ -283,5 +380,5 @@
     return active === "default" ? `${ROOT}/storage` : `${ROOT}/storage_profile_${active}`;
   };
 
-  window.TypeRKit = { readArchive, validate, mergeInto, keeps, loadFiles, read, keep, forget, storedPaths, activeStoragePath, freshStorage, ROOT };
+  window.TypeRKit = { readArchive, writeArchive, validate, mergeInto, keeps, loadFiles, read, keep, forget, storedPaths, activeStoragePath, freshStorage, freshTouchStorage, ROOT };
 })();

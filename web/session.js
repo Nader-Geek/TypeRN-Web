@@ -316,7 +316,7 @@
 
   // The active document first, so there's something to work on at once. The others join
   // their tabs as they come.
-  const restore = async ({ progress, failed }) => {
+  const restore = async ({ progress, failed, elsewhere }) => {
     let records = [];
     try {
       records = await inStore("documents", "readonly", (store) => store.getAll());
@@ -332,13 +332,21 @@
     } catch (error) {
       active = null;
     }
-    const first = records.find((record) => record.uid === active) || records[0];
-    if (first) progress(first.name);
-    const order = first ? [first].concat(records.filter((record) => record !== first)) : [];
+    const wanted = records.find((record) => record.uid === active) || records[0];
+    const order = wanted ? [wanted].concat(records.filter((record) => record !== wanted)) : [];
     const rank = new Map();
+    let first = null;
+    let held = false;
     for (const record of order) {
       const release = await claim(record.uid);
-      if (!release) continue;
+      if (!release) {
+        held = true;
+        continue;
+      }
+      if (!first) {
+        first = record;
+        progress(record.name);
+      }
       try {
         const keep = newKeep(record.uid);
         keep.release = release;
@@ -359,6 +367,7 @@
       if (record === first) progress(null);
     }
     if (first) schedule();
+    if (held) elsewhere();
     await cleanLeftovers().catch((error) => console.warn("TypeR web: could not clean the kept documents", error));
   };
 

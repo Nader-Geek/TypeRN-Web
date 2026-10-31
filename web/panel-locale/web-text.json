@@ -4,76 +4,98 @@
     "settingsResetProfileConfirm": "Delete all of TypeR's data and settings?",
     "settingsResetProfileSuccess": "TypeR has been reset. The panel will reload.",
     "settingsResetProfileError": "Unable to reset TypeR.",
-    "settingsResetProfileHint": "Deletes your settings, styles, scripts and saved work."
+    "settingsResetProfileHint": "Deletes your settings, styles, scripts and saved work.",
+    "whatsNewFontsResult1": "Missing fonts are flagged in FontScanR and when you import a style folder: search for them on the web, then load their files under File > Loaded Fonts.",
+    "whatsNewFontsCoachScan": "FontScanR: pick .psd files. It lists every font they use, with its size, color and stroke, and turns the ones you tick into styles. A font you do not have gets a button that searches for it on the web."
   },
   "fr_FR": {
     "settingsResetProfile": "Réinitialiser TypeR",
     "settingsResetProfileConfirm": "Supprimer toutes les données et tous les réglages de TypeR ?",
     "settingsResetProfileSuccess": "TypeR réinitialisé. Le panneau va redémarrer.",
     "settingsResetProfileError": "Impossible de réinitialiser TypeR.",
-    "settingsResetProfileHint": "Supprime les réglages, styles, scripts et travaux sauvegardés."
+    "settingsResetProfileHint": "Supprime les réglages, styles, scripts et travaux sauvegardés.",
+    "whatsNewFontsResult1": "Les polices manquantes sont signalées dans FontScanR et à l’import d’un dossier de styles : cherchez-les sur le web, puis chargez leurs fichiers dans Fichier > Polices chargées.",
+    "whatsNewFontsCoachScan": "FontScanR : choisissez des fichiers .psd. Il liste chaque police utilisée, avec sa taille, sa couleur et son contour, et transforme celles que vous cochez en styles. Une police que vous n’avez pas a un bouton qui la cherche sur le web."
   },
   "es_SP": {
     "settingsResetProfile": "Restablecer TypeR",
     "settingsResetProfileConfirm": "¿Eliminar todos los datos y ajustes de TypeR?",
     "settingsResetProfileSuccess": "TypeR restablecido. El panel se volverá a cargar.",
     "settingsResetProfileError": "No se pudo restablecer TypeR.",
-    "settingsResetProfileHint": "Elimina los ajustes, estilos, guiones y trabajos guardados."
+    "settingsResetProfileHint": "Elimina los ajustes, estilos, guiones y trabajos guardados.",
+    "whatsNewFontsResult1": "Las fuentes que faltan se señalan en FontScanR y al importar una carpeta de estilos: búscalas en la web y carga sus archivos en Archivo > Fuentes cargadas.",
+    "whatsNewFontsCoachScan": "FontScanR: elige archivos .psd. Lista cada fuente usada, con su tamaño, color y contorno, y convierte en estilos las que marques. Una fuente que no tienes tiene un botón que la busca en la web."
   },
   "it_IT": {
     "settingsResetProfile": "Ripristina TypeR",
     "settingsResetProfileConfirm": "Eliminare tutti i dati e le impostazioni di TypeR?",
     "settingsResetProfileSuccess": "TypeR ripristinato. Il pannello verrà ricaricato.",
     "settingsResetProfileError": "Impossibile ripristinare TypeR.",
-    "settingsResetProfileHint": "Elimina impostazioni, stili, script e lavori salvati."
+    "settingsResetProfileHint": "Elimina impostazioni, stili, script e lavori salvati.",
+    "whatsNewFontsResult1": "I font mancanti vengono segnalati in FontScanR e quando importi una cartella di stili: cercali sul web, poi carica i loro file in File > Font caricati.",
+    "whatsNewFontsCoachScan": "FontScanR: scegli dei file .psd. Elenca ogni font usato, con dimensione, colore e contorno, e trasforma in stili quelli che spunti. Un font che non hai ha un pulsante che lo cerca sul web."
   },
   "de_DE": {
     "settingsResetProfile": "TypeR zurücksetzen",
     "settingsResetProfileConfirm": "Alle Daten und Einstellungen von TypeR löschen?",
     "settingsResetProfileSuccess": "TypeR zurückgesetzt. Das Bedienfeld wird neu geladen.",
     "settingsResetProfileError": "TypeR konnte nicht zurückgesetzt werden.",
-    "settingsResetProfileHint": "Löscht Einstellungen, Stile, Skripte und gespeicherte Arbeiten."
+    "settingsResetProfileHint": "Löscht Einstellungen, Stile, Skripte und gespeicherte Arbeiten.",
+    "whatsNewFontsResult1": "Fehlende Schriften werden in FontScanR und beim Import eines Stilordners angezeigt: Suche sie im Web und lade ihre Dateien unter Datei > Geladene Schriftarten.",
+    "whatsNewFontsCoachScan": "FontScanR: Wähle .psd-Dateien aus. Es listet jede verwendete Schrift mit Größe, Farbe und Kontur auf und macht aus den angehakten Stile. Für eine Schrift, die du nicht hast, gibt es eine Schaltfläche für die Websuche."
   },
   "pt_BR": {
     "settingsResetProfile": "Redefinir o TypeR",
     "settingsResetProfileConfirm": "Excluir todos os dados e configurações do TypeR?",
     "settingsResetProfileSuccess": "TypeR redefinido. O painel será recarregado.",
     "settingsResetProfileError": "Não foi possível redefinir o TypeR.",
-    "settingsResetProfileHint": "Exclui as configurações, estilos, roteiros e trabalhos salvos."
+    "settingsResetProfileHint": "Exclui as configurações, estilos, roteiros e trabalhos salvos.",
+    "whatsNewFontsResult1": "As fontes que faltam são indicadas no FontScanR e ao importar uma pasta de estilos: procure-as na web e carregue os arquivos em Arquivo > Fontes carregadas.",
+    "whatsNewFontsCoachScan": "FontScanR: escolha arquivos .psd. Ele lista cada fonte usada, com tamanho, cor e contorno, e transforma em estilos as que você marcar. Uma fonte que você não tem ganha um botão que a procura na web."
   },
   "ru_RU": {
     "settingsResetProfile": "Сбросить TypeR",
     "settingsResetProfileConfirm": "Удалить все данные и настройки TypeR?",
     "settingsResetProfileSuccess": "TypeR сброшен. Панель будет перезагружена.",
     "settingsResetProfileError": "Не удалось сбросить TypeR.",
-    "settingsResetProfileHint": "Удаляет настройки, стили, сценарии и сохранённые работы."
+    "settingsResetProfileHint": "Удаляет настройки, стили, сценарии и сохранённые работы.",
+    "whatsNewFontsResult1": "Недостающие шрифты отмечаются в FontScanR и при импорте папки стилей: найдите их в интернете и загрузите файлы через Файл > Загруженные шрифты.",
+    "whatsNewFontsCoachScan": "FontScanR: выберите файлы .psd. Он покажет все использованные шрифты с размером, цветом и обводкой и превратит отмеченные в стили. Для шрифта, которого у вас нет, есть кнопка поиска в интернете."
   },
   "uk_UA": {
     "settingsResetProfile": "Скинути TypeR",
     "settingsResetProfileConfirm": "Видалити всі дані й налаштування TypeR?",
     "settingsResetProfileSuccess": "TypeR скинуто. Панель буде перезавантажено.",
     "settingsResetProfileError": "Не вдалося скинути TypeR.",
-    "settingsResetProfileHint": "Видаляє налаштування, стилі, сценарії та збережені роботи."
+    "settingsResetProfileHint": "Видаляє налаштування, стилі, сценарії та збережені роботи.",
+    "whatsNewFontsResult1": "Шрифти, яких бракує, позначаються у FontScanR та під час імпорту папки стилів: знайдіть їх в інтернеті й завантажте файли через Файл > Завантажені шрифти.",
+    "whatsNewFontsCoachScan": "FontScanR: виберіть файли .psd. Він покаже всі використані шрифти з розміром, кольором і обведенням та перетворить позначені на стилі. Для шрифту, якого у вас немає, є кнопка пошуку в інтернеті."
   },
   "tr_TR": {
     "settingsResetProfile": "TypeR'ı sıfırla",
     "settingsResetProfileConfirm": "TypeR'ın tüm verileri ve ayarları silinsin mi?",
     "settingsResetProfileSuccess": "TypeR sıfırlandı. Panel yeniden yüklenecek.",
     "settingsResetProfileError": "TypeR sıfırlanamadı.",
-    "settingsResetProfileHint": "Ayarları, stilleri, betikleri ve kayıtlı çalışmaları siler."
+    "settingsResetProfileHint": "Ayarları, stilleri, betikleri ve kayıtlı çalışmaları siler.",
+    "whatsNewFontsResult1": "Eksik yazı tipleri FontScanR'da ve bir stil klasörü içe aktarılırken belirtilir: web'de arayın, sonra dosyalarını Dosya > Yüklenen Yazı Tipleri'nden yükleyin.",
+    "whatsNewFontsCoachScan": "FontScanR: .psd dosyaları seçin. Kullanılan her yazı tipini boyutu, rengi ve konturuyla listeler, işaretlediklerinizi stile dönüştürür. Sizde olmayan bir yazı tipi için web'de arama düğmesi vardır."
   },
   "vi_VN": {
     "settingsResetProfile": "Đặt lại TypeR",
     "settingsResetProfileConfirm": "Xóa toàn bộ dữ liệu và cài đặt của TypeR?",
     "settingsResetProfileSuccess": "Đã đặt lại TypeR. Bảng sẽ tải lại.",
     "settingsResetProfileError": "Không thể đặt lại TypeR.",
-    "settingsResetProfileHint": "Xóa cài đặt, kiểu chữ, kịch bản và công việc đã lưu."
+    "settingsResetProfileHint": "Xóa cài đặt, kiểu chữ, kịch bản và công việc đã lưu.",
+    "whatsNewFontsResult1": "Phông còn thiếu được báo trong FontScanR và khi nhập thư mục style: hãy tìm trên web rồi tải tệp của chúng trong Tệp > Phông chữ đã tải.",
+    "whatsNewFontsCoachScan": "FontScanR: chọn các tệp .psd. Công cụ liệt kê mọi phông được dùng, kèm kích thước, màu và viền, rồi biến những phông bạn đánh dấu thành style. Phông bạn chưa có sẽ có nút tìm trên web."
   },
   "ar_AE": {
     "settingsResetProfile": "إعادة تعيين TypeR",
     "settingsResetProfileConfirm": "هل تريد حذف جميع بيانات وإعدادات TypeR؟",
     "settingsResetProfileSuccess": "تمت إعادة تعيين TypeR. ستتم إعادة تحميل اللوحة.",
     "settingsResetProfileError": "تعذرت إعادة تعيين TypeR.",
-    "settingsResetProfileHint": "يحذف الإعدادات والأنماط والنصوص والأعمال المحفوظة."
+    "settingsResetProfileHint": "يحذف الإعدادات والأنماط والنصوص والأعمال المحفوظة.",
+    "whatsNewFontsResult1": "يُشار إلى الخطوط الناقصة في FontScanR وعند استيراد مجلد أنماط: ابحث عنها على الويب، ثم حمّل ملفاتها من ملف > الخطوط المحمّلة.",
+    "whatsNewFontsCoachScan": "FontScanR: اختر ملفات ‎.psd. يعرض كل خط مستخدم مع حجمه ولونه وحدّه، ويحوّل الخطوط التي تحددها إلى أنماط. للخط غير المتوفر لديك زر يبحث عنه على الويب."
   }
 }

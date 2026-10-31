@@ -18,4 +18,4 @@ for dir in "$SOURCE"/locale/*/; do
   mkdir -p "$TARGET/locale/$name"
   cp "$dir/messages.properties" "$TARGET/locale/$name/"
 done
-echo "Panel copied from $SOURCE. Run scripts/build-assets.mjs if the engine changed."
+echo "Panel copied from $SOURCE."
