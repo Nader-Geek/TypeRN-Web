@@ -1,7 +1,7 @@
-// The page is written in English; other languages come from translations.js, or for
-// the web version from web/strings/. Runs in the head, so a visitor never sees a
-// language change. A link with ?lang= picks a language and keeps it; otherwise the
-// browser's languages decide, in the user's order.
+// The web version is written in English; other languages come from web/strings/.
+// Runs in the head, so a visitor never sees a language change. A link with ?lang=
+// picks a language and keeps it; otherwise the browser's languages decide, in the
+// user's order.
 (function () {
   const strings = window.TYPER_STRINGS || {};
   const supported = window.TYPER_SUPPORTED || ["en", "fr", "es"];
