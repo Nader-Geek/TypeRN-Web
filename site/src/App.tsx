@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import Nav from "./components/Nav";
 import Hero from "./components/Hero";
+import Trailer from "./components/Trailer";
 import Story from "./components/Story";
 import Toolkit from "./components/Toolkit";
 import Install from "./components/Install";
@@ -28,6 +29,7 @@ export default function App() {
       <Nav />
       <main id="main">
         <Hero />
+        <Trailer />
         <Story />
         <Toolkit />
         <Install />

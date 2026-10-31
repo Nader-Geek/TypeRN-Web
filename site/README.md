@@ -20,13 +20,13 @@ index.html               the page shell: SEO, Open Graph and Twitter tags, favic
 404.html                 the not-found page (a second Vite entry)
 src/App.tsx              the sections in order
 content/news/            the news posts, one Markdown file each
-src/components/          Nav, Hero, Story (What's new), Toolkit, Install, Help, News, NewsPages, Footer
+src/components/          Nav, Hero, Trailer, Story (What's new), Toolkit, Install, Help, News, NewsPages, Footer
 src/news/                reads the posts and renders the news pages
 src/data/content.ts      links, install commands, nav, story steps, toolkit (with the "New" flags), FAQ
 src/hooks/               the scroll loop: nav state, hero tilt, story steps, scroll spy
 src/styles/site.css      tokens at the top (:root), then one block per section
 public/                  copied as-is: fonts, images, the story clips, og.png, robots.txt, sitemap.xml
-scripts/                 build-news.mjs writes the news pages; publish.mjs copies the build to the root; `node scripts/make-og.mjs` renders public/og.png; make-clips.sh cuts the story clips
+scripts/                 build-news.mjs writes the news pages; publish.mjs copies the build to the root; `node scripts/make-og.mjs` renders public/og.png; make-clips.sh cuts the story clips; make-trailer.sh compresses the trailer
 tests/                   Playwright: the basics
 ```
 
@@ -76,6 +76,9 @@ cover: /images/news/3-1.webp
   get one with `isNew: true`.
 - **Story clips.** `public/videos/` holds one clip and poster per story step, cut from the trailer recordings with
   `zsh scripts/make-clips.sh "<recordings folder>"`. Keep file dialogs, the menu bar and the Dock out of the cuts.
+- **Trailer.** `public/videos/trailer-av1.mp4`, `trailer.mp4` (H.264, for the browsers without AV1) and the poster come
+  from the final render, with `zsh scripts/make-trailer.sh "<trailer render>"`. Keep each file under 50 MB, where GitHub starts warning.
+  Seeking needs a server that honours byte ranges: `npm run preview` and GitHub Pages do, Python's `http.server` doesn't.
 - **Accent colour.** Change `--accent`, `--accent-hi` and `--accent-ink` in `:root`.
 - **Dela Gothic One** only contains the Japanese glyphs used on the page. To add kana or kanji, re-subset it from
   `@fontsource/dela-gothic-one` with `pyftsubset`.

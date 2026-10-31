@@ -113,7 +113,7 @@ export default function Install() {
                   </>
                 ) : (
                   <>
-                    Open Terminal in the folder and run <code>bash install_mac.sh</code>.
+                    Open Terminal in the folder and run <code>bash install_mac.command</code>.
                   </>
                 )}
               </li>
