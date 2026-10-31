@@ -77,7 +77,7 @@ cover: /images/news/3-1.webp
 - **Story clips.** `public/videos/` holds one clip and poster per story step, cut from the trailer recordings with
   `zsh scripts/make-clips.sh "<recordings folder>"`. Keep file dialogs, the menu bar and the Dock out of the cuts.
 - **Trailer.** `public/videos/trailer-av1.mp4`, `trailer.mp4` (H.264, for the browsers without AV1) and the poster come
-  from the final render, with `zsh scripts/make-trailer.sh "<trailer render>"`. Keep each file under 50 MB, where GitHub starts warning.
+  from the final render, with `zsh scripts/make-trailer.sh "<trailer render>" "<first frame image>"`. Keep each file under 50 MB, where GitHub starts warning.
   Seeking needs a server that honours byte ranges: `npm run preview` and GitHub Pages do, Python's `http.server` doesn't.
 - **Accent colour.** Change `--accent`, `--accent-hi` and `--accent-ink` in `:root`.
 - **Dela Gothic One** only contains the Japanese glyphs used on the page. To add kana or kanji, re-subset it from
