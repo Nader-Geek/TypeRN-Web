@@ -38,7 +38,9 @@ input[type="checkbox"] { accent-color: var(--blue); margin: 0; }
 input[type="range"] { accent-color: var(--blue); width: 90px; height: 14px; }
 :focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
 
-.app { display: grid; grid-template-rows: 30px 36px minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); width: 100%; height: 100dvh; overflow: hidden; }
+.app { display: grid; grid-template-rows: 30px 36px auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); width: 100%; height: 100dvh; overflow: hidden; }
+.fontbar { grid-row: 3; display: flex; align-items: center; gap: 10px; padding: 5px 10px; background: var(--ui-dark); border-bottom: 1px solid var(--line); box-shadow: inset 2px 0 0 var(--blue); color: var(--text); }
+.fontbar .tab__close { margin-left: auto; }
 
 /* the menu bar */
 .mbar { position: relative; z-index: 30; display: flex; align-items: center; gap: 2px; padding: 0 8px; background: var(--ui-darker); border-bottom: 1px solid var(--line); }
@@ -94,12 +96,13 @@ input[type="range"] { accent-color: var(--blue); width: 90px; height: 14px; }
 .font-menu__empty { padding: 6px 10px 10px; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .font-menu__more { flex: none; padding: 7px 10px; border-top: 1px solid var(--line); color: var(--text); text-align: left; }
 .font-menu__more:hover { background: var(--ui-3); }
+.font-menu__use { flex: none; margin: 0 6px 6px; }
 .obar__gap { margin-left: 6px; }
 .obar__end { flex: none; position: sticky; right: 0; margin-left: auto; background: var(--ui); box-shadow: -8px 0 6px var(--ui); }
 .obar__wide { min-width: 170px; }
 .obar__hint { color: var(--muted); }
 
-.work { display: grid; grid-template-columns: var(--tool) minmax(0, 1fr) 360px 250px; min-height: 0; }
+.work { grid-row: 4; display: grid; grid-template-columns: var(--tool) minmax(0, 1fr) 360px 250px; min-height: 0; }
 
 /* the tools */
 .tools { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; background: var(--ui); border-right: 1px solid var(--line); overflow-y: auto; scrollbar-width: none; }

@@ -108,8 +108,8 @@
   const useInstalled = async () => {
     if (!canListInstalled()) return 0;
     const entries = await window.queryLocalFonts();
-    addInstalled(entries);
     installedListed = true;
+    addInstalled(entries);
     return entries.length;
   };
 

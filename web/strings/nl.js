@@ -269,6 +269,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Undo": "Ongedaan maken",
     "Unlock Layer": "Laag ontgrendelen",
     "Untitled": "Naamloos",
+    "TypeR can't see the fonts on your computer yet.": "TypeR ziet de lettertypen op je computer nog niet.",
     "Use Installed Fonts…": "Geïnstalleerde lettertypen gebruiken…",
     "View": "Weergave",
     "White": "Wit",

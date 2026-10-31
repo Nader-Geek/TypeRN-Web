@@ -269,6 +269,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Undo": "取り消し",
     "Unlock Layer": "レイヤーのロックを解除",
     "Untitled": "名称未設定",
+    "TypeR can't see the fonts on your computer yet.": "TypeR はまだこのコンピューターのフォントを認識していません。",
     "Use Installed Fonts…": "インストール済みフォントを使用…",
     "View": "表示",
     "White": "白",

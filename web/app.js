@@ -964,7 +964,7 @@
     if (Fonts.canListInstalled() && !Fonts.installedListed()) {
       const more = document.createElement("button");
       more.type = "button";
-      more.className = "font-menu__more";
+      more.className = "btn btn--main font-menu__use";
       more.textContent = T("Use Installed Fonts…");
       more.addEventListener("click", async () => {
         await useInstalledFonts();
@@ -972,7 +972,7 @@
         draw();
         search.focus();
       });
-      menu.appendChild(more);
+      menu.insertBefore(more, list);
     }
 
     document.body.appendChild(menu);
@@ -2163,6 +2163,14 @@
       warn.style.margin = "0";
       warn.textContent = fill(T("Missing font: {font}"), { font: style.fontPostScriptName });
       host.appendChild(warn);
+      if (Fonts.canListInstalled() && !Fonts.installedListed()) {
+        const use = document.createElement("button");
+        use.type = "button";
+        use.className = "btn btn--small wide";
+        use.textContent = T("Use Installed Fonts…");
+        use.addEventListener("click", useInstalledFonts);
+        host.appendChild(use);
+      }
     }
     host.append(labelled(T("Size"), withSteps(c.size)));
     const leading = document.createElement("input");
@@ -2806,6 +2814,40 @@
     } catch (error) {
       toast(T("The browser refused access to your fonts."), true);
     }
+  };
+
+  // Most people come with their own fonts, so the workspace asks for them until they're
+  // in, refused or waved away. A browser that can't list them gets their files instead.
+  const FONTBAR_CLOSED = "typer.web.fontbarClosed";
+  const initFontBar = async () => {
+    const canList = Fonts.canListInstalled();
+    const access = canList && navigator.permissions ? await navigator.permissions.query({ name: "local-fonts" }).catch(() => null) : null;
+    const closed = () => {
+      try {
+        return Boolean(window.localStorage.getItem(FONTBAR_CLOSED));
+      } catch (error) {
+        return false;
+      }
+    };
+    const render = () => {
+      const settled = canList ? Fonts.installedListed() || (access && access.state === "denied") : Fonts.loadedFiles().length > 0;
+      $("fontbar").hidden = closed() || Boolean(settled);
+    };
+    $("fontbar-text").textContent = canList ? T("TypeR can't see the fonts on your computer yet.") : T("This browser can't list your fonts: load their files instead (Chrome and Edge can).");
+    $("fontbar-use").textContent = canList ? T("Use Installed Fonts…") : T("Load Font Files…");
+    $("fontbar-use").addEventListener("click", canList ? useInstalledFonts : chooseFonts);
+    $("fontbar-close").setAttribute("aria-label", T("Close"));
+    $("fontbar-close").addEventListener("click", () => {
+      try {
+        window.localStorage.setItem(FONTBAR_CLOSED, "1");
+      } catch (error) {
+        // Without storage it only stays closed for this visit
+      }
+      $("fontbar").hidden = true;
+    });
+    if (access) access.addEventListener("change", render);
+    Fonts.onChange(render);
+    render();
   };
 
   const fillSelectionCheck = (color) => {
@@ -3458,6 +3500,7 @@
   const boot = async () => {
     await PS.ops.fontsReady();
     await Promise.all([Fonts.restore().catch(() => null), Kit.loadFiles().catch(() => null)]);
+    initFontBar();
     startPanel();
     await window.TypeRSession.restore({
       progress: (name) => working(name ? fill(T("Opening {name}…"), { name }) : null),

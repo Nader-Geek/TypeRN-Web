@@ -269,6 +269,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Undo": "เลิกทำ",
     "Unlock Layer": "ปลดล็อก Layer",
     "Untitled": "ไม่มีชื่อ",
+    "TypeR can't see the fonts on your computer yet.": "TypeR ยังมองไม่เห็นฟอนต์ในคอมพิวเตอร์ของคุณ",
     "Use Installed Fonts…": "ใช้ฟอนต์ที่ติดตั้งไว้…",
     "View": "มุมมอง",
     "White": "ขาว",
