@@ -269,6 +269,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Undo": "Geri Al",
     "Unlock Layer": "Katmanın Kilidini Aç",
     "Untitled": "Adsız",
+    "TypeR can't see the fonts on your computer yet.": "TypeR bilgisayarınızdaki yazı tiplerini henüz göremiyor.",
     "Use Installed Fonts…": "Yüklü Yazı Tiplerini Kullan…",
     "View": "Görünüm",
     "White": "Beyaz",

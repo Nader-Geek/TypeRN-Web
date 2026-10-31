@@ -269,6 +269,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Undo": "Rückgängig",
     "Unlock Layer": "Ebenenfixierung aufheben",
     "Untitled": "Unbenannt",
+    "TypeR can't see the fonts on your computer yet.": "TypeR kann die Schriftarten auf Ihrem Computer noch nicht sehen.",
     "Use Installed Fonts…": "Installierte Schriftarten verwenden…",
     "View": "Ansicht",
     "White": "Weiß",

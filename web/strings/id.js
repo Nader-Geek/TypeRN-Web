@@ -269,6 +269,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Undo": "Urungkan",
     "Unlock Layer": "Buka kunci layer",
     "Untitled": "Tanpa judul",
+    "TypeR can't see the fonts on your computer yet.": "TypeR belum dapat melihat font di komputer Anda.",
     "Use Installed Fonts…": "Gunakan Font yang Terpasang…",
     "View": "Tampilan",
     "White": "Putih",

@@ -269,6 +269,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Undo": "실행 취소",
     "Unlock Layer": "레이어 잠금 해제",
     "Untitled": "제목 없음",
+    "TypeR can't see the fonts on your computer yet.": "TypeR에서 아직 이 컴퓨터의 글꼴을 볼 수 없습니다.",
     "Use Installed Fonts…": "설치된 글꼴 사용…",
     "View": "보기",
     "White": "흰색",

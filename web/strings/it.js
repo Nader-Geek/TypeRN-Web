@@ -269,6 +269,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Undo": "Annulla",
     "Unlock Layer": "Sblocca livello",
     "Untitled": "Senza titolo",
+    "TypeR can't see the fonts on your computer yet.": "TypeR non vede ancora i font del tuo computer.",
     "Use Installed Fonts…": "Usa font installati…",
     "View": "Visualizza",
     "White": "Bianco",

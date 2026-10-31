@@ -269,6 +269,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Undo": "还原",
     "Unlock Layer": "解锁图层",
     "Untitled": "未标题",
+    "TypeR can't see the fonts on your computer yet.": "TypeR 还无法看到您电脑上的字体。",
     "Use Installed Fonts…": "使用已安装的字体…",
     "View": "视图",
     "White": "白色",

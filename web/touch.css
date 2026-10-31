@@ -52,7 +52,7 @@ html.touch, html.touch body { position: fixed; inset: 0; overscroll-behavior: no
 html.touch body { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 html.touch input, html.touch textarea { user-select: text; -webkit-user-select: text; }
 html.touch .app { display: block; position: fixed; inset: 0; height: auto; }
-html.touch .mbar, html.touch .tabs, html.touch .status, html.touch .dock__head, html.touch .ws-grip { display: none !important; }
+html.touch .mbar, html.touch .fontbar, html.touch .tabs, html.touch .status, html.touch .dock__head, html.touch .ws-grip { display: none !important; }
 
 /* what only exists here */
 html.touch .t-only { display: revert !important; }

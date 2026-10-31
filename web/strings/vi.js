@@ -269,6 +269,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Undo": "Hoàn tác",
     "Unlock Layer": "Mở khóa layer",
     "Untitled": "Chưa đặt tên",
+    "TypeR can't see the fonts on your computer yet.": "TypeR chưa thấy các phông chữ trên máy tính của bạn.",
     "Use Installed Fonts…": "Dùng phông chữ đã cài đặt…",
     "View": "Xem",
     "White": "Trắng",
