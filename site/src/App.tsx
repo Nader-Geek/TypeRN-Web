@@ -15,8 +15,6 @@ export default function App() {
   useScrollChoreography();
 
   useEffect(() => {
-    // Signals to CSS that the orchestrated hero load animation can run.
-    document.documentElement.classList.add("js");
     // The sections didn't exist yet when the browser looked for /#install, coming from a news page.
     if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView({ behavior: "instant" });
   }, []);
