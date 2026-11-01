@@ -1,6 +1,15 @@
 // TypeR: Browser Version's interface in this language, by its English wording.
 window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
   th: {
+    "Standard ligatures": "อักษรควบมาตรฐาน",
+    "Settings": "การตั้งค่า",
+    "Settings…": "การตั้งค่า…",
+    "Interface language": "ภาษาของอินเทอร์เฟซ",
+    "Mouse wheel": "ล้อเมาส์",
+    "Automatic: a mouse zooms, a trackpad pans": "อัตโนมัติ: เมาส์ซูม แทร็กแพดเลื่อน",
+    "Language of new text": "ภาษาของข้อความใหม่",
+    "Standard ligatures in new text": "อักษรควบมาตรฐานในข้อความใหม่",
+    "Drag to change the value. Hold Shift to go faster.": "ลากเพื่อเปลี่ยนค่า กด Shift ค้างไว้เพื่อให้เร็วขึ้น",
     "Already in this folder, and will be replaced:": "มีอยู่ในโฟลเดอร์นี้แล้ว และจะถูกแทนที่:",
     "Documents saved: {count}.": "เอกสารที่บันทึกแล้ว: {count}",
     "Format": "รูปแบบ",

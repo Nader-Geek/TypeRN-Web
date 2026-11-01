@@ -1,6 +1,15 @@
 // TypeR: Browser Version's interface in this language, by its English wording.
 window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
   vi: {
+    "Standard ligatures": "Chữ ghép chuẩn",
+    "Settings": "Cài đặt",
+    "Settings…": "Cài đặt…",
+    "Interface language": "Ngôn ngữ giao diện",
+    "Mouse wheel": "Con lăn chuột",
+    "Automatic: a mouse zooms, a trackpad pans": "Tự động: chuột để thu phóng, bàn di chuột để di chuyển",
+    "Language of new text": "Ngôn ngữ của văn bản mới",
+    "Standard ligatures in new text": "Chữ ghép chuẩn trong văn bản mới",
+    "Drag to change the value. Hold Shift to go faster.": "Kéo để đổi giá trị. Giữ Shift để đổi nhanh hơn.",
     "Already in this folder, and will be replaced:": "Đã có trong thư mục này và sẽ bị thay thế:",
     "Documents saved: {count}.": "Tài liệu đã lưu: {count}.",
     "Format": "Định dạng",

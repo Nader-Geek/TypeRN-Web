@@ -1,6 +1,15 @@
 // TypeR: Browser Version's interface in this language, by its English wording.
 window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
   ja: {
+    "Standard ligatures": "標準合字",
+    "Settings": "設定",
+    "Settings…": "設定…",
+    "Interface language": "インターフェイスの言語",
+    "Mouse wheel": "マウスホイール",
+    "Automatic: a mouse zooms, a trackpad pans": "自動:マウスはズーム、トラックパッドは移動",
+    "Language of new text": "新規テキストの言語",
+    "Standard ligatures in new text": "新規テキストの標準合字",
+    "Drag to change the value. Hold Shift to go faster.": "ドラッグして値を変更します。Shift を押すと速くなります。",
     "Already in this folder, and will be replaced:": "このフォルダーに既にあり、置き換えられます:",
     "Documents saved: {count}.": "保存したドキュメント: {count}",
     "Format": "形式",
