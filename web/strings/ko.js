@@ -1,6 +1,15 @@
 // TypeR: Browser Version's interface in this language, by its English wording.
 window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
   ko: {
+    "Standard ligatures": "표준 합자",
+    "Settings": "설정",
+    "Settings…": "설정…",
+    "Interface language": "인터페이스 언어",
+    "Mouse wheel": "마우스 휠",
+    "Automatic: a mouse zooms, a trackpad pans": "자동: 마우스는 확대/축소, 트랙패드는 이동",
+    "Language of new text": "새 텍스트 언어",
+    "Standard ligatures in new text": "새 텍스트의 표준 합자",
+    "Drag to change the value. Hold Shift to go faster.": "드래그하여 값을 변경합니다. Shift를 누르면 더 빠릅니다.",
     "Already in this folder, and will be replaced:": "이 폴더에 이미 있으며 바뀝니다:",
     "Documents saved: {count}.": "저장한 문서: {count}",
     "Format": "형식",

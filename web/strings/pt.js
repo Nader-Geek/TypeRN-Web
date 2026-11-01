@@ -1,6 +1,15 @@
 // TypeR: Browser Version's interface in this language, by its English wording.
 window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
   pt: {
+    "Standard ligatures": "Ligaturas padrão",
+    "Settings": "Configurações",
+    "Settings…": "Configurações…",
+    "Interface language": "Idioma da interface",
+    "Mouse wheel": "Roda do mouse",
+    "Automatic: a mouse zooms, a trackpad pans": "Automático: o mouse dá zoom, o trackpad desloca",
+    "Language of new text": "Idioma do novo texto",
+    "Standard ligatures in new text": "Ligaturas padrão no novo texto",
+    "Drag to change the value. Hold Shift to go faster.": "Arraste para mudar o valor. Segure Shift para ir mais rápido.",
     "Already in this folder, and will be replaced:": "Já está nesta pasta e será substituído:",
     "Documents saved: {count}.": "Documentos salvos: {count}.",
     "Format": "Formato",

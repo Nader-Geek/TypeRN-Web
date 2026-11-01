@@ -1,6 +1,15 @@
 // TypeR: Browser Version's interface in this language, by its English wording.
 window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
   tr: {
+    "Standard ligatures": "Standart bitişik harfler",
+    "Settings": "Ayarlar",
+    "Settings…": "Ayarlar…",
+    "Interface language": "Arayüz dili",
+    "Mouse wheel": "Fare tekerleği",
+    "Automatic: a mouse zooms, a trackpad pans": "Otomatik: fare yakınlaştırır, izleme dörtgeni kaydırır",
+    "Language of new text": "Yeni metnin dili",
+    "Standard ligatures in new text": "Yeni metinde standart bitişik harfler",
+    "Drag to change the value. Hold Shift to go faster.": "Değeri değiştirmek için sürükleyin. Daha hızlı gitmek için Shift tuşunu basılı tutun.",
     "Already in this folder, and will be replaced:": "Bu klasörde zaten var, değiştirilecek:",
     "Documents saved: {count}.": "Kaydedilen belgeler: {count}.",
     "Format": "Biçim",

@@ -48,6 +48,37 @@
 
   const sizePxOf = (textStyle, resolution) => ((textStyle.impliedFontSize || textStyle.size || 14) * resolution) / 72;
 
+  // Photoshop's text languages: the name a layer gives them, the number a PSD file gives
+  // them (both read back from Photoshop) and how the language writes itself
+  const TEXT_LANGUAGES = [
+    ["englishLanguage", 0, "English (US)"], ["ukenglishLanguage", 14, "English (UK)"], ["standardFrenchLanguage", 2, "Français"], ["canadianFrenchLanguage", 3, "Français (Canada)"],
+    ["spanishLanguage", 12, "Español"], ["italianLanguage", 7, "Italiano"], ["germanLanguageReformed1996", 4, "Deutsch"], ["oldGermanLanguage", 5, "Deutsch (1901)"], ["swissGermanLanguageOldRules", 6, "Deutsch (Schweiz)"],
+    ["standardPortugueseLanguage", 10, "Português"], ["brazilianPortugueseLanguage", 11, "Português (Brasil)"], ["kdutchLanguageOldRules", 15, "Nederlands"], ["catalanLanguage", 17, "Català"],
+    ["danishLanguage", 16, "Dansk"], ["swedishLanguage", 13, "Svenska"], ["bokmalNorwegianLanguage", 8, "Norsk bokmål"], ["nynorskNorwegianLanguage", 9, "Norsk nynorsk"], ["finnishLanguage", 1, "Suomi"], ["icelandicLanguage", 27, "Íslenska"],
+    ["polishLanguage", 23, "Polski"], ["czechLanguage", 22, "Čeština"], ["slovakLanguage", 36, "Slovenčina"], ["hungarianLanguage", 28, "Magyar"], ["romanianLanguage", 24, "Română"], ["croatianLanguage", 29, "Hrvatski"], ["slovenianLanguage", 31, "Slovenščina"],
+    ["lithuanianLanguage", 34, "Lietuvių"], ["latvianLanguage", 35, "Latviešu"], ["turkishLanguage", 26, "Türkçe"], ["greekLanguage", 25, "Ελληνικά"], ["russianLanguage", 18, "Русский"], ["ukranianLanguage", 19, "Українська"], ["bulgarianLanguage", 20, "Български"], ["serbianLanguage", 21, "Српски"],
+    ["arabicLanguage", 37, "العربية"], ["hebrewLanguage", 30, "עברית"],
+  ];
+  const INTERFACE_TEXT_LANGUAGE = { fr: "standardFrenchLanguage", es: "spanishLanguage", it: "italianLanguage", de: "germanLanguageReformed1996", pt: "brazilianPortugueseLanguage", ru: "russianLanguage", uk: "ukranianLanguage", pl: "polishLanguage", nl: "kdutchLanguageOldRules", tr: "turkishLanguage", ar: "arabicLanguage" };
+  const DEFAULT_TEXT_LANGUAGE = INTERFACE_TEXT_LANGUAGE[window.TYPER_I18N.lang] || "englishLanguage";
+  // Other names Photoshop gives the same languages, in styles made by the plugin
+  const TEXT_LANGUAGE_NUMBERS = TEXT_LANGUAGES.reduce((numbers, [name, number]) => Object.assign(numbers, { [name]: number }), { standardGermanLanguage: 4, swissGermanLanguage: 6, dutchLanguage: 15 });
+  const textLanguageNumber = (name) => {
+    const number = TEXT_LANGUAGE_NUMBERS[name];
+    return number === undefined ? TEXT_LANGUAGE_NUMBERS[app.textDefaults.language] : number;
+  };
+  const textLanguageName = (number) => {
+    const language = TEXT_LANGUAGES.find((item) => item[1] === number);
+    return language ? language[0] : undefined;
+  };
+
+  // Canvas has no switch for ligatures, but a zero-width non-joiner between two letters
+  // stops them and leaves their kerning alone. Other scripts need their letters joined.
+  const shownText = ({ text, style }) => {
+    const cased = style.fontCaps === "allCaps" ? text.toUpperCase() : text;
+    return style.ligature === false ? cased.replace(/(\p{Script=Latin})(?=\p{Script=Latin})/gu, "$1‌") : cased;
+  };
+
   // textKey -> lines, each with its runs (a run: text and the style of its range)
   const splitLines = (layerText) => {
     const text = layerText.textKey || "";
@@ -94,7 +125,7 @@
       const size = sizePxOf(run.style, resolution);
       setRunFont(measureCtx, run.style, size);
       measureCtx.textAlign = "left";
-      const shown = run.style.fontCaps === "allCaps" ? run.text.toUpperCase() : run.text;
+      const shown = shownText(run);
       const m = measureCtx.measureText(shown);
       const scaleX = (run.style.horizontalScale || 100) / 100;
       const scaleY = (run.style.verticalScale || 100) / 100;
@@ -1402,7 +1433,7 @@
     fg: { r: 0, g: 0, b: 0 },
     bg: { r: 255, g: 255, b: 255 },
     brush: { size: 24 },
-    textDefaults: { font: "WildjessNormal", family: "Wildjess", style: "Normal", size: 38, verticalAlign: "center" },
+    textDefaults: { font: "WildjessNormal", family: "Wildjess", style: "Normal", size: 38, verticalAlign: "center", language: DEFAULT_TEXT_LANGUAGE, ligature: true },
     lastAction: 0,
     pendingActions: 0,
     monitor: { lastBounds: null, documentKey: null },
@@ -2029,7 +2060,7 @@
       if (!doc) return null;
       const d = app.textDefaults;
       const text = value || "";
-      const style = { fontPostScriptName: d.font, fontName: d.family, fontStyleName: d.style, size: d.size, impliedFontSize: d.size, autoLeading: true, tracking: 0, horizontalScale: 100, verticalScale: 100, color: { red: app.fg.r, green: app.fg.g, blue: app.fg.b } };
+      const style = { fontPostScriptName: d.font, fontName: d.family, fontStyleName: d.style, size: d.size, impliedFontSize: d.size, autoLeading: true, tracking: 0, horizontalScale: 100, verticalScale: 100, ligature: d.ligature, textLanguage: d.language, color: { red: app.fg.r, green: app.fg.g, blue: app.fg.b } };
       const params = { layerText: { textKey: text, antiAlias: d.antiAlias || "antiAliasSmooth", textClickPoint: { horizontal: (x / doc.width) * 100, vertical: (y / doc.height) * 100 }, textStyleRange: [{ from: 0, to: text.length, textStyle: style }], paragraphStyleRange: [{ from: 0, to: text.length, paragraphStyle: { alignment: "center", autoLeadingPercentage: 1.2 } }], textShape: [box ? { textType: "box", orientation: "horizontal", box: Object.assign({ verticalAlign: d.verticalAlign }, box) } : { textType: "point", orientation: "horizontal" }] } };
       const layer = newTextLayer(doc, params, null, text || "Text");
       commitState(doc, "Type Tool", { layers: doc.state.layers.concat([layer]), activeIds: [layer.id] });
@@ -3055,6 +3086,10 @@
     newCanvas,
     wrapWords,
     cssFont,
+    TEXT_LANGUAGES,
+    DEFAULT_TEXT_LANGUAGE,
+    textLanguageNumber,
+    textLanguageName,
     drawOp,
     setActiveDoc: (doc) => setDoc(doc),
     paramsFromStyle: (style, text, runs, size) => paramsFromStyle(style, text, runs, size),

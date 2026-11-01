@@ -1,6 +1,15 @@
 // TypeR: Browser Version's interface in this language, by its English wording.
 window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
   zh: {
+    "Standard ligatures": "标准连字",
+    "Settings": "设置",
+    "Settings…": "设置…",
+    "Interface language": "界面语言",
+    "Mouse wheel": "鼠标滚轮",
+    "Automatic: a mouse zooms, a trackpad pans": "自动:鼠标缩放,触控板平移",
+    "Language of new text": "新文本的语言",
+    "Standard ligatures in new text": "新文本使用标准连字",
+    "Drag to change the value. Hold Shift to go faster.": "拖动以更改数值。按住 Shift 可加快速度。",
     "Already in this folder, and will be replaced:": "此文件夹中已存在,将被替换:",
     "Documents saved: {count}.": "已保存文档:{count}。",
     "Format": "格式",

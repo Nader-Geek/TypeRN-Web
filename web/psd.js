@@ -58,8 +58,16 @@
       syntheticItalic: Boolean(style.fauxItalic),
       fontCaps: style.fontCaps === 2 ? "allCaps" : style.fontCaps === 1 ? "smallCaps" : "normal",
       baselineShift: ((style.baselineShift || 0) * scale * 72) / resolution,
+      baseline: style.fontBaseline === 2 ? "subScript" : style.fontBaseline === 1 ? "superScript" : "normal",
+      underline: style.underline ? "underlineOnLeftInVertical" : "underlineOff",
+      strikethrough: style.strikethrough ? "xHeightStrikethroughOn" : "strikethroughOff",
+      ligature: style.ligatures !== false,
+      altligature: Boolean(style.dLigatures),
       color: { red: channel(color.r), green: channel(color.g), blue: channel(color.b) },
     };
+    const language = PS().textLanguageName(style.language);
+    if (language) out.textLanguage = language;
+    if (style.autoKerning === false) out.autoKern = "manual";
     if (style.leading && style.autoLeading === false) out.leading = (style.leading * scale * 72) / resolution;
     return out;
   };
@@ -236,6 +244,13 @@
       fauxItalic: Boolean(style.syntheticItalic),
       fontCaps: style.fontCaps === "allCaps" ? 2 : style.fontCaps === "smallCaps" ? 1 : 0,
       baselineShift: ((style.impliedBaselineShift !== undefined ? style.impliedBaselineShift : style.baselineShift) || 0) * (resolution / 72),
+      fontBaseline: style.baseline === "subScript" ? 2 : style.baseline === "superScript" ? 1 : 0,
+      underline: Boolean(style.underline) && style.underline !== "underlineOff",
+      strikethrough: Boolean(style.strikethrough) && style.strikethrough !== "strikethroughOff",
+      autoKerning: style.autoKern !== "manual",
+      ligatures: style.ligature !== false,
+      dLigatures: Boolean(style.altligature),
+      language: PS().textLanguageNumber(style.textLanguage),
     };
     if (style.autoLeading === false && style.leading) out.leading = (style.leading * resolution) / 72;
     return out;

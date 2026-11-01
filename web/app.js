@@ -158,7 +158,8 @@
         input.type = field.type || "text";
         if (field.min !== undefined) input.min = field.min;
       }
-      input.value = field.value;
+      if (field.type === "checkbox") input.checked = field.checked;
+      else input.value = field.value;
       inputs[field.id] = input;
       label.append(name, input);
       middle.appendChild(label);
@@ -192,7 +193,7 @@
     yes.textContent = ok || "OK";
     const collect = () => {
       const values = {};
-      Object.keys(inputs).forEach((key) => { values[key] = inputs[key].value; });
+      Object.keys(inputs).forEach((key) => { values[key] = inputs[key].type === "checkbox" ? inputs[key].checked : inputs[key].value; });
       done(values);
     };
     yes.addEventListener("click", collect);
@@ -749,6 +750,68 @@
     label.append(span, control);
     return label;
   };
+  // Dragging the name of a number changes the number, as in Photoshop. Shift goes ten times
+  // faster. Nothing is redrawn meanwhile: the pointer is held by the name it pressed.
+  let scrubbing = false;
+  const scrubbed = (text, input, control = input) => {
+    const label = labelled(text, control);
+    const name = label.firstChild;
+    name.classList.add("scrub");
+    name.title = T("Drag to change the value. Hold Shift to go faster.");
+    let dragged = false;
+    // A plain click puts the caret in the field. Left to the label, it would press the − of withSteps.
+    name.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (!dragged) input.select();
+      dragged = false;
+    });
+    name.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      dragged = false;
+      if (input.contains(document.activeElement)) input.blur();
+      name.setPointerCapture(event.pointerId);
+      const start = event.clientX;
+      let last = start;
+      let value = Number(input.value) || 0;
+      let frame = 0;
+      const commit = () => {
+        frame = 0;
+        input.dispatchEvent(new Event("change"));
+      };
+      const move = (moved) => {
+        if (!scrubbing && Math.abs(moved.clientX - start) < 3) return;
+        scrubbing = true;
+        dragged = true;
+        const min = input.min === "" ? -Infinity : Number(input.min);
+        const max = input.max === "" ? Infinity : Number(input.max);
+        value = Math.max(min, Math.min(max, value + (moved.clientX - last) * (moved.shiftKey ? 10 : 1)));
+        last = moved.clientX;
+        input.value = Math.round(value * 100) / 100;
+        if (!frame) frame = requestAnimationFrame(commit);
+      };
+      const end = () => {
+        name.removeEventListener("pointermove", move);
+        name.removeEventListener("pointerup", end);
+        name.removeEventListener("pointercancel", end);
+        if (!scrubbing) return;
+        if (frame) {
+          cancelAnimationFrame(frame);
+          commit();
+        }
+        scrubbing = false;
+        setTimeout(() => {
+          characterKey = "";
+          renderOptions();
+          renderCharacter();
+        }, 0);
+      };
+      name.addEventListener("pointermove", move);
+      name.addEventListener("pointerup", end);
+      name.addEventListener("pointercancel", end);
+    });
+    return label;
+  };
   const numberInput = (value, min, max, onChange, step) => {
     const input = document.createElement("input");
     input.type = "number";
@@ -998,6 +1061,46 @@
     if (!Shell.touch) search.focus();
   };
 
+  const STORE_SETTINGS = "typer.web.settings";
+  const settings = { wheel: "auto" };
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(STORE_SETTINGS)) || {};
+    if (saved.wheel === "zoom" || saved.wheel === "pan") settings.wheel = saved.wheel;
+    if (PS.TEXT_LANGUAGES.some(([name]) => name === saved.language)) app.textDefaults.language = saved.language;
+    if (saved.ligature === false) app.textDefaults.ligature = false;
+  } catch (error) {
+    console.warn("TypeR web: could not read the settings", error);
+  }
+  const showSettings = async () => {
+    const d = app.textDefaults;
+    const answer = await dialog({
+      title: T("Settings"),
+      fields: [
+        { id: "lang", label: T("Interface language"), value: lang, options: Object.keys(LANGUAGES).map((code) => [code, LANGUAGES[code]]) },
+        { id: "wheel", label: T("Mouse wheel"), value: settings.wheel, options: [["auto", T("Automatic: a mouse zooms, a trackpad pans")], ["zoom", T("Zoom")], ["pan", T("Pan")]] },
+        { id: "language", label: T("Language of new text"), value: d.language, options: PS.TEXT_LANGUAGES.map(([name, , own]) => [name, own]) },
+        { id: "ligature", label: T("Standard ligatures in new text"), type: "checkbox", checked: d.ligature },
+      ],
+    });
+    if (!answer) return;
+    settings.wheel = answer.wheel;
+    d.language = answer.language;
+    d.ligature = answer.ligature;
+    try {
+      // A language nobody chose keeps following the interface
+      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ wheel: settings.wheel, ligature: d.ligature, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
+    } catch (error) {
+      console.warn("TypeR web: could not keep the settings", error);
+    }
+    characterKey = "";
+    renderCharacter();
+    if (answer.lang !== lang) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("lang", answer.lang);
+      window.location.href = url.href;
+    }
+  };
+
   const STORE_VERTICAL = "typer.web.verticalAlign";
   try {
     if (window.localStorage.getItem(STORE_VERTICAL) === "top") app.textDefaults.verticalAlign = "top";
@@ -1142,6 +1245,7 @@
 
   const renderOptions = () => {
     const bar = ui.options;
+    if (scrubbing) return;
     if (bar.contains(document.activeElement) && document.activeElement.tagName === "INPUT" && document.activeElement.type !== "checkbox") return;
     bar.textContent = "";
     const tool = app.tool;
@@ -1169,7 +1273,7 @@
       bar.appendChild(modes);
     }
     if (tool === "wand") {
-      bar.appendChild(labelled(T("Tolerance"), numberInput(app.tolerance, 0, 255, (value) => { app.tolerance = Math.max(0, Math.min(255, value)); })));
+      bar.appendChild(scrubbed(T("Tolerance"), numberInput(app.tolerance, 0, 255, (value) => { app.tolerance = Math.max(0, Math.min(255, value)); })));
       bar.appendChild(checkbox(T("Contiguous"), app.contiguous !== false, (on) => { app.contiguous = on; }));
       bar.appendChild(checkbox(T("Sample all layers"), app.sampleAll, (on) => { app.sampleAll = on; }));
     }
@@ -1193,7 +1297,7 @@
       }
       if (activeTexts().length) {
         const c = textControls(bar, true);
-        bar.append(c.family, c.faces, labelled(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns);
+        bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns);
       }
     }
     if (tool === "brush" || tool === "eraser") {
@@ -1214,7 +1318,7 @@
     }
     if (tool === "text") {
       const c = textControls(bar, true);
-      bar.append(c.family, c.faces, labelled(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns);
+      bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns);
     }
     if (tool === "zoom" || tool === "hand") {
       const fit = document.createElement("button");
@@ -1706,14 +1810,39 @@
     if (hit) beginEdit(hit);
   });
 
-  // A trackpad's two fingers pan; a pinch, or the wheel with Cmd, Ctrl or Alt, zooms
+  // Browsers don't say what scrolled. Firefox counts a mouse's wheel in lines. Elsewhere a
+  // notch is a multiple of 120, except on a Mac: there, only a mouse sends fractions. Settings
+  // has the answer for a mouse or a browser that tells otherwise.
+  const looksLikeMouse = (event) => {
+    if (event.deltaMode) return true;
+    if (event.deltaX) return false;
+    if (IS_MAC) return !Number.isInteger(event.deltaY);
+    return Boolean(event.wheelDeltaY) && event.wheelDeltaY % 120 === 0;
+  };
+  // One movement stays what it started as, whatever its last small events look like
+  let wheelKind = { mouse: false, time: 0 };
+  const wheelIsMouse = (event) => {
+    const now = event.timeStamp;
+    if (now - wheelKind.time > 200) wheelKind.mouse = looksLikeMouse(event);
+    wheelKind.time = now;
+    return wheelKind.mouse;
+  };
+  const WHEEL_PIXELS = [1, 33, 100];
+
+  // A trackpad's two fingers pan; a pinch, the wheel with Cmd, Ctrl or Alt, or a mouse's wheel zooms
   ui.stage.addEventListener("wheel", (event) => {
     if (!app.doc) return;
     event.preventDefault();
     const rect = ui.stage.getBoundingClientRect();
+    const mouse = wheelIsMouse(event);
+    const deltaY = event.deltaY * WHEEL_PIXELS[event.deltaMode];
     if (event.ctrlKey || event.metaKey || event.altKey) {
-      const factor = Math.exp(-event.deltaY * (event.ctrlKey && !event.metaKey ? 0.01 : 0.003));
+      const factor = Math.exp(-deltaY * (event.ctrlKey && !event.metaKey ? 0.01 : 0.003));
       zoomTo(view().zoom * factor, event.clientX - rect.left, event.clientY - rect.top);
+    } else if (!event.shiftKey && (settings.wheel === "zoom" || (settings.wheel === "auto" && mouse))) {
+      // A notch moves the same on every mouse, even those that report 4 pixels for it
+      const amount = mouse ? Math.sign(deltaY) * Math.max(50, Math.min(120, Math.abs(deltaY))) : deltaY;
+      zoomTo(view().zoom * Math.exp(-amount * 0.002), event.clientX - rect.left, event.clientY - rect.top);
     } else if (event.shiftKey && !event.deltaX) panBy(-event.deltaY, 0);
     else panBy(-event.deltaX, -event.deltaY);
   }, { passive: false });
@@ -2135,6 +2264,7 @@
   let characterKey = "";
   const renderCharacter = () => {
     const host = ui.character;
+    if (scrubbing) return;
     if (host.contains(document.activeElement) && document.activeElement.tagName === "INPUT" && document.activeElement.type !== "checkbox" && document.activeElement.type !== "color") return;
     const layer = activeTexts()[0];
     const key = layer ? JSON.stringify([layer.id, layer.params.layerText.textStyleRange[0], layer.params.layerText.paragraphStyleRange[0], layer.params.layerText.antiAlias, layer.params.layerText.textShape, Boolean(layer.warp), layer.stroke, Fonts.generation]) : "none";
@@ -2172,7 +2302,7 @@
         host.appendChild(use);
       }
     }
-    host.append(labelled(T("Size"), withSteps(c.size)));
+    host.append(scrubbed(T("Size"), c.size, withSteps(c.size)));
     const leading = document.createElement("input");
     leading.type = "text";
     leading.title = T("Leading");
@@ -2186,8 +2316,25 @@
     const aaRow = labelled("aa", c.antiAlias);
     aaRow.classList.add("wide");
     host.append(aaRow);
-    host.append(labelled(T("Tracking"), withSteps(numberInput(style.tracking || 0, -1000, 2000, (value) => applyTextPatch({ tracking: value }, null, "tracking")), 10)));
-    host.append(labelled(T("Width %"), withSteps(numberInput(style.horizontalScale === undefined ? 100 : style.horizontalScale, 10, 500, (value) => applyTextPatch({ horizontalScale: value }, null, "scale")))));
+    const tracking = numberInput(style.tracking || 0, -1000, 2000, (value) => applyTextPatch({ tracking: value }, null, "tracking"));
+    host.append(scrubbed(T("Tracking"), tracking, withSteps(tracking, 10)));
+    const width = numberInput(style.horizontalScale === undefined ? 100 : style.horizontalScale, 10, 500, (value) => applyTextPatch({ horizontalScale: value }, null, "scale"));
+    host.append(scrubbed(T("Width %"), width, withSteps(width)));
+    const language = document.createElement("select");
+    PS.TEXT_LANGUAGES.forEach(([value, , name]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = name;
+      language.appendChild(option);
+    });
+    language.value = style.textLanguage || app.textDefaults.language;
+    language.addEventListener("change", () => patchTypography({ textLanguage: language.value }));
+    const languageRow = labelled(T("Language"), language);
+    languageRow.style.flex = "1";
+    const typography = document.createElement("div");
+    typography.className = "character__row wide";
+    typography.append(languageRow, iconTextToggle("fi", T("Standard ligatures"), style.ligature !== false, () => patchTypography({ ligature: style.ligature === false })));
+    host.appendChild(typography);
     const row = document.createElement("div");
     row.className = "character__row wide";
     row.append(c.color, c.aligns,
@@ -2212,6 +2359,11 @@
     }
     host.appendChild(strokeRow);
   };
+  // The layer loses Photoshop's own pixels: without its font, it comes back looking different
+  const patchTypography = (patch) => {
+    if (activeTexts().some((item) => item.raster && Fonts.isMissing(item.params.layerText.textStyleRange[0].textStyle.fontPostScriptName))) toast(T("This text's font is missing: it will be drawn with another font."), true);
+    applyTextPatch(patch);
+  };
   const iconTextToggle = (letter, title, on, action) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -2221,7 +2373,7 @@
     button.setAttribute("aria-label", title);
     button.setAttribute("aria-pressed", String(Boolean(on)));
     if (letter === "B") button.style.fontWeight = "700";
-    else button.style.fontStyle = "italic";
+    else if (letter === "I") button.style.fontStyle = "italic";
     button.addEventListener("click", action);
     return button;
   };
@@ -2964,6 +3116,8 @@
       { label: "Fill with Foreground Colour", keys: "Alt+Backspace", enabled: hasSelection, action: () => fillSelectionCheck(toRgb(app.fg)) },
       { label: "Fill with Background Colour", keys: "Cmd+Backspace", enabled: hasSelection, action: () => fillSelectionCheck(toRgb(app.bg)) },
       { label: "Clear", keys: "Backspace", enabled: () => hasSelection() || hasLayer(), action: () => clearOrDelete() },
+      null,
+      { label: "Settings…", keys: "Cmd+K", action: () => showSettings() },
     ]],
     ["Layer", [
       // Photoshop's Shift+Cmd+N opens a private window from a browser tab: it only arrives in the installed app or full screen
