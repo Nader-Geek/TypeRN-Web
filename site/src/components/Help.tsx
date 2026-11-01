@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import CopyButton from "./CopyButton";
+import { reducedMotion } from "../lib/motion";
 import { FAQ, LINKS } from "../data/content";
 
 function FaqItem({ q, a, code }: { q: string; a: string; code?: string }) {
@@ -8,10 +9,9 @@ function FaqItem({ q, a, code }: { q: string; a: string; code?: string }) {
   const animRef = useRef<Animation | null>(null);
 
   const onSummaryClick = (e: React.MouseEvent) => {
-    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     const d = detailsRef.current;
     const body = bodyRef.current;
-    if (reduced || !d || !body) return;
+    if (reducedMotion() || !d || !body) return;
     e.preventDefault();
     animRef.current?.cancel();
     if (d.open) {

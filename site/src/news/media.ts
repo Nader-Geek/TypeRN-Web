@@ -1,8 +1,10 @@
+import { reducedMotion } from "../lib/motion";
+
 // The clips of a post loop like GIFs while they're on screen, and every picture opens
 // bigger. Without JavaScript, or with reduced motion, the clips keep their controls.
 export function startMedia() {
   const videos = Array.from(document.querySelectorAll<HTMLVideoElement>(".prose video"));
-  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  if (!reducedMotion()) {
     const onScreen = new IntersectionObserver(
       (entries) => {
         for (const { target, isIntersecting } of entries) {

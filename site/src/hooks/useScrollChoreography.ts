@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { reducedMotion } from "../lib/motion";
+import { startSmoothWheel } from "../lib/smoothWheel";
 
 // One scroll loop for everything scroll-linked, ported from the static site:
 // nav stuck state, hero flatten + pointer tilt, story step and clip, nav spy.
@@ -9,8 +11,8 @@ export function useScrollChoreography() {
     const $ = <T extends Element>(s: string) => document.querySelector<T>(s);
     const $$ = <T extends Element>(s: string) => Array.from(document.querySelectorAll<T>(s));
     const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
-    const reduced = matchMedia("(prefers-reduced-motion: reduce)");
-    const finePointer = matchMedia("(hover: hover) and (pointer: fine)").matches;
+    // any-: a Windows laptop with a touchscreen reports touch as its main pointer, mouse or not.
+    const finePointer = matchMedia("(any-hover: hover) and (any-pointer: fine)").matches;
     const narrow = matchMedia("(max-width: 900px)");
 
     const nav = $<HTMLElement>("#nav");
@@ -34,7 +36,7 @@ export function useScrollChoreography() {
       const current = Math.max(currentStep, 1) - 1;
       clips.forEach((clip, i) => {
         clip.classList.toggle("is-on", i === current);
-        if (i === current && sceneVisible && !reduced.matches) clip.play().catch(() => {});
+        if (i === current && sceneVisible && !reducedMotion()) clip.play().catch(() => {});
         else clip.pause();
       });
     };
@@ -75,7 +77,7 @@ export function useScrollChoreography() {
     const onScroll = () => {
       const y = scrollY;
       if (nav) nav.classList.toggle("is-stuck", y > 8);
-      if (stage && hero && !reduced.matches) {
+      if (stage && hero && !reducedMotion()) {
         const h = hero.offsetHeight || 1;
         stage.style.setProperty("--hp", clamp(y / (h * 0.85), 0, 1).toFixed(3));
       }
@@ -95,7 +97,7 @@ export function useScrollChoreography() {
     let px = 0;
     let py = 0;
     const onPointerMove = (e: PointerEvent) => {
-      if (!hero || !stage) return;
+      if (!hero || !stage || e.pointerType === "touch") return;
       const r = hero.getBoundingClientRect();
       px = (e.clientX - r.left) / r.width - 0.5;
       py = (e.clientY - r.top) / r.height - 0.5;
@@ -112,7 +114,7 @@ export function useScrollChoreography() {
       stage.style.setProperty("--py", "0");
     };
 
-    if (finePointer && !reduced.matches && hero) {
+    if (finePointer && !reducedMotion() && hero) {
       hero.addEventListener("pointermove", onPointerMove);
       hero.addEventListener("pointerleave", onPointerLeave);
     }
@@ -125,8 +127,10 @@ export function useScrollChoreography() {
     addEventListener("scroll", onScrollRequest, { passive: true });
     addEventListener("resize", onScroll);
     onScroll();
+    const stopSmoothWheel = startSmoothWheel();
 
     return () => {
+      stopSmoothWheel();
       removeEventListener("scroll", onScrollRequest);
       removeEventListener("resize", onScroll);
       sceneObserver.disconnect();

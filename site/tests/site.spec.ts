@@ -326,3 +326,59 @@ test("reduced motion: still loads and works", async ({ page }) => {
   const duration = await page.locator(".hero__line").first().evaluate((el) => getComputedStyle(el).animationDuration);
   expect(parseFloat(duration)).toBeLessThan(0.01);
 });
+
+test.describe("on Windows", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => Object.defineProperty(navigator, "platform", { get: () => "Win32" }));
+  });
+
+  test("the motion stays on with animation effects turned off", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/");
+    const duration = await page.locator(".hero__line").first().evaluate((el) => getComputedStyle(el).animationDuration);
+    expect(parseFloat(duration)).toBeCloseTo(0.9);
+    await expect(page.locator("html")).toHaveClass(/motion/);
+  });
+
+  test("the wheel glides to where it asked to go", async ({ page }) => {
+    await page.goto("/");
+    await page.mouse.move(700, 450);
+    await page.mouse.wheel(0, 600);
+    const seen = new Set<number>();
+    await expect
+      .poll(async () => {
+        const y = await page.evaluate(() => scrollY);
+        seen.add(y);
+        return y;
+      })
+      .toBe(600);
+    expect(Array.from(seen).some((y) => y > 0 && y < 600)).toBe(true);
+  });
+
+  test("the wheel stops at the end of the page", async ({ page }) => {
+    await page.goto("/");
+    await page.mouse.move(700, 450);
+    const end = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight);
+    await page.mouse.wheel(0, end + 5000);
+    await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThanOrEqual(end - 1);
+  });
+
+  test("a link isn't held back by the glide", async ({ page }) => {
+    await page.goto("/");
+    await page.mouse.move(700, 450);
+    await page.mouse.wheel(0, 300);
+    await page.getByRole("link", { name: "Help" }).first().click();
+    await expect(page.locator("#help")).toBeInViewport();
+  });
+});
+
+test("a Mac's wheel is left to the system", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, "platform", { get: () => "MacIntel" }));
+  await page.goto("/");
+  const prevented = page.evaluate(
+    () => new Promise((resolve) => addEventListener("wheel", (e) => setTimeout(() => resolve(e.defaultPrevented)), { once: true })),
+  );
+  await page.mouse.move(700, 450);
+  await page.mouse.wheel(0, 100);
+  expect(await prevented).toBe(false);
+});
