@@ -923,6 +923,7 @@
   PS.on((type, detail) => {
     if (!Shell.touch) return;
     if (type === "render" || type === "view") renderZoom();
+    if (type === "options" && current === "tools") RENDER.tools();
     if (type === "render" || type === "history" || type === "document" || type === "selection" || type === "saved") {
       renderBar();
       renderCtx();

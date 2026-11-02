@@ -23,6 +23,120 @@
     return loading;
   };
 
+  /* ------------------------------ the worker ------------------------------ */
+
+  // psd-worker.js does the long work, so the page stays alive. Without it (a browser that
+  // refuses it, a file it can't send back), the same work happens here, as it always did.
+  let starting = null;
+  let worker = null;
+  let lastJob = 0;
+  const jobs = new Map();
+  const startWorker = () => {
+    if (starting) return starting;
+    starting = new Promise((resolve) => {
+      let candidate;
+      const lost = () => {
+        worker = null;
+        resolve(null);
+        jobs.forEach(({ reject }) => reject(Object.assign(new Error("The PSD worker stopped."), { unsent: true })));
+        jobs.clear();
+      };
+      try {
+        candidate = new Worker("psd-worker.js");
+      } catch (error) {
+        resolve(null);
+        return;
+      }
+      const late = setTimeout(lost, 15000);
+      candidate.onerror = () => {
+        clearTimeout(late);
+        lost();
+      };
+      candidate.onmessage = ({ data }) => {
+        if (data.ready) {
+          clearTimeout(late);
+          worker = candidate;
+          resolve(candidate);
+          return;
+        }
+        const job = jobs.get(data.id);
+        if (!job) return;
+        jobs.delete(data.id);
+        if (data.error) job.reject(Object.assign(new Error(data.error), { unsent: Boolean(data.unsent) }));
+        else job.resolve(data.result);
+      };
+    });
+    return starting;
+  };
+  const askWorker = (type, payload, transfer) => new Promise((resolve, reject) => {
+    const id = ++lastJob;
+    jobs.set(id, { resolve, reject });
+    try {
+      worker.postMessage({ id, type, payload }, transfer);
+    } catch (error) {
+      jobs.delete(id);
+      reject(Object.assign(error, { unsent: true }));
+    }
+  });
+
+  // Where each untouched layer's channels are, in the file it was opened from
+  const rawParts = new WeakMap();
+
+  const canvasOfPixels = (pixels) => {
+    const canvas = PS().newCanvas(pixels.width, pixels.height);
+    const ctx = canvas.getContext("2d");
+    if (pixels instanceof ImageData) ctx.putImageData(pixels, 0, 0);
+    else {
+      // 16 and 32 bits per channel: the page works in 8
+      const image = ctx.createImageData(pixels.width, pixels.height);
+      const from = pixels.data;
+      const to = image.data;
+      if (from instanceof Float32Array) {
+        for (let i = 0; i < from.length; i += 4) {
+          to[i] = Math.round(Math.pow(from[i], 1 / 2.2) * 255);
+          to[i + 1] = Math.round(Math.pow(from[i + 1], 1 / 2.2) * 255);
+          to[i + 2] = Math.round(Math.pow(from[i + 2], 1 / 2.2) * 255);
+          to[i + 3] = Math.round(from[i + 3] * 255);
+        }
+      } else {
+        const shift = from instanceof Uint16Array ? 8 : 0;
+        for (let i = 0; i < from.length; i++) to[i] = from[i] >>> shift;
+      }
+      ctx.putImageData(image, 0, 0);
+    }
+    return canvas;
+  };
+  const withCanvases = (node, file) => {
+    [node, node.mask, node.realMask].forEach((holder) => {
+      if (!holder || !holder.imageData) return;
+      holder.canvas = canvasOfPixels(holder.imageData);
+      delete holder.imageData;
+    });
+    if (node.typerSlices) {
+      if (file) rawParts.set(node, Object.assign(node.typerSlices, { channels: node.typerSlices.channels.map((channel) => ({ id: channel.id, compression: channel.compression, part: channel.start === null ? null : file.slice(channel.start, channel.end) })), fromFile: true }));
+      delete node.typerSlices;
+    }
+    (node.children || []).forEach((child) => withCanvases(child, file));
+  };
+
+  const decode = async (buffer, file) => {
+    const ready = await startWorker();
+    if (ready) {
+      try {
+        const psd = await askWorker("read", { buffer }, file ? [buffer] : []);
+        withCanvases(psd, file);
+        return psd;
+      } catch (error) {
+        // A real problem with the file is said; a worker that couldn't finish is replaced below
+        if (!error.unsent) throw error;
+        if (file) buffer = await file.arrayBuffer();
+      }
+    }
+    const lib = await library();
+    await nextFrame();
+    return lib.readPsd(new Uint8Array(buffer), { skipCompositeImageData: true, skipThumbnail: true, logMissingFeatures: false });
+  };
+
   // Lets the "working" notice appear before a long, blocking read or write
   const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 
@@ -72,6 +186,8 @@
     return out;
   };
 
+  const isTurned = (transform) => Boolean(transform) && (Math.abs(transform[1]) > 0.001 || Math.abs(transform[2]) > 0.001);
+
   const paramsFromPsd = (text, doc) => {
     const transform = text.transform || [1, 0, 0, 1, 0, 0];
     const scale = Math.hypot(transform[1] || 0, transform[3] === undefined ? 1 : transform[3]) || 1;
@@ -89,8 +205,11 @@
     const alignment = JUSTIFY(text.paragraphStyle && text.paragraphStyle.justification);
     // Paragraph text: its top left and size, in the document's pixels
     const bounds = text.shapeType === "box" && text.boxBounds && text.boxBounds[2] > text.boxBounds[0] ? text.boxBounds : null;
-    const originX = (transform[4] || 0) + (bounds ? bounds[0] * scale : 0);
-    const originY = (transform[5] || 0) + (bounds ? bounds[1] * scale : 0);
+    // Turned, the box's corner isn't straight across from the transform's origin
+    const left = bounds ? bounds[0] : 0;
+    const top = bounds ? bounds[1] : 0;
+    const originX = (transform[4] || 0) + (isTurned(transform) ? transform[0] * left + transform[2] * top : left * scale);
+    const originY = (transform[5] || 0) + (isTurned(transform) ? transform[1] * left + transform[3] * top : top * scale);
     return {
       layerText: {
         textKey: value,
@@ -136,10 +255,8 @@
 
   const BACKGROUND_NAME = /^(background|arrière-plan|arriere-plan|fondo|fundo|hintergrund|背景|배경)$/i;
 
-  const read = async (buffer) => {
-    const lib = await library();
-    await nextFrame();
-    const psd = lib.readPsd(new Uint8Array(buffer), { skipThumbnail: true, logMissingFeatures: false });
+  const read = async (buffer, name, file) => {
+    const psd = await decode(buffer, file);
     const info = psd.imageResources && psd.imageResources.resolutionInfo;
     const resolution = (info && info.horizontalResolution) || 72;
     const doc = { width: psd.width, height: psd.height, resolution };
@@ -179,7 +296,13 @@
               Object.assign(layer.raster, { display: canvas, displayLeft: -pad, displayTop: -pad });
             }
           }
-          layer.rotated = Boolean(node.text.transform && (Math.abs(node.text.transform[1]) > 0.001 || Math.abs(node.text.transform[2]) > 0.001));
+          layer.rotated = isTurned(node.text.transform);
+          // Sizes come out of the transform's scale when read: what is left of it is the turn
+          if (layer.rotated) {
+            const t = node.text.transform;
+            const scale = Math.hypot(t[1], t[3]) || 1;
+            layer.spin = [t[0] / scale, t[1] / scale, t[2] / scale, t[3] / scale];
+          }
           layers.push(layer);
           return;
         }
@@ -263,9 +386,10 @@
     const paragraph = lt.paragraphStyleRange && lt.paragraphStyleRange[0] && lt.paragraphStyleRange[0].paragraphStyle;
     const shape = lt.textShape && lt.textShape[0];
     const box = shape && shape.textType === "box" && shape.box;
+    const spin = (layer.rotated && layer.spin) || [1, 0, 0, 1];
     const out = {
       text: value,
-      transform: [1, 0, 0, 1, (lt.textClickPoint.horizontal / 100) * doc.width, (lt.textClickPoint.vertical / 100) * doc.height],
+      transform: [spin[0], spin[1], spin[2], spin[3], (lt.textClickPoint.horizontal / 100) * doc.width, (lt.textClickPoint.vertical / 100) * doc.height],
       antiAlias: ANTI_ALIAS_OUT[lt.antiAlias] || "smooth",
       shapeType: box ? "box" : "point",
       style: styleToPsd(ranges[0] ? ranges[0].textStyle : {}, doc.resolution),
@@ -277,7 +401,8 @@
       // the top of its box comes down to it.
       const layout = PS().layoutLayer(layer, doc);
       const shift = layout.relative.shift;
-      out.transform[5] += shift;
+      out.transform[4] += spin[2] * shift;
+      out.transform[5] += spin[3] * shift;
       const height = layout.overflow ? box.height : Math.max(box.autoHeight ? 0 : box.height - shift, layout.contentHeight * 1.08);
       out.boxBounds = [0, 0, box.width, height];
     }
@@ -336,6 +461,7 @@
         const moveX = layer.raster.left - (layer.raw.left || 0);
         const moveY = layer.raster.top - (layer.raw.top || 0);
         place(node, layer.raster.bitmap, layer.raster.left, layer.raster.top);
+        if (!moveX && !moveY && layer.raster.bitmap === layer.raw.canvas) node.typerRaw = rawParts.get(layer.raw);
         if (moveX || moveY) {
           const transform = (layer.raw.text.transform || [1, 0, 0, 1, 0, 0]).slice();
           transform[4] += moveX;
@@ -364,7 +490,7 @@
       if (node.mask && (layer.dx || layer.dy)) {
         node.mask = Object.assign({}, node.mask, { left: (node.mask.left || 0) + (layer.dx || 0), top: (node.mask.top || 0) + (layer.dy || 0), right: (node.mask.right || 0) + (layer.dx || 0), bottom: (node.mask.bottom || 0) + (layer.dy || 0) });
       }
-    }
+    } else if (layer.bitmap === (layer.raw.canvas || null) && (layer.left || 0) === (layer.raw.left || 0) && (layer.top || 0) === (layer.raw.top || 0) && (layer.mask || null) === (layer.raw.mask && layer.raw.mask.canvas ? layer.raw.mask : null)) node.typerRaw = rawParts.get(layer.raw);
     return node;
   };
 
@@ -382,8 +508,72 @@
     return [text, shown];
   };
 
-  const write = async (doc) => {
-    const lib = await library();
+  // The file's own bytes for an untouched layer. A file changes under a slice when it is saved
+  // over, so what was read once from it stays in a Blob of its own.
+  const rawChannels = async (parts) => {
+    try {
+      const channels = [];
+      const parted = [];
+      for (const { id, compression, part } of parts.channels) {
+        const data = part ? new Uint8Array(await part.arrayBuffer()) : undefined;
+        channels.push({ id, compression, data });
+        parted.push({ id, compression, part: data ? new Blob([data]) : null });
+      }
+      if (parts.fromFile) {
+        parts.channels = parted;
+        parts.fromFile = false;
+      }
+      return channels;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const pixelsForWorker = (holder, transfer) => {
+    const { canvas } = holder;
+    delete holder.canvas;
+    if (!canvas || !canvas.width || !canvas.height) return;
+    holder.imageData = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+    transfer.push(holder.imageData.data.buffer);
+  };
+  // The same tree with arrays of pixels instead of canvases, which can't leave the page
+  const nodeForWorker = async (from, transfer, { psb, colorMode }) => {
+    const node = Object.assign({}, from);
+    const parts = node.typerRaw;
+    delete node.typerRaw;
+    if (node.mask) node.mask = Object.assign({}, node.mask);
+    if (node.realMask) node.realMask = Object.assign({}, node.realMask);
+    const raw = parts && parts.bitsPerChannel === 8 && parts.colorMode === colorMode && parts.large === psb ? await rawChannels(parts) : null;
+    if (raw) {
+      raw.forEach(({ data }) => { if (data) transfer.push(data.buffer); });
+      node.rawData = { colorMode, bitsPerChannel: 8, large: psb, channels: raw };
+      delete node.canvas;
+      delete node.imageData;
+      if (node.mask) delete node.mask.canvas;
+      if (node.realMask) delete node.realMask.canvas;
+    } else {
+      pixelsForWorker(node, transfer);
+      if (node.mask) pixelsForWorker(node.mask, transfer);
+      if (node.realMask) pixelsForWorker(node.realMask, transfer);
+    }
+    if (node.children) {
+      const children = [];
+      for (const child of node.children) children.push(await nodeForWorker(child, transfer, { psb, colorMode }));
+      node.children = children;
+    }
+    return node;
+  };
+  const thumbnailOf = (composite, width, height) => {
+    const scale = 160 / Math.max(width, height);
+    const small = PS().newCanvas(Math.max(1, Math.floor(width * scale)), Math.max(1, Math.floor(height * scale)));
+    const ctx = small.getContext("2d");
+    ctx.scale(scale, scale);
+    ctx.drawImage(composite, 0, 0);
+    return { width: small.width, height: small.height, url: small.toDataURL("image/jpeg", 1) };
+  };
+
+  // A PSB when the file's name says so, or when the page is too large for a PSD
+  const write = async (doc, target = doc.name) => {
     await nextFrame();
     const engine = PS();
     const flags = { editedText: false };
@@ -427,7 +617,21 @@
     delete imageResources.thumbnailRaw;
     const root = Object.assign({}, source, { width: doc.width, height: doc.height, bitsPerChannel: 8, canvas: composite, children, imageResources });
     if (!root.colorMode) root.colorMode = 3;
-    return lib.writePsd(root, { generateThumbnail: true, invalidateTextLayers: flags.editedText, trimImageData: true, noBackground: !(bottom && bottom.isBackground), logMissingFeatures: false });
+    const psb = /\.psb$/i.test(target) || doc.width > 30000 || doc.height > 30000;
+    const options = { psb, invalidateTextLayers: flags.editedText, trimImageData: true, noBackground: !(bottom && bottom.isBackground), logMissingFeatures: false };
+    if (await startWorker()) {
+      try {
+        const transfer = [];
+        const thumbnail = thumbnailOf(composite, doc.width, doc.height);
+        const psd = await nodeForWorker(root, transfer, { psb, colorMode: root.colorMode });
+        return await askWorker("write", { psd, options, thumbnail }, transfer);
+      } catch (error) {
+        console.warn("TypeR web: saving without the worker", error);
+      }
+    }
+    const lib = await library();
+    await nextFrame();
+    return lib.writePsdUint8Array(root, Object.assign({ generateThumbnail: true }, options));
   };
 
   window.TypeRPSD = { read, readText, write, library };

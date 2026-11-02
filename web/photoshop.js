@@ -1,4 +1,4 @@
-// The engine of TypeR: Browser Version, a small Photoshop. The real TypeR panel
+// The engine of TypeR: Web Version, a small Photoshop. The real TypeR panel
 // runs in an iframe (web/panel, a copy of TypeR's own build) and calls this file
 // exactly like it calls Photoshop through ExtendScript: same function names, same
 // JSON. The smart paste engine itself runs inside the panel, untouched. What lives
@@ -42,7 +42,7 @@
   const setRunFont = (ctx, textStyle, sizePx) => {
     ctx.font = cssFont(textStyle, sizePx);
     if ("letterSpacing" in ctx) ctx.letterSpacing = textStyle.tracking ? `${(textStyle.tracking / 1000) * sizePx}px` : "0px";
-    if ("fontKerning" in ctx) ctx.fontKerning = "normal";
+    if ("fontKerning" in ctx) ctx.fontKerning = textStyle.autoKern === "manual" ? "none" : "normal";
     if ("fontVariantCaps" in ctx) ctx.fontVariantCaps = textStyle.fontCaps === "smallCaps" ? "small-caps" : "normal";
   };
 
@@ -378,6 +378,18 @@
     return points;
   };
 
+  // A text turned in Photoshop stays turned when it's edited, around its anchor
+  const spinOf = (layer) => (layer.rotated && layer.spin && !layer.warp ? layer.spin : null);
+  const spunBounds = (box, [a, b, c, d]) => {
+    const xs = [];
+    const ys = [];
+    [[box.left, box.top], [box.right, box.top], [box.left, box.bottom], [box.right, box.bottom]].forEach(([x, y]) => {
+      xs.push(a * x + c * y);
+      ys.push(b * x + d * y);
+    });
+    return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+  };
+
   // A text layer read from a PSD shows Photoshop's own pixels until its text changes
   const boxOf = (layer, doc) => {
     if (layer.kind === "text") {
@@ -387,7 +399,10 @@
         const b = relativeLayout(layer.params.layerText, doc.resolution).box;
         return boundsOfPoints(surfaceEdge(layer.warp, (b.left - source.left) / source.width, (b.top - source.top) / source.height, (b.right - source.left) / source.width, (b.bottom - source.top) / source.height));
       }
-      return layoutLayer(layer, doc).box;
+      const layout = layoutLayer(layer, doc);
+      if (!spinOf(layer)) return layout.box;
+      const { minX, minY, maxX, maxY } = spunBounds(layout.relative.box, spinOf(layer));
+      return rectFrom(layout.anchor[0] + minX, layout.anchor[1] + minY, layout.anchor[0] + maxX, layout.anchor[1] + maxY);
     }
     const visual = visualOf(layer, doc);
     if (!visual) return rectFrom(0, 0, 0, 0);
@@ -446,7 +461,7 @@
 
   // The box the handles sit on: a paragraph's own box, the room a point text takes
   const frameOf = (layer, doc) => {
-    if (layer.kind !== "text" || (layer.raster && layer.rotated)) return boxOf(layer, doc);
+    if (layer.kind !== "text" || layer.rotated) return boxOf(layer, doc);
     if (layer.warp) return boundsOfPoints(surfaceEdge(layer.warp, 0, 0, 1, 1));
     const layout = layoutLayer(layer, doc);
     if (layout.frame) return layout.frame;
@@ -621,6 +636,12 @@
   };
 
   // A selection as an alpha picture, in the document's coordinates
+  // A rectangle is four numbers: a whole page selected costs nothing to paint through
+  const clipOf = (selection, dx, dy) => {
+    const b = selection.bounds;
+    if (selection.source === "rectangle" && !selection.mask) return { x: b.left - dx, y: b.top - dy, width: b.width, height: b.height };
+    return { canvas: selectionCanvas(selection), x: b.left - dx, y: b.top - dy };
+  };
   const selectionCanvases = new WeakMap();
   const selectionCanvas = (selection) => {
     let canvas = selectionCanvases.get(selection);
@@ -640,6 +661,51 @@
     }
     selectionCanvases.set(selection, canvas);
     return canvas;
+  };
+
+  // A soft brush can't be a line: it's stamped along the way, every tenth of its size, and the
+  // stamps build up as in Photoshop. The spacing carries over from one segment to the next.
+  const softStrokes = new WeakMap();
+  const softStroke = (ctx, op, points) => {
+    let state = softStrokes.get(op);
+    if (!state) {
+      const radius = op.size / 2;
+      const side = Math.ceil(op.size) + 2;
+      const dab = newCanvas(side, side);
+      const c = dab.getContext("2d");
+      const fade = c.createRadialGradient(side / 2, side / 2, radius * (op.hardness / 100), side / 2, side / 2, radius);
+      for (let i = 0; i <= 8; i++) fade.addColorStop(i / 8, `rgba(0,0,0,${(Math.cos((i / 8) * Math.PI) + 1) / 2})`);
+      c.fillStyle = fade;
+      c.fillRect(0, 0, side, side);
+      if (!op.erase) {
+        c.globalCompositeOperation = "source-in";
+        c.fillStyle = colorCss(op.color);
+        c.fillRect(0, 0, side, side);
+      }
+      state = { dab, side, spacing: Math.max(1, op.size / 10), rest: 0 };
+      softStrokes.set(op, state);
+    }
+    const stamp = (x, y) => ctx.drawImage(state.dab, x - state.side / 2, y - state.side / 2);
+    if (points.length === 1) {
+      state.rest = 0;
+      stamp(points[0][0], points[0][1]);
+      return;
+    }
+    const [a, b] = points;
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    let at = state.spacing - state.rest;
+    while (at <= length) {
+      stamp(a[0] + ((b[0] - a[0]) * at) / length, a[1] + ((b[1] - a[1]) * at) / length);
+      at += state.spacing;
+    }
+    state.rest = length - (at - state.spacing);
+  };
+  const paintStroke = (ctx, op, points) => {
+    if (op.hardness < 100) softStroke(ctx, op, points);
+    else {
+      traceStroke(ctx, op, points);
+      ctx.stroke();
+    }
   };
 
   // One painted thing on a layer, in the layer's own coordinates
@@ -668,7 +734,7 @@
       op.points.forEach((point, index) => drawOp(ctx, op, index ? [op.points[index - 1], point] : [point]));
     } else if (op.t === "stroke") {
       const list = points;
-      if (op.clip) {
+      if (op.clip || op.source) {
         const xs = list.map((p) => p[0]);
         const ys = list.map((p) => p[1]);
         const left = Math.floor(Math.min(...xs) - op.size);
@@ -676,13 +742,19 @@
         const shape = newCanvas(Math.max(...xs) + op.size - left + 2, Math.max(...ys) + op.size - top + 2);
         const c = shape.getContext("2d");
         c.translate(-left, -top);
-        traceStroke(c, op, list);
         c.strokeStyle = "#000";
-        c.stroke();
-        c.globalCompositeOperation = "destination-in";
-        c.drawImage(op.clip.canvas, op.clip.x, op.clip.y);
+        paintStroke(c, op, list);
+        if (op.clip) {
+          c.globalCompositeOperation = "destination-in";
+          if (op.clip.canvas) c.drawImage(op.clip.canvas, op.clip.x, op.clip.y);
+          else c.fillRect(op.clip.x, op.clip.y, op.clip.width, op.clip.height);
+        }
         c.setTransform(1, 0, 0, 1, 0, 0);
-        if (!op.erase) {
+        if (op.source) {
+          // The Clone Stamp: what the stroke covers comes from a picture of the page
+          c.globalCompositeOperation = "source-in";
+          c.drawImage(op.source.canvas, op.source.x - left, op.source.y - top);
+        } else if (!op.erase) {
           c.globalCompositeOperation = "source-in";
           c.fillStyle = colorCss(op.color);
           c.fillRect(0, 0, shape.width, shape.height);
@@ -692,9 +764,12 @@
       } else {
         ctx.globalCompositeOperation = op.erase ? "destination-out" : "source-over";
         ctx.strokeStyle = op.erase ? "#000" : colorCss(op.color);
-        traceStroke(ctx, op, list);
-        ctx.stroke();
+        paintStroke(ctx, op, list);
       }
+    } else if (op.t === "fill" && !op.clip.canvas) {
+      ctx.globalCompositeOperation = op.erase ? "destination-out" : "source-over";
+      ctx.fillStyle = op.erase ? "#000" : colorCss(op.color);
+      ctx.fillRect(op.clip.x, op.clip.y, op.clip.width, op.clip.height);
     } else if (op.t === "fill") {
       if (op.erase) {
         ctx.globalCompositeOperation = "destination-out";
@@ -729,7 +804,44 @@
 
   // What a pixel layer looks like: its picture, what was painted on it, its mask.
   // A painted layer keeps one canvas and only draws what is new.
+  // Rebuilt from the layer when needed again, so what isn't on screen can go: the oldest pages
+  // first when the budget is spent, and all of a page when it closes.
+  const RASTER_BUDGET = 512 * 1024 * 1024;
   const rasterCache = new Map();
+  let rasterBytes = 0;
+  const forgetRaster = (id, entry) => {
+    rasterBytes -= entry.bytes;
+    rasterCache.delete(id);
+  };
+  const keepRasterInBudget = () => {
+    for (const [id, entry] of rasterCache) {
+      if (rasterBytes <= RASTER_BUDGET) return;
+      if (!app.doc || entry.docId !== app.doc.id) forgetRaster(id, entry);
+    }
+  };
+  const forgetDocPixels = (doc) => {
+    for (const [id, entry] of rasterCache) {
+      if (entry.docId === doc.id) forgetRaster(id, entry);
+    }
+    doc.sampleCache = null;
+    doc.sampleKey = null;
+  };
+  // A picture of the layer every so many strokes, the last two: undoing replays a few of them
+  const MARK_EVERY = 16;
+  const markRaster = (entry, ops) => {
+    if (entry.marks.some((item) => item.count === ops.length)) return;
+    const canvas = newCanvas(entry.canvas.width, entry.canvas.height);
+    canvas.getContext("2d").drawImage(entry.canvas, 0, 0);
+    entry.marks.push({ canvas, ops, count: ops.length, bitmap: entry.bitmap, cx0: entry.cx0, cy0: entry.cy0 });
+    let change = canvas.width * canvas.height * 4;
+    if (entry.marks.length > 2) {
+      const gone = entry.marks.shift();
+      change -= gone.canvas.width * gone.canvas.height * 4;
+    }
+    entry.bytes += change;
+    rasterBytes += change;
+    keepRasterInBudget();
+  };
   const rasterEntry = (layer, doc) => {
     const paint = layer.paint || NONE;
     const dx = layer.dx || 0;
@@ -748,13 +860,24 @@
       const cy1 = Math.max(doc.height, doc.height - dy, top + h);
       const canvas = newCanvas(cx1 - cx0, cy1 - cy0);
       const ctx = canvas.getContext("2d");
+      // Undo starts from the nearest picture saved along the way, not from the first stroke
+      const mark = entry && entry.marks.filter((item) => item.bitmap === layer.bitmap && item.count <= paint.length && item.cx0 === cx0 && item.cy0 === cy0 && item.canvas.width === canvas.width && item.canvas.height === canvas.height && item.ops.every((op, i) => op === paint[i])).pop();
+      if (mark) ctx.drawImage(mark.canvas, 0, 0);
       ctx.translate(-cx0, -cy0);
-      if (layer.bitmap) ctx.drawImage(layer.bitmap, left, top);
-      entry = { canvas, ctx, cx0, cy0, cx1, cy1, bitmap: layer.bitmap, paint: NONE, masked: null };
+      if (layer.bitmap && !mark) ctx.drawImage(layer.bitmap, left, top);
+      const previous = rasterCache.get(layer.id);
+      if (previous) forgetRaster(layer.id, previous);
+      const marks = entry ? entry.marks.filter((item) => item.bitmap === layer.bitmap && item.count <= paint.length && item.ops.every((op, i) => op === paint[i])) : [];
+      entry = { canvas, ctx, cx0, cy0, cx1, cy1, bitmap: layer.bitmap, paint: mark ? paint.slice(0, mark.count) : NONE, masked: null, docId: doc.id, marks, bytes: canvas.width * canvas.height * 4 * (1 + marks.length) };
       rasterCache.set(layer.id, entry);
+      rasterBytes += entry.bytes;
+      keepRasterInBudget();
     }
     if (entry.paint.length < paint.length) {
-      for (let i = entry.paint.length; i < paint.length; i++) drawOp(entry.ctx, paint[i]);
+      for (let i = entry.paint.length; i < paint.length; i++) {
+        drawOp(entry.ctx, paint[i]);
+        if ((i + 1) % MARK_EVERY === 0) markRaster(entry, paint.slice(0, i + 1));
+      }
       entry.paint = paint;
       entry.masked = null;
     }
@@ -784,7 +907,12 @@
       a.drawImage(maskAlpha(mask), mask.left || 0, mask.top || 0);
       c.globalCompositeOperation = "destination-in";
       c.drawImage(alpha, 0, 0);
+      if (!entry.masked) {
+        entry.bytes += final.width * final.height * 4;
+        rasterBytes += final.width * final.height * 4;
+      }
       entry.masked = final;
+      keepRasterInBudget();
     }
     return { canvas: entry.masked, x: entry.cx0 + dx, y: entry.cy0 + dy };
   };
@@ -959,6 +1087,22 @@
     return { canvas, x: left, y: top };
   };
 
+  // A drag draws hundreds of sizes of a text: only the latest bitmaps stay, whatever their number
+  const TEXT_BUDGET = 128 * 1024 * 1024;
+  const textKept = [];
+  let textBytes = 0;
+  const keepText = (forLayout, key, entry) => {
+    forLayout.set(key, entry);
+    const bytes = entry.canvas.width * entry.canvas.height * 4;
+    textKept.push({ forLayout, key, entry, bytes });
+    textBytes += bytes;
+    while (textBytes > TEXT_BUDGET && textKept.length > 1) {
+      const oldest = textKept.shift();
+      textBytes -= oldest.bytes;
+      if (oldest.forLayout.get(oldest.key) === oldest.entry) oldest.forLayout.delete(oldest.key);
+    }
+  };
+
   const textVisual = (layer, doc) => {
     if (layer.raster) return { canvas: layer.raster.display || layer.raster.bitmap, x: layer.raster.displayLeft !== undefined ? layer.raster.left + layer.raster.displayLeft : layer.raster.left, y: layer.raster.displayTop !== undefined ? layer.raster.top + layer.raster.displayTop : layer.raster.top };
     const layout = layoutLayer(layer, doc);
@@ -975,22 +1119,37 @@
       const warpKey = strokeKey + "|" + JSON.stringify(layer.warp);
       // A drag draws hundreds of these: only the latest ones are worth keeping
       if (!forLayout.has(warpKey) && forLayout.size > 6) forLayout.clear();
-      if (!forLayout.has(warpKey)) forLayout.set(warpKey, warpedBitmap(layer, doc, relative, stroke, antiAlias));
+      if (!forLayout.has(warpKey)) keepText(forLayout, warpKey, warpedBitmap(layer, doc, relative, stroke, antiAlias));
       return forLayout.get(warpKey);
     }
-    let entry = forLayout.get(strokeKey);
+    const spin = spinOf(layer);
+    const entryKey = spin ? strokeKey + "|" + spin.join(",") : strokeKey;
+    let entry = forLayout.get(entryKey);
     if (!entry) {
       let largest = 0;
       relative.lines.forEach((line) => line.m.placed.forEach((item) => { largest = Math.max(largest, item.size); }));
       const pad = Math.ceil(6 + largest * 0.2 + (stroke ? stroke.size * 1.5 : 0));
       const b = relative.box;
-      const canvas = newCanvas(b.width + pad * 2, b.height + pad * 2);
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      ctx.translate(pad - b.left, pad - b.top);
-      drawLines(ctx, relative.lines, stroke, layer);
-      applyAntiAlias(canvas, ctx, antiAlias);
-      entry = { canvas, x: b.left - pad, y: b.top - pad };
-      forLayout.set(strokeKey, entry);
+      if (spin) {
+        const { minX, minY, maxX, maxY } = spunBounds({ left: b.left - pad, top: b.top - pad, right: b.right + pad, bottom: b.bottom + pad }, spin);
+        const canvas = newCanvas(Math.ceil(maxX - minX), Math.ceil(maxY - minY));
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const x = Math.floor(minX);
+        const y = Math.floor(minY);
+        ctx.setTransform(spin[0], spin[1], spin[2], spin[3], -x, -y);
+        drawLines(ctx, relative.lines, stroke, layer);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        applyAntiAlias(canvas, ctx, antiAlias);
+        entry = { canvas, x, y };
+      } else {
+        const canvas = newCanvas(b.width + pad * 2, b.height + pad * 2);
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        ctx.translate(pad - b.left, pad - b.top);
+        drawLines(ctx, relative.lines, stroke, layer);
+        applyAntiAlias(canvas, ctx, antiAlias);
+        entry = { canvas, x: b.left - pad, y: b.top - pad };
+      }
+      keepText(forLayout, entryKey, entry);
     }
     return { canvas: entry.canvas, x: Math.round(layout.anchor[0]) + entry.x, y: Math.round(layout.anchor[1]) + entry.y };
   };
@@ -1017,10 +1176,13 @@
   };
 
   let scratch = null;
+  // `rect` redoes only that part of a canvas that already shows this document: what a drag
+  // changes on a page 10000 pixels tall is small, and the rest of the page costs nothing.
   const paintDoc = (doc, ctx, options = {}) => {
     const layers = doc.state.layers;
     const byId = new Map(layers.map((layer) => [layer.id, layer]));
     const live = doc.live;
+    const rect = options.rect || null;
     const place = (layer, target, alpha, blend) => {
       const visual = visualOf(doc.preview && doc.preview.id === layer.id ? doc.preview : layer, doc);
       if (!visual || !visual.canvas || !visual.canvas.width) return;
@@ -1029,13 +1191,34 @@
         x += Math.round(live.dx);
         y += Math.round(live.dy);
       }
+      const turning = doc.liveTransform && doc.liveTransform.ids.has(layer.id) ? doc.liveTransform.matrix : null;
+      if (rect && !turning && (x >= rect.right || y >= rect.bottom || x + visual.canvas.width <= rect.left || y + visual.canvas.height <= rect.top)) return;
       target.globalAlpha = alpha;
       target.globalCompositeOperation = blend;
+      if (!turning) {
+        if (rect && Number.isInteger(x) && Number.isInteger(y)) {
+          const left = Math.max(x, rect.left);
+          const top = Math.max(y, rect.top);
+          const width = Math.min(x + visual.canvas.width, rect.right) - left;
+          const height = Math.min(y + visual.canvas.height, rect.bottom) - top;
+          target.drawImage(visual.canvas, left - x, top - y, width, height, left, top, width, height);
+        } else target.drawImage(visual.canvas, x, y);
+        return;
+      }
+      target.save();
+      target.transform(...turning);
+      target.imageSmoothingQuality = "high";
       target.drawImage(visual.canvas, x, y);
+      target.restore();
     };
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (!options.keep) ctx.clearRect(0, 0, doc.width, doc.height);
+    ctx.setTransform(1, 0, 0, 1, options.x || 0, options.y || 0);
+    if (rect) {
+      ctx.beginPath();
+      ctx.rect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
+      ctx.clip();
+      if (!options.keep) ctx.clearRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
+    } else if (!options.keep) ctx.clearRect(0, 0, doc.width, doc.height);
     for (let i = 0; i < layers.length; i++) {
       const layer = layers[i];
       if (layer.kind === "group" || layer.clipping) continue;
@@ -1051,7 +1234,8 @@
         const c = scratch.getContext("2d");
         c.globalAlpha = 1;
         c.globalCompositeOperation = "source-over";
-        c.clearRect(0, 0, doc.width, doc.height);
+        if (rect) c.clearRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
+        else c.clearRect(0, 0, doc.width, doc.height);
         place(layer, c, 1, "source-over");
         clipped.forEach((item) => {
           if (chainOf(item, byId).visible) place(item, c, item.opacity === undefined ? 1 : item.opacity, "source-atop");
@@ -1097,21 +1281,101 @@
     return doc;
   };
 
+  const sizeOf = (doc) => ({ width: doc.width, height: doc.height, resolution: doc.resolution });
+
   const pushHistory = (doc, name, coalesce) => {
     doc.history.length = doc.historyIndex + 1;
-    doc.history.push({ id: newId(), name, state: doc.state, coalesce: coalesce || null, time: Date.now() });
+    doc.history.push({ id: newId(), name, state: doc.state, size: sizeOf(doc), coalesce: coalesce || null, time: Date.now() });
     if (doc.history.length > MAX_HISTORY) doc.history.shift();
     doc.historyIndex = doc.history.length - 1;
+    const before = doc.history[doc.historyIndex - 1];
+    if (before && (before.state.layers !== doc.state.layers || before.state.selection !== doc.state.selection)) trimHistory(doc);
+  };
+
+  // Steps are cheap, as they share what didn't change, unless each brings pixels of its own: a
+  // merge, a transform, a big selection. Past this budget the oldest steps go, as in Photoshop.
+  const HISTORY_BUDGET = 256 * 1024 * 1024;
+  const MIN_STEPS = 10;
+  const pixelsOfLayer = (layer, found) => {
+    [layer.bitmap, layer.raster && layer.raster.bitmap, layer.raster && layer.raster.display, layer.mask && layer.mask.canvas].forEach((canvas) => { if (canvas) found.add(canvas); });
+    (layer.paint || NONE).forEach((op) => {
+      if (op.clip && op.clip.canvas) found.add(op.clip.canvas);
+      if (op.source && op.source.canvas) found.add(op.source.canvas);
+    });
+  };
+  const pixelsOfState = (state, found, seen) => {
+    state.layers.forEach((layer) => {
+      if (seen.has(layer)) return;
+      seen.add(layer);
+      pixelsOfLayer(layer, found);
+    });
+    if (state.selection && state.selection.mask) found.add(state.selection.mask.data);
+    if (state.lastSelection && state.lastSelection.mask) found.add(state.lastSelection.mask.data);
+  };
+  const bytesOf = (item) => (ArrayBuffer.isView(item) ? item.byteLength : item.width * item.height * 4);
+  const historyOnlyBytes = (doc) => {
+    const now = new Set();
+    pixelsOfState(doc.state, now, new Set());
+    const held = new Set();
+    const seen = new Set();
+    doc.history.forEach((entry) => pixelsOfState(entry.state, held, seen));
+    let bytes = 0;
+    held.forEach((item) => { if (!now.has(item)) bytes += bytesOf(item); });
+    return bytes;
+  };
+  const trimHistory = (doc) => {
+    while (doc.history.length > MIN_STEPS && historyOnlyBytes(doc) > HISTORY_BUDGET) {
+      doc.history.shift();
+      doc.historyIndex--;
+    }
   };
 
   const isDirty = (doc) => doc.history[doc.historyIndex].id !== doc.savedId;
 
   const fileStamp = (file) => `${file.size}:${file.lastModified}`;
 
+  // Browsers limit a canvas's size and don't say so: past it, it stays blank. iPhones and
+  // iPads stop at about 16.7 million pixels. A pixel in its far corner tells.
+  const fitting = new Map();
+  const canvasFits = (width, height) => {
+    const key = `${width}x${height}`;
+    if (!fitting.has(key)) {
+      const canvas = document.createElement("canvas");
+      let fits = false;
+      try {
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.width === width && canvas.height === height && canvas.getContext("2d", { willReadFrequently: true });
+        if (ctx) {
+          ctx.fillRect(width - 1, height - 1, 1, 1);
+          fits = ctx.getImageData(width - 1, height - 1, 1, 1).data[3] === 255;
+        }
+      } catch (error) {
+        fits = false;
+      }
+      canvas.width = 0;
+      canvas.height = 0;
+      fitting.set(key, fits);
+    }
+    return fitting.get(key);
+  };
+  const refuseIfTooLarge = (width, height) => {
+    if (!canvasFits(width, height)) throw Object.assign(new Error(`The page is too large for this browser: ${width} x ${height}`), { tooLarge: { width, height } });
+  };
+
+  const identities = new WeakMap();
+  let lastIdentity = 0;
+  const identity = (object) => {
+    if (!object) return 0;
+    if (!identities.has(object)) identities.set(object, ++lastIdentity);
+    return identities.get(object);
+  };
+
   // What the Magic Wand reads: the pixel layers on white, never the text
   const sampleData = (doc) => {
     const onlyActive = !app.sampleAll && activeRaster(doc);
-    const key = doc.state.layers.filter((layer) => layer.kind === "raster").map((layer) => [layer.id, layer.visible, layer.opacity, layer.dx, layer.dy, (layer.paint || NONE).length, layer.bitmap ? 1 : 0].join(",")).join(";") + "|" + (onlyActive ? onlyActive.id : "all");
+    // Pixels are never drawn on again once made: the same objects are the same picture
+    const key = doc.state.layers.filter((layer) => layer.kind !== "text").map((layer) => [layer.id, layer.visible, layer.opacity, layer.blend, layer.group, layer.clipping, layer.dx, layer.dy, layer.left, layer.top, identity(layer.bitmap), identity(layer.mask), identity((layer.paint || NONE)[(layer.paint || NONE).length - 1]), (layer.paint || NONE).length].join(",")).join(";") + "|" + (onlyActive ? onlyActive.id : "all");
     if (doc.sampleCache && doc.sampleKey === key) return doc.sampleCache;
     const canvas = newCanvas(doc.width, doc.height);
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -1432,7 +1696,7 @@
     selectionMode: "new",
     fg: { r: 0, g: 0, b: 0 },
     bg: { r: 255, g: 255, b: 255 },
-    brush: { size: 24 },
+    brush: { size: 24, hardness: 100 },
     textDefaults: { font: "WildjessNormal", family: "Wildjess", style: "Normal", size: 38, verticalAlign: "center", language: DEFAULT_TEXT_LANGUAGE, ligature: true },
     lastAction: 0,
     pendingActions: 0,
@@ -1443,6 +1707,11 @@
 
   const setDoc = (doc) => {
     if (doc && !app.docs.includes(doc)) app.docs.push(doc);
+    // What the Magic Wand read of a page is a whole page, and quick to read again
+    if (app.doc && app.doc !== doc) {
+      app.doc.sampleCache = null;
+      app.doc.sampleKey = null;
+    }
     app.doc = doc;
     emit("document", doc);
     emit("render");
@@ -1696,7 +1965,347 @@
     });
   };
 
+  // The page changed size: what depends on it starts over, and it shows whole if it changed shape
+  const sizeChanged = (doc, before) => {
+    doc.sampleCache = null;
+    doc.sampleKey = "";
+    doc.preview = null;
+    if (doc.width !== before.width || doc.height !== before.height) {
+      doc.view.fitted = true;
+      doc.view.seen = false;
+    }
+    emit("document", doc);
+    emit("selection", doc.state.selection);
+  };
+
+  const resizeDoc = (doc, name, size, layers, change) => {
+    const before = sizeOf(doc);
+    // History from before sizes were kept, in a document from an older session
+    doc.history.forEach((entry) => { if (!entry.size) entry.size = before; });
+    Object.assign(doc, size);
+    commitState(doc, name, Object.assign({ layers, selection: null, lastSelection: null }, change));
+    sizeChanged(doc, before);
+    firePanelEvent(EVENT_HISTORY);
+  };
+
+  // A layer's new pixels replace what it had, painted things included, in Photoshop's file too
+  const withPixels = (layer, bitmap, left, top, mask) => {
+    const next = Object.assign({}, layer, { bitmap, left, top, dx: 0, dy: 0, paint: NONE, mask });
+    if (layer.raw) {
+      next.raw = Object.assign({}, layer.raw, { canvas: bitmap, left, top, right: left + bitmap.width, bottom: top + bitmap.height });
+      if (mask) next.raw.mask = mask;
+      else if (layer.mask) delete next.raw.mask;
+    }
+    return next;
+  };
+
+  // A picture at (x, y) of the page, as it lands on the scaled page. Its edges stay where they
+  // fall, between pixels too, so that the layers keep lining up.
+  const scaledPixels = (source, x, y, sx, sy) => {
+    const left = Math.floor(x * sx + 1e-6);
+    const top = Math.floor(y * sy + 1e-6);
+    const canvas = newCanvas(Math.ceil((x + source.width) * sx - 1e-6) - left, Math.ceil((y + source.height) * sy - 1e-6) - top);
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(source, x * sx - left, y * sy - top, source.width * sx, source.height * sy);
+    return { canvas, left, top };
+  };
+
+  const scaledRaster = (layer, doc, sx, sy) => {
+    let mask = layer.mask;
+    if (mask && mask.canvas) {
+      const m = scaledPixels(mask.canvas, (mask.left || 0) + (layer.dx || 0), (mask.top || 0) + (layer.dy || 0), sx, sy);
+      mask = Object.assign({}, mask, { canvas: m.canvas, left: m.left, top: m.top, right: m.left + m.canvas.width, bottom: m.top + m.canvas.height });
+    }
+    const visual = visualOf(Object.assign({}, layer, { mask: null }), doc);
+    if (!visual) return mask === layer.mask ? layer : Object.assign({}, layer, { mask, dx: 0, dy: 0, raw: layer.raw && Object.assign({}, layer.raw, { mask }) });
+    const p = scaledPixels(visual.canvas, visual.x, visual.y, sx, sy);
+    return withPixels(layer, p.canvas, p.left, p.top, mask);
+  };
+
+  // Where a pixel layer really has pixels, without its mask. A painted layer's picture covers
+  // the whole page, whatever is on it. Null for a layer with nothing on it.
+  const trimmedBoxes = new WeakMap();
+  const trimmedBox = (layer, doc) => {
+    const visual = visualOf(Object.assign({}, layer, { mask: null }), doc);
+    if (!visual) return null;
+    const dx = layer.dx || 0;
+    const dy = layer.dy || 0;
+    const key = layer.paint && layer.paint.length ? layer.paint : layer.bitmap;
+    let box = trimmedBoxes.get(key);
+    if (box === undefined) {
+      const { width, height } = visual.canvas;
+      const { data } = visual.canvas.getContext("2d").getImageData(0, 0, width, height);
+      let left = width;
+      let top = height;
+      let right = 0;
+      let bottom = 0;
+      for (let y = 0, i = 3; y < height; y++) {
+        for (let x = 0; x < width; x++, i += 4) {
+          if (!data[i]) continue;
+          if (x < left) left = x;
+          if (x >= right) right = x + 1;
+          if (y < top) top = y;
+          bottom = y + 1;
+        }
+      }
+      const ox = visual.x - dx;
+      const oy = visual.y - dy;
+      box = right ? { left: left + ox, top: top + oy, right: right + ox, bottom: bottom + oy } : null;
+      trimmedBoxes.set(key, box);
+    }
+    return box && rectFrom(box.left + dx, box.top + dy, box.right + dx, box.bottom + dy);
+  };
+
+  // A part of a picture at (x, y) of the page, through a matrix, on a canvas just big enough
+  const transformedPixels = (source, x, y, part, matrix, fill) => {
+    const [a, b, c, d, e, f] = matrix;
+    const xs = [part.left, part.right, part.right, part.left].map((px, i) => a * px + c * (i < 2 ? part.top : part.bottom) + e);
+    const ys = [part.left, part.right, part.right, part.left].map((px, i) => b * px + d * (i < 2 ? part.top : part.bottom) + f);
+    const left = Math.floor(Math.min(...xs) + 1e-6);
+    const top = Math.floor(Math.min(...ys) + 1e-6);
+    const canvas = newCanvas(Math.ceil(Math.max(...xs) - 1e-6) - left, Math.ceil(Math.max(...ys) - 1e-6) - top);
+    const ctx = canvas.getContext("2d");
+    if (fill) {
+      ctx.fillStyle = fill;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.imageSmoothingQuality = "high";
+    ctx.setTransform(a, b, c, d, e - left, f - top);
+    const width = part.right - part.left;
+    const height = part.bottom - part.top;
+    ctx.drawImage(source, part.left - x, part.top - y, width, height, part.left, part.top, width, height);
+    return { canvas, left, top };
+  };
+
+  // What a Clone Stamp stroke paints from: the page as it is when the stroke starts, so that it
+  // never clones what it has just painted. Places are the page's.
+  const cloneSource = (doc, layer, sample) => {
+    if (sample === "current") {
+      const visual = visualOf(layer, doc);
+      if (!visual) return { canvas: newCanvas(1, 1), x: 0, y: 0 };
+      const canvas = newCanvas(visual.canvas.width, visual.canvas.height);
+      canvas.getContext("2d").drawImage(visual.canvas, 0, 0);
+      return { canvas, x: visual.x, y: visual.y };
+    }
+    const canvas = newCanvas(doc.width, doc.height);
+    const at = doc.state.layers.indexOf(layer);
+    paintDoc(doc, canvas.getContext("2d"), { keep: true, skip: sample === "below" ? (item) => doc.state.layers.indexOf(item) > at : null });
+    return { canvas, x: 0, y: 0 };
+  };
+  // A stroke only needs what is under it: a whole page for each one would fill the memory
+  const cropCloneSource = (op) => {
+    const reach = op.size / 2 + 2;
+    const xs = op.points.map((p) => p[0]);
+    const ys = op.points.map((p) => p[1]);
+    const left = Math.floor(Math.min(...xs) - reach);
+    const top = Math.floor(Math.min(...ys) - reach);
+    const canvas = newCanvas(Math.ceil(Math.max(...xs) + reach) - left, Math.ceil(Math.max(...ys) + reach) - top);
+    canvas.getContext("2d").drawImage(op.source.canvas, op.source.x - left, op.source.y - top);
+    op.source = { canvas, x: left, y: top };
+  };
+
+  const TEXT_LENGTHS = ["size", "impliedFontSize", "leading", "impliedLeading", "baselineShift", "impliedBaselineShift"];
+
+  // points: what a size in points is multiplied by, the page's resolution being part of it
+  const scaledText = (layer, sx, sy, points) => {
+    const params = clone(layer.params);
+    const lt = params.layerText;
+    const stretched = Math.abs(sx / sy - 1) > 0.005;
+    lt.textStyleRange.forEach(({ textStyle }) => {
+      TEXT_LENGTHS.forEach((field) => {
+        if (typeof textStyle[field] === "number") textStyle[field] = Math.round(textStyle[field] * points * 1000) / 1000;
+      });
+      if (stretched) textStyle.horizontalScale = Math.round((textStyle.horizontalScale === undefined ? 100 : textStyle.horizontalScale) * (sx / sy) * 100) / 100;
+    });
+    const next = Object.assign({}, layer, { params });
+    if (sx === 1 && sy === 1) return next;
+    const shape = boxShape(lt);
+    if (shape) {
+      shape.box.width = Math.max(1, shape.box.width * sx);
+      shape.box.height = Math.max(1, shape.box.height * sy);
+    }
+    if (layer.stroke) next.stroke = Object.assign({}, layer.stroke, { size: Math.round(layer.stroke.size * sy * 100) / 100 });
+    if (layer.warp) {
+      const { source, corners, bendTop, bendBottom } = layer.warp;
+      const scaled = ([x, y]) => [x * sx, y * sy];
+      next.warp = Object.assign({}, layer.warp, {
+        source: { left: source.left * sx, top: source.top * sy, width: source.width * sx, height: source.height * sy },
+        corners: corners.map(scaled),
+        bendTop: scaled(bendTop),
+        bendBottom: scaled(bendBottom),
+      });
+    }
+    const { raster, raw } = layer;
+    if (raster) {
+      // Photoshop's pixels stay, scaled, and Photoshop's text follows them in the file
+      const p = scaledPixels(raster.bitmap, raster.left, raster.top, sx, sy);
+      next.raster = Object.assign({}, raster, { bitmap: p.canvas, left: p.left, top: p.top });
+      if (raster.display) {
+        const d = scaledPixels(raster.display, raster.left + (raster.displayLeft || 0), raster.top + (raster.displayTop || 0), sx, sy);
+        Object.assign(next.raster, { display: d.canvas, displayLeft: d.left - p.left, displayTop: d.top - p.top });
+      }
+      if (raw && raw.text) {
+        const t = raw.text.transform || [1, 0, 0, 1, 0, 0];
+        const x = t[4] + raster.left - (raw.left || 0);
+        const y = t[5] + raster.top - (raw.top || 0);
+        next.raw = Object.assign({}, raw, { left: p.left, top: p.top, text: Object.assign({}, raw.text, { transform: [t[0] * sx, t[1] * sy, t[2] * sx, t[3] * sy, x * sx, y * sy] }) });
+        if (raw.effects && raw.effects.stroke) {
+          next.raw.effects = Object.assign({}, raw.effects, { stroke: raw.effects.stroke.map((stroke) => Object.assign({}, stroke, { size: Object.assign({}, stroke.size, { value: stroke.size.value * sy }) })) });
+        }
+      }
+    }
+    return next;
+  };
+
+  // The layers of a page that changes size, with what it had moved by (ox, oy). Layers keep
+  // what goes off the page; the Background, which has nothing outside it, gets cut or filled.
+  const onNewCanvas = (doc, width, height, ox, oy, fill) => doc.state.layers.map((layer) => {
+    if (layer.isBackground) {
+      const visual = visualOf(layer, doc);
+      const bitmap = newCanvas(width, height);
+      const ctx = bitmap.getContext("2d");
+      ctx.fillStyle = fill;
+      ctx.fillRect(0, 0, width, height);
+      ctx.clearRect(ox, oy, doc.width, doc.height);
+      if (visual) ctx.drawImage(visual.canvas, visual.x + ox, visual.y + oy);
+      return withPixels(layer, bitmap, 0, 0, null);
+    }
+    if (layer.kind !== "text") return shifted(layer, ox, oy);
+    // An anchor is a share of the page: the same place is another share of a new page
+    const params = clone(layer.params);
+    params.layerText.textClickPoint.horizontal *= doc.width / width;
+    params.layerText.textClickPoint.vertical *= doc.height / height;
+    return shifted(Object.assign({}, layer, { params }), ox, oy, { width, height });
+  });
+
+  const pageRect = (doc, left, top, right, bottom) => ({
+    left: Math.max(0, Math.floor(left)),
+    top: Math.max(0, Math.floor(top)),
+    right: Math.min(doc.width, Math.ceil(right)),
+    bottom: Math.min(doc.height, Math.ceil(bottom)),
+  });
+  // Where what is being dragged shows right now
+  const liveBounds = (doc) => {
+    const { ids, dx, dy } = doc.live;
+    let box = null;
+    doc.state.layers.forEach((layer) => {
+      if (!ids.has(layer.id) || layer.kind === "group") return;
+      const visual = visualOf(layer, doc);
+      if (!visual) return;
+      const left = visual.x + Math.round(dx);
+      const top = visual.y + Math.round(dy);
+      const right = left + visual.canvas.width;
+      const bottom = top + visual.canvas.height;
+      box = box ? { left: Math.min(box.left, left), top: Math.min(box.top, top), right: Math.max(box.right, right), bottom: Math.max(box.bottom, bottom) } : { left, top, right, bottom };
+    });
+    return box;
+  };
+
   const ops = {
+    // Image > Canvas Size: the page changes around an anchor, 0 to 1 on each side
+    resizeCanvas(width, height, ax, ay, fill) {
+      const doc = app.doc;
+      if (!doc || (width === doc.width && height === doc.height)) return;
+      const ox = Math.round((width - doc.width) * ax);
+      const oy = Math.round((height - doc.height) * ay);
+      resizeDoc(doc, "Canvas Size", { width, height }, onNewCanvas(doc, width, height, ox, oy, fill));
+    },
+    // What Free Transform works on: the active pixel layers, and those in the active folders
+    transformableIds() {
+      const doc = app.doc;
+      if (!doc) return [];
+      const out = new Set();
+      doc.state.activeIds.forEach((id) => familyOf(doc.state.layers, id).forEach((member) => out.add(member)));
+      return doc.state.layers.filter((layer) => out.has(layer.id) && layer.kind === "raster" && !layer.adjustment && !layer.locked && visualOf(layer, doc)).map((layer) => layer.id);
+    },
+    pixelBox(layer) {
+      return app.doc ? trimmedBox(layer, app.doc) : null;
+    },
+    setLiveTransform(ids, matrix) {
+      const doc = app.doc;
+      if (!doc) return;
+      doc.liveTransform = ids ? { ids: new Set(ids), matrix } : null;
+      if (!ids) doc.sampleCache = null;
+    },
+    transformLayers(ids, matrix, name) {
+      const doc = app.doc;
+      if (!doc) return;
+      const set = new Set(ids);
+      const layers = doc.state.layers.map((layer) => {
+        if (!set.has(layer.id)) return layer;
+        const part = trimmedBox(layer, doc);
+        if (!part) return layer;
+        const visual = visualOf(Object.assign({}, layer, { mask: null }), doc);
+        const p = transformedPixels(visual.canvas, visual.x, visual.y, part, matrix);
+        let { mask } = layer;
+        if (mask && mask.canvas) {
+          const x = (mask.left || 0) + (layer.dx || 0);
+          const y = (mask.top || 0) + (layer.dy || 0);
+          const m = transformedPixels(mask.canvas, x, y, rectFrom(x, y, x + mask.canvas.width, y + mask.canvas.height), matrix, mask.defaultColor ? "#fff" : "#000");
+          mask = Object.assign({}, mask, { canvas: m.canvas, left: m.left, top: m.top, right: m.left + m.canvas.width, bottom: m.top + m.canvas.height });
+        }
+        const next = withPixels(layer, p.canvas, p.left, p.top, mask);
+        // As in Photoshop, a Background that is transformed becomes a layer like any other
+        if (layer.isBackground) Object.assign(next, { isBackground: false, name: `${(app.names && app.names.layer) || "Layer"} 0` });
+        return next;
+      });
+      commitState(doc, name, { layers });
+      firePanelEvent(EVENT_HISTORY);
+    },
+    // The Crop tool: the page becomes a part of what it was, or more than it was. Cropped pixels
+    // stay on their layers, as with Canvas Size, unless they are to go.
+    crop(left, top, right, bottom, fill, removeHidden) {
+      const doc = app.doc;
+      if (!doc) return;
+      const width = right - left;
+      const height = bottom - top;
+      if (!left && !top && width === doc.width && height === doc.height) return;
+      let layers = onNewCanvas(doc, width, height, -left, -top, fill);
+      if (removeHidden) {
+        layers = layers.map((layer) => {
+          if (layer.kind !== "raster" || layer.isBackground) return layer;
+          const visual = visualOf(Object.assign({}, layer, { mask: null }), doc);
+          if (!visual) return layer;
+          const bitmap = newCanvas(width, height);
+          bitmap.getContext("2d").drawImage(visual.canvas, visual.x, visual.y);
+          const { mask, dx = 0, dy = 0 } = layer;
+          const moved = mask && mask.canvas ? Object.assign({}, mask, { left: (mask.left || 0) + dx, top: (mask.top || 0) + dy, right: (mask.right || 0) + dx, bottom: (mask.bottom || 0) + dy }) : mask;
+          return withPixels(layer, bitmap, 0, 0, moved);
+        });
+      }
+      resizeDoc(doc, "Crop", { width, height }, layers);
+    },
+    // An image dropped on a side of the page, for double pages: the page grows on that side
+    // and the image goes there, on a layer of its own under everything that sits on the page.
+    addPage(bitmap, name, side, fill) {
+      const doc = app.doc;
+      if (!doc) return null;
+      const width = doc.width + bitmap.width;
+      const height = Math.max(doc.height, bitmap.height);
+      const layers = onNewCanvas(doc, width, height, side === "left" ? bitmap.width : 0, 0, fill);
+      const layer = newRaster(name, { bitmap, left: side === "left" ? 0 : doc.width, top: 0 });
+      let at = layers[0] && layers[0].isBackground ? 1 : 0;
+      while (layers[at] && layers[at].clipping) at++;
+      layers.splice(at, 0, layer);
+      resizeDoc(doc, "Add Page", { width, height }, layers, { activeIds: [layer.id] });
+      firePanelEvent(EVENT_SELECT);
+      return layer;
+    },
+    // Image > Image Size: everything scales. A new resolution alone only renames the sizes:
+    // the pixels stay as they are, and a text in points stays as many pixels tall.
+    resizeImage(width, height, resolution) {
+      const doc = app.doc;
+      if (!doc || (width === doc.width && height === doc.height && resolution === doc.resolution)) return;
+      const sx = width / doc.width;
+      const sy = height / doc.height;
+      const points = (sy * doc.resolution) / resolution;
+      const layers = doc.state.layers.map((layer) => {
+        if (layer.kind === "text") return scaledText(layer, sx, sy, points);
+        return layer.kind === "raster" && (sx !== 1 || sy !== 1) ? scaledRaster(layer, doc, sx, sy) : layer;
+      });
+      resizeDoc(doc, "Image Size", { width, height, resolution }, layers);
+    },
     wandAt(x, y, mode) {
       const doc = app.doc;
       if (!doc) return null;
@@ -1837,9 +2446,11 @@
     updateLiveMove(dx, dy) {
       const doc = app.doc;
       if (!doc || !doc.live) return;
+      const before = liveBounds(doc);
       doc.live.dx = dx;
       doc.live.dy = dy;
-      emit("render");
+      const after = liveBounds(doc);
+      emit("render", before && after ? pageRect(doc, Math.min(before.left, after.left), Math.min(before.top, after.top), Math.max(before.right, after.right), Math.max(before.bottom, after.bottom)) : undefined);
     },
     endLiveMove(commit) {
       const doc = app.doc;
@@ -1887,11 +2498,11 @@
       }
       return null;
     },
-    newLayer(name, above) {
+    newLayer(name, above, fields) {
       const doc = app.doc;
       if (!doc) return null;
       const count = doc.state.layers.filter((layer) => layer.kind === "raster" && !layer.clean).length + 1;
-      const layer = newRaster(name || `${(app.names && app.names.layer) || "Layer"} ${count}`);
+      const layer = newRaster(name || `${(app.names && app.names.layer) || "Layer"} ${count}`, fields);
       const anchor = above !== undefined ? above : doc.state.activeIds[doc.state.activeIds.length - 1];
       const at = doc.state.layers.findIndex((item) => item.id === anchor);
       const layers = doc.state.layers.slice();
@@ -1924,11 +2535,195 @@
       });
       if (created.length) commitState(doc, "Duplicate Layer", { layers, activeIds: created });
     },
+    // The selected layers in a new group, where the topmost of them was
+    groupLayers(name) {
+      const doc = app.doc;
+      if (!doc) return null;
+      const layers = doc.state.layers;
+      const chosen = doc.state.activeIds.filter((id) => {
+        const layer = layers.find((item) => item.id === id);
+        return layer && !layer.isBackground;
+      });
+      if (!chosen.length) return null;
+      const moving = new Set();
+      chosen.forEach((id) => familyOf(layers, id).forEach((member) => moving.add(member)));
+      const members = layers.filter((layer) => moving.has(layer.id));
+      const roots = members.filter((layer) => !moving.has(layer.group));
+      const topRoot = roots[roots.length - 1];
+      const group = { id: newId(), kind: "group", name: name || "Group", visible: true, opacity: 1, blend: "pass through", open: true, group: topRoot.group || null };
+      const lastAt = layers.lastIndexOf(members[members.length - 1]);
+      const rest = layers.filter((layer) => !moving.has(layer.id));
+      const at = layers.slice(0, lastAt).filter((layer) => !moving.has(layer.id)).length;
+      const moved = members.map((layer) => (roots.includes(layer) ? Object.assign({}, layer, { group: group.id }) : layer));
+      commitState(doc, "Group Layers", { layers: rest.slice(0, at).concat(moved, [group], rest.slice(at)), activeIds: [group.id] });
+      firePanelEvent(EVENT_SELECT);
+      return group;
+    },
+    ungroupLayers() {
+      const doc = app.doc;
+      if (!doc) return;
+      const groups = doc.state.layers.filter((layer) => layer.kind === "group" && doc.state.activeIds.includes(layer.id));
+      if (!groups.length) return;
+      const gone = new Map(groups.map((group) => [group.id, group]));
+      const parentOf = (id) => {
+        let parent = id;
+        while (parent && gone.has(parent)) parent = gone.get(parent).group || null;
+        return parent || null;
+      };
+      const freed = doc.state.layers.filter((layer) => gone.has(layer.group)).map((layer) => layer.id);
+      const layers = doc.state.layers.filter((layer) => !gone.has(layer.id)).map((layer) => (gone.has(layer.group) ? Object.assign({}, layer, { group: parentOf(layer.group) }) : layer));
+      commitState(doc, "Ungroup Layers", { layers, activeIds: freed.filter((id) => layers.some((layer) => layer.id === id)) });
+      firePanelEvent(EVENT_SELECT);
+    },
+    // Layers carried to another page. Their pixels are never drawn on again, so they can be
+    // shared; only what depends on the page's size changes when they land.
+    copyLayers() {
+      const doc = app.doc;
+      if (!doc || !doc.state.activeIds.length) return 0;
+      const chosen = new Set();
+      doc.state.activeIds.forEach((id) => familyOf(doc.state.layers, id).forEach((member) => chosen.add(member)));
+      const layers = doc.state.layers.filter((layer) => chosen.has(layer.id));
+      app.layerClipboard = { layers, width: doc.width, height: doc.height };
+      return layers.length;
+    },
+    pasteLayers() {
+      const doc = app.doc;
+      const held = app.layerClipboard;
+      if (!doc || !held) return 0;
+      const ids = new Map(held.layers.map((layer) => [layer.id, newId()]));
+      const copies = held.layers.map((layer) => {
+        const copy = Object.assign({}, layer, { id: ids.get(layer.id), group: ids.get(layer.group) || null, isBackground: false, clean: false, raw: layer.raw ? Object.assign({}, layer.raw) : undefined });
+        if (layer.kind === "text") {
+          copy.params = clone(layer.params);
+          const point = copy.params.layerText.textClickPoint;
+          point.horizontal = ((point.horizontal / 100) * held.width / doc.width) * 100;
+          point.vertical = ((point.vertical / 100) * held.height / doc.height) * 100;
+        }
+        return copy;
+      });
+      commitState(doc, "Paste Layers", { layers: doc.state.layers.concat(copies), activeIds: copies.filter((layer) => !layer.group).map((layer) => layer.id) });
+      firePanelEvent(EVENT_SELECT);
+      return copies.length;
+    },
+    // A text's look without its words, from one layer to others
+    copyLayerStyle() {
+      const doc = app.doc;
+      const id = doc && doc.state.activeIds[doc.state.activeIds.length - 1];
+      const layer = doc && doc.state.layers.find((item) => item.id === id);
+      if (!layer) return false;
+      const lt = layer.kind === "text" ? layer.params.layerText : null;
+      app.styleClipboard = {
+        text: lt ? clone(lt.textStyleRange[0].textStyle) : null,
+        paragraph: lt ? clone(lt.paragraphStyleRange[0].paragraphStyle) : null,
+        antiAlias: lt ? lt.antiAlias : null,
+        stroke: layer.stroke ? clone(layer.stroke) : null,
+        blend: layer.blend,
+        opacity: layer.opacity,
+      };
+      return true;
+    },
+    pasteLayerStyle() {
+      const doc = app.doc;
+      const held = app.styleClipboard;
+      if (!doc || !held) return;
+      const chosen = new Set(doc.state.activeIds);
+      const layers = doc.state.layers.map((layer) => {
+        if (!chosen.has(layer.id) || layer.kind === "group") return layer;
+        const next = Object.assign({}, layer);
+        if (layer.kind !== "text" || held.text) {
+          next.blend = held.blend;
+          next.opacity = held.opacity;
+        }
+        if (layer.kind !== "text" || !held.text) return next;
+        const box = boxOf(layer, doc);
+        next.params = clone(layer.params);
+        const lt = next.params.layerText;
+        lt.textStyleRange.forEach((range) => { range.textStyle = clone(held.text); });
+        lt.paragraphStyleRange.forEach((range) => { range.paragraphStyle = Object.assign(range.paragraphStyle, clone(held.paragraph)); });
+        if (held.antiAlias) lt.antiAlias = held.antiAlias;
+        next.stroke = held.stroke ? clone(held.stroke) : null;
+        next.raster = null;
+        return boxShape(lt) ? next : centredOn(next, doc, box.xMid, box.yMid);
+      });
+      commitState(doc, "Paste Layer Style", { layers });
+      firePanelEvent(EVENT_HISTORY);
+    },
+    // A layer's pixels as a selection. It's not a click: TypeR doesn't paste into it.
+    selectLayerPixels(id, mode) {
+      const doc = app.doc;
+      const layer = doc && doc.state.layers.find((item) => item.id === id);
+      const visual = layer && visualOf(layer, doc);
+      if (!visual || !visual.canvas.width || !visual.canvas.height) return null;
+      const left = Math.max(0, Math.ceil(visual.x));
+      const top = Math.max(0, Math.ceil(visual.y));
+      const right = Math.min(doc.width, Math.floor(visual.x + visual.canvas.width));
+      const bottom = Math.min(doc.height, Math.floor(visual.y + visual.canvas.height));
+      if (right <= left || bottom <= top) return null;
+      const pixels = visual.canvas.getContext("2d").getImageData(left - visual.x, top - visual.y, right - left, bottom - top).data;
+      const width = right - left;
+      const height = bottom - top;
+      let x0 = width;
+      let y0 = height;
+      let x1 = -1;
+      let y1 = -1;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (pixels[(y * width + x) * 4 + 3] < 128) continue;
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+      if (x1 < 0) return null;
+      const boxW = x1 - x0 + 1;
+      const boxH = y1 - y0 + 1;
+      const mask = new Uint8Array(boxW * boxH);
+      for (let y = 0; y < boxH; y++) {
+        for (let x = 0; x < boxW; x++) {
+          if (pixels[((y + y0) * width + x + x0) * 4 + 3] >= 128) mask[y * boxW + x] = 1;
+        }
+      }
+      const selection = makeSelection({ source: "layer", mask, boxW, boxH, left: left + x0, top: top + y0 });
+      return mode ? ops.userSelection(selection, "Load Selection", mode) : ops.quietSelection(selection, "Load Selection");
+    },
+    // Every open page, each with its own history
+    replaceFonts(faces) {
+      let count = 0;
+      app.docs.forEach((doc) => {
+        let touched = false;
+        const layers = doc.state.layers.map((layer) => {
+          if (layer.kind !== "text" || !layer.params.layerText.textStyleRange.some((range) => faces[range.textStyle.fontPostScriptName])) return layer;
+          const params = clone(layer.params);
+          params.layerText.textStyleRange.forEach((range) => {
+            const face = faces[range.textStyle.fontPostScriptName];
+            if (face) Object.assign(range.textStyle, face);
+          });
+          touched = true;
+          count++;
+          return Object.assign({}, layer, { params, raster: null });
+        });
+        if (touched) commitState(doc, "Replace Fonts", { layers });
+      });
+      return count;
+    },
+    // Typing after this starts a history step of its own, whatever came just before
+    sealHistory() {
+      const doc = app.doc;
+      if (doc) doc.history[doc.historyIndex].coalesce = null;
+    },
     deleteLayers() {
       const doc = app.doc;
       if (!doc || !doc.state.activeIds.length) return;
       const gone = new Set();
-      doc.state.activeIds.forEach((id) => familyOf(doc.state.layers, id).forEach((member) => gone.add(member)));
+      let refused = false;
+      doc.state.activeIds.forEach((id) => {
+        const family = Array.from(familyOf(doc.state.layers, id));
+        if (family.some((member) => doc.state.layers.find((layer) => layer.id === member).locked)) refused = true;
+        else family.forEach((member) => gone.add(member));
+      });
+      if (refused) emit("layer-locked");
+      if (!gone.size) return;
       const layers = doc.state.layers.filter((layer) => !gone.has(layer.id));
       const top = layers[layers.length - 1];
       commitState(doc, "Delete Layer", { layers, activeIds: top ? [top.id] : [] });
@@ -1966,11 +2761,67 @@
       const top = doc.state.layers[at];
       const below = doc.state.layers[at - 1];
       if (top.kind === "group" || below.kind === "group") return;
-      const merged = newRaster(below.name, { group: below.group, isBackground: below.isBackground, blend: below.blend, opacity: below.opacity });
+      if (top.locked || below.locked) {
+        emit("layer-locked");
+        return;
+      }
+      // The merged pixels already have each layer's opacity in them
+      const merged = newRaster(below.name, { group: below.group, isBackground: below.isBackground, blend: below.blend, opacity: 1 });
       merged.bitmap = flattenLayers(doc, [below, top]);
       const layers = doc.state.layers.slice();
       layers.splice(at - 1, 2, merged);
       commitState(doc, "Merge Layers", { layers, activeIds: [merged.id] });
+    },
+    // The selected layers into one, what shows of them. Alone, a layer goes into the one below.
+    mergeSelected() {
+      const doc = app.doc;
+      if (!doc) return;
+      if (doc.state.activeIds.length < 2) {
+        ops.mergeDown();
+        return;
+      }
+      const chosen = new Set();
+      doc.state.activeIds.forEach((id) => familyOf(doc.state.layers, id).forEach((member) => chosen.add(member)));
+      const list = doc.state.layers.filter((layer) => chosen.has(layer.id) && layer.kind !== "group" && layer.visible !== false);
+      if (list.length < 2) return;
+      if (list.some((layer) => layer.locked)) {
+        emit("layer-locked");
+        return;
+      }
+      const top = list[list.length - 1];
+      const bottom = list[0];
+      const merged = newRaster(top.name, { group: bottom.isBackground ? null : top.group, isBackground: bottom.isBackground, blend: bottom.blend, opacity: 1 });
+      merged.bitmap = flattenLayers(doc, list);
+      const anchor = bottom.isBackground ? bottom : top;
+      const gone = new Set(list.map((layer) => layer.id));
+      const layers = doc.state.layers.flatMap((layer) => (layer === anchor ? [merged] : gone.has(layer.id) ? [] : [layer]));
+      commitState(doc, "Merge Layers", { layers, activeIds: [merged.id] });
+      firePanelEvent(EVENT_SELECT);
+    },
+    // All that shows into one layer, at the place of the lowest. What's hidden stays as it is.
+    mergeVisible() {
+      const doc = app.doc;
+      if (!doc) return;
+      const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
+      const list = doc.state.layers.filter((layer) => layer.kind !== "group" && layer.visible !== false && chainOf(layer, byId).visible);
+      if (list.length < 2) return;
+      if (list.some((layer) => layer.locked)) {
+        emit("layer-locked");
+        return;
+      }
+      const gone = new Set(list.map((layer) => layer.id));
+      const merged = newRaster(list[list.length - 1].name, { group: null, isBackground: list[0].isBackground, blend: "normal", opacity: 1 });
+      const canvas = newCanvas(doc.width, doc.height);
+      paintDoc(doc, canvas.getContext("2d"), { keep: true, skip: (layer) => !gone.has(layer.id) });
+      merged.bitmap = canvas;
+      let layers = doc.state.layers.flatMap((layer) => (layer === list[0] ? [merged] : gone.has(layer.id) ? [] : [layer]));
+      // A group that held only what was merged is empty now
+      for (let before = -1; before !== layers.length; ) {
+        before = layers.length;
+        layers = layers.filter((layer) => layer.kind !== "group" || layer.visible === false || layers.some((item) => item.group === layer.id));
+      }
+      commitState(doc, "Merge Visible", { layers, activeIds: [merged.id] });
+      firePanelEvent(EVENT_SELECT);
     },
     flatten() {
       const doc = app.doc;
@@ -1996,11 +2847,20 @@
       const doc = app.doc;
       const layer = doc && doc.state.layers.find((item) => item.id === layerId && item.kind === "raster");
       if (!layer) return false;
+      if (layer.locked) {
+        emit("layer-locked");
+        return false;
+      }
       const selection = doc.state.selection;
       const dx = layer.dx || 0;
       const dy = layer.dy || 0;
-      const op = Object.assign({ t: "stroke", points: [] }, fields);
-      if (selection) op.clip = { canvas: selectionCanvas(selection), x: selection.bounds.left - dx, y: selection.bounds.top - dy };
+      const { clone, ...rest } = fields;
+      const op = Object.assign({ t: "stroke", points: [] }, rest);
+      if (clone) {
+        const shot = cloneSource(doc, layer, clone.sample);
+        op.source = { canvas: shot.canvas, x: shot.x - clone.ox - dx, y: shot.y - clone.oy - dy };
+      }
+      if (selection) op.clip = clipOf(selection, dx, dy);
       doc.liveStroke = { layerId, op, dx, dy };
       rasterEntry(layer, doc);
       return true;
@@ -2014,7 +2874,9 @@
       const previous = live.op.points[live.op.points.length - 1];
       live.op.points.push(point);
       drawOp(rasterEntry(layer, doc).ctx, live.op, previous ? [previous, point] : [point]);
-      emit("render");
+      const from = previous || point;
+      const reach = (live.op.size || 1) + 2;
+      emit("render", pageRect(doc, Math.min(from[0], point[0]) + live.dx - reach, Math.min(from[1], point[1]) + live.dy - reach, Math.max(from[0], point[0]) + live.dx + reach, Math.max(from[1], point[1]) + live.dy + reach));
     },
     endStroke() {
       const doc = app.doc;
@@ -2023,10 +2885,14 @@
       doc.liveStroke = null;
       const layer = doc.state.layers.find((item) => item.id === live.layerId);
       if (!live.op.points.length) return;
+      if (live.op.source) cropCloneSource(live.op);
       const paint = (layer.paint || NONE).concat([live.op]);
       const entry = rasterCache.get(layer.id);
-      if (entry) entry.paint = paint;
-      commitState(doc, live.op.erase ? "Eraser" : "Brush", { layers: replaceLayer(doc, layer, { paint }) });
+      if (entry) {
+        entry.paint = paint;
+        if (paint.length % MARK_EVERY === 0) markRaster(entry, paint);
+      }
+      commitState(doc, live.op.source ? "Clone Stamp" : live.op.erase ? "Eraser" : "Brush", { layers: replaceLayer(doc, layer, { paint }) });
     },
     // Alt+Backspace, Cmd+Backspace, Delete: fills or clears the selection on a pixel layer
     fillSelection(color) {
@@ -2037,8 +2903,12 @@
         if (!color) return false;
         layer = ops.newLayer();
       }
+      if (layer.locked) {
+        emit("layer-locked");
+        return true;
+      }
       const selection = doc.state.selection;
-      const op = { t: "fill", clip: { canvas: selectionCanvas(selection), x: selection.bounds.left - (layer.dx || 0), y: selection.bounds.top - (layer.dy || 0) } };
+      const op = { t: "fill", clip: clipOf(selection, layer.dx || 0, layer.dy || 0) };
       if (color) op.color = color;
       else op.erase = true;
       commitState(doc, color ? "Fill" : "Clear", { layers: replaceLayer(doc, layer, { paint: (layer.paint || NONE).concat([op]) }) });
@@ -2049,8 +2919,7 @@
       if (!doc) return null;
       const canvas = newCanvas(1, 1);
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      ctx.translate(-Math.floor(x), -Math.floor(y));
-      paintDoc(doc, ctx, { keep: true });
+      paintDoc(doc, ctx, { keep: true, x: -Math.floor(x), y: -Math.floor(y) });
       const px = ctx.getImageData(0, 0, 1, 1).data;
       return px[3] ? { r: px[0], g: px[1], b: px[2] } : null;
     },
@@ -2075,12 +2944,15 @@
       const params = paramsFromStyle({ textProps: layer.params }, value, null, base.size);
       params.layerText.textClickPoint = clone(layer.params.layerText.textClickPoint);
       if (boxShape(layer.params.layerText)) params.layerText.textShape = clone(layer.params.layerText.textShape);
+      if (layer.params.layerText.textStyleRange.length > 1) params.layerText.textStyleRange = rangesAfterEdit(layer.params.layerText, params.layerText.textKey);
       const name = String(value).replace(/[\r\n]+/g, " ").substring(0, 60) || layer.name;
       commitState(doc, "Edit Type", { layers: replaceLayer(doc, layer, { params, raster: null, name, source: null }) }, coalesce);
       firePanelEvent(EVENT_HISTORY);
     },
-    // Font, size, leading, colour, alignment: on all the selected text layers
-    setTextStyle(ids, patch, paragraphPatch, coalesce) {
+    // Font, size, leading, colour, alignment: on all the selected text layers, or on the
+    // letters of `range` when text is selected in the editor. A patch can be a function of
+    // each style, for what is relative to it.
+    setTextStyle(ids, patch, paragraphPatch, coalesce, range) {
       const doc = app.doc;
       if (!doc) return;
       const set = new Set(ids);
@@ -2089,13 +2961,28 @@
         const box = boxOf(layer, doc);
         const params = clone(layer.params);
         const lt = params.layerText;
-        if (patch) {
-          lt.textStyleRange.forEach((range) => {
-            Object.assign(range.textStyle, patch);
-            if (patch.size) range.textStyle.impliedFontSize = patch.size;
-            if (patch.leading) range.textStyle.impliedLeading = patch.leading;
-          });
-        }
+        const patched = (style) => {
+          const change = typeof patch === "function" ? patch(style) : patch;
+          Object.assign(style, change);
+          if (change.size) style.impliedFontSize = change.size;
+          if (change.leading) style.impliedLeading = change.leading;
+          if (change.baselineShift !== undefined) style.impliedBaselineShift = change.baselineShift;
+          return style;
+        };
+        if (patch && range) {
+          const before = lt.textStyleRange;
+          const made = new Map();
+          const styles = [];
+          for (let at = 0; at < lt.textKey.length; at++) {
+            const source = (before.find((item) => at >= item.from && at < item.to) || before[before.length - 1]).textStyle;
+            if (at < range[0] || at >= range[1]) styles.push(source);
+            else {
+              if (!made.has(source)) made.set(source, patched(clone(source)));
+              styles.push(made.get(source));
+            }
+          }
+          lt.textStyleRange = rangesFromStyles(styles, before[0].textStyle);
+        } else if (patch) lt.textStyleRange.forEach((item) => patched(item.textStyle));
         if (paragraphPatch) lt.paragraphStyleRange.forEach((range) => Object.assign(range.paragraphStyle, paragraphPatch));
         const next = Object.assign({}, layer, { params, raster: null });
         if ((paragraphPatch && paragraphPatch.alignment) || boxShape(lt)) return next;
@@ -2154,6 +3041,8 @@
       const layer = doc && doc.state.layers.find((item) => item.id === id && item.kind === "text");
       if (!layer) return;
       const layout = layoutLayer(layer, doc);
+      // Every line, the ones a box too small doesn't show too: nothing typed gets lost
+      const rows = layout.relative.wrapped.map((runs) => ({ runs }));
       if (!boxShape(layer.params.layerText)) {
         const f = frameOf(layer, doc);
         ops.setTextFrame(layer, { left: f.left, top: f.top, width: f.width + 2, height: f.height, autoHeight: true });
@@ -2162,10 +3051,10 @@
       const params = clone(layer.params);
       const lt = params.layerText;
       const paragraph = lt.paragraphStyleRange[0].paragraphStyle;
-      const key = layout.relative.lines.map((line) => line.runs.map((run) => run.text).join("")).join("\r");
+      const key = rows.map((row) => row.runs.map((run) => run.text).join("")).join("\r");
       const first = lt.textStyleRange[0].textStyle;
       lt.textKey = key;
-      if (lt.textStyleRange.length > 1) lt.textStyleRange = [{ from: 0, to: key.length, textStyle: first }];
+      if (lt.textStyleRange.length > 1) lt.textStyleRange = rangesOfLines(rows, first);
       else lt.textStyleRange[0].to = key.length;
       lt.paragraphStyleRange[0].to = key.length;
       lt.textShape = [{ textType: "point", orientation: "horizontal" }];
@@ -2198,7 +3087,7 @@
     startTextWarp(id) {
       const doc = app.doc;
       const layer = doc && doc.state.layers.find((item) => item.id === id && item.kind === "text");
-      if (!layer || layer.warp || (layer.raster && layer.rotated)) return;
+      if (!layer || layer.warp || layer.rotated) return;
       const f = frameOf(Object.assign({}, layer, { raster: null }), doc);
       const [ax, ay] = anchorOf(layer.params.layerText, doc);
       const width = Math.max(1, f.width);
@@ -2280,13 +3169,25 @@
       emit("redo");
       return true;
     },
+    // What a dialog tried out, gone as if it had never been
+    rollbackHistory(index) {
+      const doc = app.doc;
+      if (!doc || doc.historyIndex <= index) return;
+      ops.jump(index);
+      doc.history.length = index + 1;
+      emit("history");
+    },
     jump(index) {
       const doc = app.doc;
+      const before = sizeOf(doc);
+      const { size } = doc.history[index];
       doc.historyIndex = index;
       doc.state = doc.history[index].state;
+      if (size) Object.assign(doc, size);
       emit("history");
       emit("selection", doc.state.selection);
       emit("render");
+      if (doc.width !== before.width || doc.height !== before.height || doc.resolution !== before.resolution) sizeChanged(doc, before);
       firePanelEvent(EVENT_HISTORY);
     },
     /* ---- documents ---- */
@@ -2320,6 +3221,7 @@
       return ops.addDoc({ name, path: "new://" + newId(), width, height, resolution, layers: [layer] });
     },
     imageDocument(image, name, path, handle) {
+      refuseIfTooLarge(image.naturalWidth || image.width, image.naturalHeight || image.height);
       const width = image.naturalWidth || image.width;
       const height = image.naturalHeight || image.height;
       const bitmap = newCanvas(width, height);
@@ -2347,7 +3249,10 @@
         return known;
       }
       if (/\.psd$/i.test(name) || /\.psb$/i.test(name)) {
-        const read = await window.TypeRPSD.read(await file.arrayBuffer(), name);
+        // Told by the file's first bytes, before anything is decoded
+        const head = new DataView(await file.slice(0, 26).arrayBuffer());
+        if (head.byteLength >= 26 && head.getUint32(0) === 0x38425053) refuseIfTooLarge(head.getUint32(18), head.getUint32(14));
+        const read = await window.TypeRPSD.read(await file.arrayBuffer(), name, file);
         const doc = ops.addDoc(Object.assign(read, { name, path: key, handle, stamp }));
         emit("psd-opened", { doc, missing: read.missingFonts, notes: read.notes });
         return doc;
@@ -2361,6 +3266,13 @@
         URL.revokeObjectURL(url);
       }
     },
+    // The file on disk is now the document's: opening it again finds the document, and
+    // the next save can tell whether someone else changed it
+    fileWritten(doc, file) {
+      doc.path = ops.registerFile(file);
+      doc.stamp = fileStamp(file);
+    },
+    fileStamp,
     registerFile(file) {
       const key = "web-file://" + file.name;
       app.files.set(key, file);
@@ -2373,11 +3285,14 @@
       const at = app.docs.indexOf(doc);
       if (at < 0) return;
       app.docs.splice(at, 1);
+      forgetDocPixels(doc);
       if (app.doc === doc) setDoc(app.docs[Math.min(at, app.docs.length - 1)] || null);
       else emit("document", app.doc);
     },
-    markSaved(doc) {
-      doc.savedId = doc.history[doc.historyIndex].id;
+    // What was written can be older than the document: what was typed during a long
+    // write is still to save
+    markSaved(doc, savedId) {
+      doc.savedId = savedId === undefined ? doc.history[doc.historyIndex].id : savedId;
       emit("saved", doc);
       emit("history");
     },
@@ -2443,6 +3358,44 @@
   };
 
   // The style's text with its own runs, ready to be a layer
+  const sameStyle = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
+  const rangesFromStyles = (styles, fallback) => {
+    const ranges = [];
+    styles.forEach((style, at) => {
+      const last = ranges[ranges.length - 1];
+      if (last && sameStyle(last.textStyle, style)) last.to = at + 1;
+      else ranges.push({ from: at, to: at + 1, textStyle: clone(style) });
+    });
+    return ranges.length ? ranges : [{ from: 0, to: 0, textStyle: clone(fallback) }];
+  };
+  // A typed change keeps the style of the text around it. What's new takes the style of
+  // the letter before it, or of the first one at the very start.
+  const rangesAfterEdit = (lt, after) => {
+    const before = String(lt.textKey || "");
+    const ranges = lt.textStyleRange;
+    const styleAt = (index) => (ranges.find((range) => index >= range.from && index < range.to) || ranges[index < 0 ? 0 : ranges.length - 1]).textStyle;
+    let start = 0;
+    while (start < before.length && start < after.length && before[start] === after[start]) start++;
+    let end = 0;
+    while (end < before.length - start && end < after.length - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end++;
+    const styles = [];
+    for (let at = 0; at < after.length; at++) {
+      if (at < start) styles.push(styleAt(at));
+      else if (at >= after.length - end) styles.push(styleAt(before.length - (after.length - at)));
+      else styles.push(styleAt(start > 0 ? start - 1 : 0));
+    }
+    return rangesFromStyles(styles, ranges[0].textStyle);
+  };
+  // The same styles, on a text that now has a line break for each of its lines
+  const rangesOfLines = (lines, fallback) => {
+    const styles = [];
+    lines.forEach((line, index) => {
+      if (index) styles.push(styles[styles.length - 1] || fallback);
+      line.runs.forEach((run) => Array.from({ length: run.text.length }).forEach(() => styles.push(run.style)));
+    });
+    return rangesFromStyles(styles, fallback);
+  };
+
   const paramsFromStyle = (style, text, richTextRuns, sizeOverride) => {
     const source = style && style.textProps ? style.textProps : { layerText: {} };
     const params = clone(source);
@@ -2917,6 +3870,12 @@
         return JSON.stringify({ error: "scanFailed", file: path, message: String((error && error.message) || error) });
       }
     },
+    ensureWandSampleAll() {
+      if (app.tool !== "wand" || app.sampleAll) return JSON.stringify({ wasOff: false });
+      app.sampleAll = true;
+      emit("options");
+      return JSON.stringify({ wasOff: true });
+    },
     smartPasteSelectionProbe() {
       const doc = app.doc;
       if (!doc) return JSON.stringify({ error: "doc" });
@@ -3032,7 +3991,7 @@
   };
 
   // Calls the panel makes all the time: they do not count as work
-  const QUIET_CALL = /^\s*(getHotkeyPressed|getTypeRPanelSnapshot|getTypeRSelectionSnapshot|getActiveLayerTextIfChanged|getSelectionChanged|getCurrentSelection|getSelectedTextLayers|getUserFonts|getHistorySnapshot|smartPasteSelectionProbe|stopSelectionMonitoring|startSelectionMonitoring)\s*\(/;
+  const QUIET_CALL = /^\s*(getHotkeyPressed|getTypeRPanelSnapshot|getTypeRSelectionSnapshot|getActiveLayerTextIfChanged|getSelectionChanged|getCurrentSelection|getSelectedTextLayers|getUserFonts|getHistorySnapshot|ensureWandSampleAll|smartPasteSelectionProbe|stopSelectionMonitoring|startSelectionMonitoring)\s*\(/;
 
   // A smart paste doesn't hold clicks back: the panel queues the ones made meanwhile
   const SMART_PASTE_CALL = /^\s*(smartPasteCapture|smartPasteMeasure|smartPasteCommit|restoreHistoryState)\s*\(/;
@@ -3073,6 +4032,7 @@
     evalScript,
     drawTextLayer,
     paintDoc,
+    canvasFits,
     visualOf,
     boxOf,
     frameOf,

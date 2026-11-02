@@ -1,4 +1,4 @@
-// The fonts of the Browser Version. Four faces ship with the page. Fonts installed
+// The fonts of the Web Version. Four faces ship with the page. Fonts installed
 // on the computer are reached by name through local(), and font files the user
 // loads are kept in the browser (IndexedDB). Nothing is uploaded anywhere.
 
@@ -36,6 +36,8 @@
     if (known && known.ready) return Promise.resolve(true);
     if (sameFont(ps)) return Promise.resolve(true);
     if (pending.has(ps)) return pending.get(ps);
+    const stored = known && known.source === "file" ? known : storedFont(ps, fullName);
+    if (stored) return loadStored(stored.postScriptName);
     if (missing.has(ps)) return Promise.resolve(false);
     const names = [ps, fullName, known && known.name].filter(Boolean);
     const css = cssNameOf(ps);
@@ -52,6 +54,43 @@
       pending.delete(ps);
       changed();
       return false;
+    });
+    pending.set(ps, promise);
+    return promise;
+  };
+
+  // A file kept in this browser, known by its name until it's needed
+  const storedFont = (ps, family, style) => {
+    const wanted = normalize(ps);
+    const full = normalize(`${family || ""}${style || ""}`);
+    for (const font of fonts.values()) {
+      if (font.source !== "file" || font.ready) continue;
+      if (wanted && normalize(font.postScriptName) === wanted) return font;
+      if (full && (normalize(font.name) === full || normalize(`${font.family}${font.style}`) === full)) return font;
+    }
+    return null;
+  };
+  const loadStored = (ps) => {
+    if (pending.has(ps)) return pending.get(ps);
+    const promise = (async () => {
+      const db = await openStore();
+      const row = await new Promise((done, fail) => {
+        const request = db.transaction(STORE).objectStore(STORE).get(ps);
+        request.onsuccess = () => done(request.result);
+        request.onerror = () => fail(request.error);
+      });
+      if (!row) throw new Error("This font's file is gone");
+      await addBuffer(row.buffer.slice(0), row.name);
+      return true;
+    })().catch((error) => {
+      console.warn("TypeR web: could not load a kept font", ps, error);
+      fonts.delete(ps);
+      missing.add(ps);
+      return false;
+    }).then((loaded) => {
+      pending.delete(ps);
+      changed();
+      return loaded;
     });
     pending.set(ps, promise);
     return promise;
@@ -77,7 +116,9 @@
     if (known && known.ready) return known;
     const same = sameFont(ps, textStyle.fontName, textStyle.fontStyleName);
     if (same) return same;
-    if (ps) ensure(ps, textStyle.fontName);
+    const stored = storedFont(ps, textStyle.fontName, textStyle.fontStyleName);
+    if (stored) loadStored(stored.postScriptName);
+    else if (ps) ensure(ps, textStyle.fontName);
     const name = textStyle.fontName || "";
     const byName = Array.from(fonts.values()).find((font) => font.ready && font.family === name && font.style === (textStyle.fontStyleName || font.style));
     return byName || { css: "Wildjess", weight: 400, italic: false, fallback: true };
@@ -217,6 +258,7 @@
   const addFiles = async (files) => {
     const added = [];
     const failed = [];
+    const notKept = [];
     const db = await openStore().catch(() => null);
     for (const file of Array.from(files)) {
       const buffer = file.buffer || await file.arrayBuffer();
@@ -232,13 +274,15 @@
           const font = await addBuffer(piece.slice(0), file.name);
           added.push(font);
           if (db) {
-            await new Promise((done) => {
+            const kept = await new Promise((done) => {
               const tx = db.transaction(STORE, "readwrite");
               tx.objectStore(STORE).put({ ps: font.postScriptName, name: file.name, buffer: piece });
-              tx.oncomplete = done;
-              tx.onerror = done;
-              tx.onabort = done;
+              tx.oncomplete = () => done(true);
+              tx.onerror = () => done(false);
+              tx.onabort = () => done(false);
             });
+            if (kept) await keepInfo(infoOf(font, file.name));
+            else notKept.push(file.name);
           }
         } catch (error) {
           failed.push(file.name);
@@ -247,7 +291,8 @@
     }
     if (added.length && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => false);
     changed();
-    return { added, failed };
+    if (!db) notKept.push(...added.map((font) => font.name));
+    return { added, failed, notKept };
   };
 
   const removeFile = async (ps) => {
@@ -261,19 +306,71 @@
       tx.oncomplete = done;
       tx.onerror = done;
     });
+    await inInfo("readwrite", (store) => store.delete(ps)).catch(() => null);
     changed();
+  };
+
+  // What a kept font is called, apart from its file: starting the page reads this short list,
+  // and a file only when a text or the font menu needs it.
+  let infoDb = null;
+  const openInfo = () => {
+    if (!infoDb) {
+      infoDb = new Promise((done, fail) => {
+        const request = indexedDB.open("typer-web-font-info", 1);
+        request.onupgradeneeded = () => request.result.createObjectStore("info", { keyPath: "ps" });
+        request.onsuccess = () => done(request.result);
+        request.onerror = () => fail(request.error);
+      });
+    }
+    return infoDb;
+  };
+  const inInfo = async (mode, act) => {
+    const db = await openInfo();
+    return new Promise((done, fail) => {
+      const tx = db.transaction("info", mode);
+      const request = act(tx.objectStore("info"));
+      tx.oncomplete = () => done(request.result);
+      tx.onerror = () => fail(tx.error);
+      tx.onabort = () => fail(tx.error);
+    });
+  };
+  const infoOf = (font, fileName) => ({ ps: font.postScriptName, file: fileName, name: font.name, family: font.family, style: font.style, size: font.size });
+  const keepInfo = (info) => inInfo("readwrite", (store) => store.put(info)).catch(() => null);
+  const listStored = (info) => {
+    if (fonts.has(info.ps)) return;
+    fonts.set(info.ps, { name: info.name, postScriptName: info.ps, family: info.family, style: info.style, source: "file", css: cssNameOf(info.ps), weight: 400, italic: false, ready: false, size: info.size, file: info.file });
   };
 
   // Font files loaded in an earlier session, and the installed fonts if already allowed
   const restore = async () => {
     const db = await openStore().catch(() => null);
     if (db) {
-      const rows = await new Promise((done) => {
-        const request = db.transaction(STORE).objectStore(STORE).getAll();
-        request.onsuccess = () => done(request.result || []);
-        request.onerror = () => done([]);
+      const inFiles = (act) => new Promise((done, fail) => {
+        const request = act(db.transaction(STORE).objectStore(STORE));
+        request.onsuccess = () => done(request.result);
+        request.onerror = () => fail(request.error);
       });
-      await Promise.all(rows.map((row) => addBuffer(row.buffer.slice(0), row.name).catch(() => null)));
+      const keys = await inFiles((store) => store.getAllKeys()).catch(() => []);
+      const infos = await inInfo("readonly", (store) => store.getAll()).catch(() => null);
+      const known = new Map((infos || []).map((info) => [info.ps, info]));
+      for (const key of keys) {
+        let info = known.get(key);
+        // A file kept before this list existed is read once to get its names
+        if (!info) {
+          const row = await inFiles((store) => store.get(key)).catch(() => null);
+          if (!row) continue;
+          let names = {};
+          try {
+            names = readNames(row.buffer);
+          } catch (error) {
+            names = {};
+          }
+          const base = String(row.name || key).replace(/\.[^.]+$/, "");
+          info = { ps: key, file: row.name, name: names.full || base, family: names.family || base, style: names.style || "Regular", size: row.buffer.byteLength };
+          keepInfo(info);
+        }
+        listStored(info);
+      }
     }
     if (canListInstalled() && navigator.permissions) {
       const status = await navigator.permissions.query({ name: "local-fonts" }).catch(() => null);
@@ -307,7 +404,10 @@
     // The file behind a name, for the panel's previews
     urlOf(name) {
       for (const font of fonts.values()) {
-        if (font.url && (font.postScriptName === name || font.name === name || `${font.family} ${font.style}` === name)) return font.url;
+        if (font.postScriptName !== name && font.name !== name && `${font.family} ${font.style}` !== name) continue;
+        if (font.url) return font.url;
+        // Not read yet: this starts it, and onChange says when it's there
+        if (font.source === "file") loadStored(font.postScriptName);
       }
       return null;
     },

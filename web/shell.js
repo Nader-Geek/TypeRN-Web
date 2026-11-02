@@ -28,9 +28,12 @@
     if (wish === "phone" || wish === "tablet") return wish;
     const width = window.innerWidth;
     const fingers = coarse.matches;
+    // A small window on a computer stays a computer's: a mouse has no use for the big buttons,
+    // the panels make room instead (app.js)
+    if (!fingers && wish !== "touch") return "desktop";
     // The screen's size, not the window's: the keyboard takes half a landscape tablet
     if (width <= 760 || (fingers && Math.min(window.screen.width, window.screen.height) <= 600)) return "phone";
-    if ((fingers && width <= 1400) || width <= 1100 || wish === "touch") return "tablet";
+    if ((fingers && width <= 1400) || wish === "touch") return "tablet";
     return "desktop";
   };
 
