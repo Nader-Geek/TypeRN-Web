@@ -13,6 +13,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Settings…": "Налаштування…",
     "Interface language": "Мова інтерфейсу",
     "Mouse wheel": "Коліщатко миші",
+    "The wheel zooms": "Коліщатко масштабує",
+    "The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.": "Коліщатко масштабує. Alt + коліщатко прокручує по вертикалі, Shift + коліщатко по горизонталі. На трекпаді два пальці теж масштабують, як і щипок.",
     "Language of new text": "Мова нового тексту",
     "Standard ligatures in new text": "Стандартні лігатури в новому тексті",
     "Drag to change the value. Hold Shift to go faster.": "Перетягніть, щоб змінити значення. Із Shift швидше.",

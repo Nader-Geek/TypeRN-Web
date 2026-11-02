@@ -13,6 +13,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Settings…": "Cài đặt…",
     "Interface language": "Ngôn ngữ giao diện",
     "Mouse wheel": "Con lăn chuột",
+    "The wheel zooms": "Con lăn thu phóng",
+    "The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.": "Con lăn thu phóng. Alt + con lăn cuộn dọc, Shift + con lăn cuộn ngang. Trên bàn di chuột, hai ngón và thao tác chụm cũng thu phóng.",
     "Language of new text": "Ngôn ngữ của văn bản mới",
     "Standard ligatures in new text": "Chữ ghép chuẩn trong văn bản mới",
     "Drag to change the value. Hold Shift to go faster.": "Kéo để đổi giá trị. Giữ Shift để đổi nhanh hơn.",

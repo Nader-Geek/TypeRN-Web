@@ -13,6 +13,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Settings…": "الإعدادات…",
     "Interface language": "لغة الواجهة",
     "Mouse wheel": "عجلة الفأرة",
+    "The wheel zooms": "العجلة تكبّر",
+    "The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.": "العجلة تكبّر. Alt + العجلة للتمرير عموديًا، وShift + العجلة أفقيًا. على لوحة التتبع، الإصبعان يكبّران أيضًا، وكذلك القرص.",
     "Language of new text": "لغة النص الجديد",
     "Standard ligatures in new text": "الحروف المركبة القياسية في النص الجديد",
     "Drag to change the value. Hold Shift to go faster.": "اسحب لتغيير القيمة. اضغط Shift لتسريع التغيير.",

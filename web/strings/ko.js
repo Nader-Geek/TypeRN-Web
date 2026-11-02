@@ -13,6 +13,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Settings…": "설정…",
     "Interface language": "인터페이스 언어",
     "Mouse wheel": "마우스 휠",
+    "The wheel zooms": "휠로 확대/축소",
+    "The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.": "휠로 확대/축소. Alt + 휠로 위아래, Shift + 휠로 좌우 스크롤. 트랙패드에서는 두 손가락과 핀치로도 확대/축소.",
     "Language of new text": "새 텍스트 언어",
     "Standard ligatures in new text": "새 텍스트의 표준 합자",
     "Drag to change the value. Hold Shift to go faster.": "드래그하여 값을 변경합니다. Shift를 누르면 더 빠릅니다.",
