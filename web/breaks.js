@@ -206,7 +206,7 @@
     }
     const text = next.params.layerText.textKey;
     language = choice === "auto" ? Hyphenation.resolve(text) : choice;
-    const key = JSON.stringify([next.id, text, next.params.layerText.textStyleRange[0].textStyle.fontPostScriptName, next.params.layerText.textShape, language, Hyphenation.isLoaded(language)]);
+    const key = JSON.stringify([next.id, text, next.params.layerText.textStyleRange, next.params.layerText.textShape, language, Hyphenation.isLoaded(language)]);
     if (key === shownKey && layer) {
       layer = next;
       return;

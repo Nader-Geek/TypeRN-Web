@@ -67,7 +67,7 @@
   const newUid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
   // What makes a document differ from its record. Every change makes a new state.
-  const contentOf = (doc) => [doc.state, doc.historyIndex, doc.history.length, doc.history[doc.historyIndex], doc.savedId, doc.name, doc.handle, app.docs.indexOf(doc)];
+  const contentOf = (doc) => [doc.state, doc.historyIndex, doc.history.length, doc.history[doc.historyIndex], doc.savedId, doc.name, doc.path, doc.stamp, doc.handle, app.docs.indexOf(doc)];
   const viewOf = (doc) => `${doc.view.zoom}:${doc.view.x}:${doc.view.y}`;
   const isKept = (doc) => {
     const keep = kept.get(doc);
@@ -180,10 +180,25 @@
     await inStore("pixels", "readwrite", (store) => store.delete(pixelsOf(uid)));
   };
 
+  const MAX_WAIT = 5000;
   let timer = 0;
+  let waitingSince = 0;
+  let lastEstimate = 0;
   let sweeping = false;
   let again = false;
   let failing = false;
+
+  // Said once, while there's still room to do something about it
+  let warnedLow = false;
+  const warnWhenStorageIsLow = async () => {
+    if (warnedLow || !navigator.storage || !navigator.storage.estimate || Date.now() - lastEstimate < 60000) return;
+    lastEstimate = Date.now();
+    const { usage, quota } = await navigator.storage.estimate().catch(() => ({}));
+    if (usage && quota && usage / quota > 0.9) {
+      warnedLow = true;
+      PS.announce("storage-low");
+    }
+  };
 
   const sweep = async () => {
     if (sweeping) {
@@ -191,6 +206,7 @@
       return;
     }
     sweeping = true;
+    waitingSince = 0;
     try {
       for (const [doc, keep] of Array.from(kept)) {
         if (app.docs.includes(doc)) continue;
@@ -198,13 +214,23 @@
         await forget(keep.uid);
         if (keep.release) keep.release();
       }
-      for (const doc of app.docs.slice()) {
+      // The page on screen first, and a page that doesn't fit leaves its turn to the others
+      let refused = null;
+      for (const doc of [app.doc, ...app.docs.filter((other) => other !== app.doc)]) {
+        if (!doc) continue;
         const keep = kept.get(doc);
-        if (!isKept(doc) || keep.view !== viewOf(doc)) await saveDoc(doc);
+        if (isKept(doc) && keep.view === viewOf(doc)) continue;
+        try {
+          await saveDoc(doc);
+        } catch (error) {
+          refused = refused || error;
+        }
       }
       const active = app.doc && kept.get(app.doc);
       if (active) window.localStorage.setItem(ACTIVE, active.uid);
+      if (refused) throw refused;
       failing = false;
+      warnWhenStorageIsLow();
     } catch (error) {
       console.warn("TypeR web: could not keep the open documents", error);
       if (!failing) PS.announce("documents-not-kept");
@@ -217,9 +243,11 @@
     }
   };
 
+  // Each change starts the wait over, up to this: work without a pause still gets kept
   function schedule() {
     clearTimeout(timer);
-    timer = setTimeout(sweep, WAIT);
+    if (!waitingSince) waitingSince = Date.now();
+    timer = setTimeout(sweep, Math.max(0, Math.min(WAIT, waitingSince + MAX_WAIT - Date.now())));
   }
   const flush = () => {
     clearTimeout(timer);

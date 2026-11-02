@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!-- Saving onto a file and reading the computer's fonts only exist over HTTPS -->
+  <script>if (location.protocol === "http:" && location.hostname === "typer.hayasaku.fr") location.replace("https:" + location.href.slice(5))</script>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#232121">
   <meta name="mobile-web-app-capable" content="yes">
@@ -10,13 +12,26 @@
   <meta name="apple-mobile-web-app-title" content="TypeR">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="../assets/brand/typer-logo.png">
-  <title>TypeR: Browser Version (beta)</title>
+  <title>TypeR: Web Version (beta)</title>
   <meta name="description" content="TypeR's real panel and paste engine in a Photoshop-like workspace, in your browser. Open and save PSD files. Nothing leaves your computer.">
   <link rel="canonical" href="https://typer.hayasaku.fr/web/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="TypeR">
+  <meta property="og:url" content="https://typer.hayasaku.fr/web/">
+  <meta property="og:title" content="TypeR: Web Version">
+  <meta property="og:description" content="A Photoshop-like workspace made for manga and comics typesetters, in your browser. Open and save PSD files. Nothing leaves your computer.">
+  <meta property="og:image" content="https://typer.hayasaku.fr/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="TypeR: Web Version">
+  <meta name="twitter:description" content="A Photoshop-like workspace made for manga and comics typesetters, in your browser. Open and save PSD files. Nothing leaves your computer.">
+  <meta name="twitter:image" content="https://typer.hayasaku.fr/og.png">
   <link rel="icon" type="image/png" href="../images/icon.png">
   <link rel="stylesheet" href="app.css">
-  <link rel="stylesheet" href="touch.css">
   <script src="shell.js"></script>
+  <!-- The interface for fingers: a computer loads it only if it ever needs it -->
+  <script>if (window.TypeRShell.touch) document.write('<link rel="stylesheet" href="touch.css">')</script>
   <script>window.TYPER_SUPPORTED = ["en", "fr", "es", "it", "de", "pt", "ru", "uk", "pl", "nl", "tr", "ar", "vi", "id", "th", "ja", "ko", "zh"]</script>
   <!-- The query keeps browsers from reusing the i18n.js of the former site, which had the same address. -->
   <script src="../i18n.js?v=3"></script>
@@ -28,7 +43,7 @@
     <header class="mbar">
       <a class="mbar__logo" href="../" title="TypeR"><img src="../assets/brand/typer-logo.png" width="24" height="24" alt="TypeR"></a>
       <nav class="mbar__menus" id="menus" role="menubar" aria-label="Menu"></nav>
-      <span class="mbar__title">TypeR: Browser Version (beta)</span>
+      <span class="mbar__title">TypeR: Web Version (beta)</span>
       <div class="mbar__end">
         <select class="mbar__language" id="language" aria-label="Language"></select>
         <a class="mbar__link mbar__support" href="https://ko-fi.com/typertools" id="support" target="_blank" rel="noopener"><img src="../images/kofi.svg" width="14" height="14" alt=""><span id="support-text"></span></a>
@@ -65,21 +80,27 @@
             </g>
           </svg>
           <textarea class="editor" id="editor" spellcheck="false" hidden></textarea>
+          <div class="brush-preview" id="brush-preview" hidden></div>
+          <canvas class="stamp-preview" id="stamp-preview" hidden></canvas>
+          <div class="spread" id="spread-left" hidden><b>+</b><span></span></div>
+          <div class="spread" id="spread-right" hidden><b>+</b><span></span></div>
           <div class="hud" id="hud" hidden></div>
 
           <div class="start" id="start" hidden>
             <img src="../assets/brand/typer-logo.png" width="96" height="96" alt="">
-            <h1>TypeR: Browser Version (beta)</h1>
+            <h1>TypeR: Web Version (beta)</h1>
             <p id="start-text"></p>
+            <p class="start__flow" id="start-flow"></p>
             <div class="start__actions">
               <button type="button" class="btn btn--main" id="start-open"></button>
               <button type="button" class="btn" id="start-kit"></button>
               <button type="button" class="btn" id="start-new"></button>
-              <button type="button" class="btn t-only" id="start-practice"></button>
+              <button type="button" class="btn" id="start-practice"></button>
             </div>
+            <div class="start__recent" id="start-recent" hidden></div>
           </div>
 
-          <div class="drop" id="drop" hidden></div>
+          <div class="drop" id="drop" hidden><span></span></div>
         </div>
         <div class="status" id="status">
           <span class="status__zoom"><input type="text" id="status-zoom" aria-label="Zoom" value="100%"></span>
@@ -141,7 +162,7 @@
   <input type="file" id="file-fonts" accept=".ttf,.otf,.ttc,.otc,.woff,.woff2" multiple hidden>
   <input type="file" id="file-kit" accept=".zip,.json" multiple hidden>
 
-  <noscript><p>TypeR: Browser Version needs JavaScript.</p></noscript>
+  <noscript><p>TypeR: Web Version needs JavaScript.</p></noscript>
 
   <script>window.TYPER_I18N.apply()</script>
   <script src="fonts.js"></script>
@@ -149,10 +170,33 @@
   <script src="photoshop.js"></script>
   <script src="psd.js"></script>
   <script src="session.js"></script>
+  <script src="recent.js"></script>
   <script src="workspace.js"></script>
   <script src="app.js"></script>
   <script src="hyphenation.js"></script>
   <script src="breaks.js"></script>
-  <script src="touch.js"></script>
+  <script>
+    (function () {
+      var Shell = window.TypeRShell;
+      if (Shell.touch) {
+        document.write('<script src="touch.js"><\/script>');
+        return;
+      }
+      var loaded = false;
+      Shell.onChange(function () {
+        if (!Shell.touch || loaded) return;
+        loaded = true;
+        var style = document.createElement("link");
+        style.rel = "stylesheet";
+        style.href = "touch.css";
+        style.onload = style.onerror = function () {
+          var script = document.createElement("script");
+          script.src = "touch.js";
+          document.body.appendChild(script);
+        };
+        document.head.appendChild(style);
+      });
+    })();
+  </script>
 </body>
 </html>

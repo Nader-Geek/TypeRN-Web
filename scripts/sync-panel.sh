@@ -18,4 +18,7 @@ for dir in "$SOURCE"/locale/*/; do
   mkdir -p "$TARGET/locale/$name"
   cp "$dir/messages.properties" "$TARGET/locale/$name/"
 done
+# What the service worker (web/sw.js) keeps for offline use. Keep the previous hashed files for
+# one release too: a browser's cached modern.index.js can still ask for them (git restore them).
+(cd "$TARGET" && find . -type f ! -name index.html ! -name files.json ! -path './locale/*' ! -name '*.LICENSE.txt' | sed 's#^\./##' | sort | python3 -c 'import sys, json; print(json.dumps([line.strip() for line in sys.stdin]))') > "$TARGET/files.json"
 echo "Panel copied from $SOURCE."

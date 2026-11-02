@@ -121,7 +121,11 @@
   // The fonts a .zip can carry: the files loaded in this browser, and the computer's own
   // when the browser may read them. The built-in fonts stay out, like any font without a file.
   const fontFileBytes = async (font) => {
-    if (font.source === "file") return new Uint8Array(await (await fetch(font.url)).arrayBuffer());
+    if (font.source === "file") {
+      await window.parent.TypeRFonts.ensure(font.postScriptName);
+      const loaded = window.parent.TypeRFonts.get(font.postScriptName);
+      return loaded && loaded.url ? new Uint8Array(await (await fetch(loaded.url)).arrayBuffer()) : null;
+    }
     if (font.source !== "local" || !window.parent.queryLocalFonts) return null;
     const [local] = await window.parent.queryLocalFonts({ postscriptNames: [font.postScriptName] });
     return local ? new Uint8Array(await (await local.blob()).arrayBuffer()) : null;
@@ -300,6 +304,9 @@
   const watchFontRules = () => {
     const scan = () => Array.prototype.forEach.call(document.querySelectorAll("style"), rewriteFontRules);
     new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    // A kept font is read when it's first asked for: its rule waits for it
+    const stop = window.parent.TypeRFonts.onChange(scan);
+    window.addEventListener("pagehide", stop);
     scan();
   };
 
@@ -345,6 +352,7 @@
   // Keys for TypeR's shortcut poll, read in the page and in the panel
   const track = (event) => {
     photoshop.setKeys({ meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, key: event.type === "keydown" ? photoshop.keyName(event) : "" });
+    if (window.parent.TypeRApp) window.parent.TypeRApp.showSampling(event);
   };
   window.addEventListener("keydown", track, true);
   window.addEventListener("keydown", (event) => {
