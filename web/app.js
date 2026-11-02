@@ -4207,6 +4207,8 @@
         toast(fill(T("Saved {name}."), { name: doc.name }));
         return true;
       } catch (error) {
+        // A place the system protects, opened by a double-click: it can be read, not written
+        if (error.name === "SecurityError") return saveAs(doc);
         console.error(error);
         toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
         return false;
@@ -4977,6 +4979,61 @@
 
   const Workspace = () => window.TypeRWorkspace;
 
+  // Each one always leads to the latest release
+  const EXTENSION_ZIP = "https://github.com/ScanR/TypeR/releases/latest/download/TypeR.zip";
+  const STUDIO_RELEASE = "https://github.com/ScanR/TypeR-Web/releases/latest/download/";
+  const showDownloads = () => {
+    const body = document.createElement("div");
+    body.className = "downloads";
+    const option = (name, text, links) => {
+      const box = document.createElement("section");
+      box.className = "downloads__option";
+      const title = document.createElement("h3");
+      title.textContent = name;
+      box.appendChild(title);
+      if (text) {
+        const about = document.createElement("p");
+        about.textContent = text;
+        box.appendChild(about);
+      }
+      const row = document.createElement("div");
+      row.className = "downloads__links";
+      const anchors = links.map(([label, file]) => {
+        const link = document.createElement("a");
+        link.className = "btn";
+        link.href = file;
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = label;
+        row.appendChild(link);
+        return link;
+      });
+      box.appendChild(row);
+      body.appendChild(box);
+      return anchors;
+    };
+    const [appleChip, intel, windows] = option("TypeR Studio", T("A lightweight, Photoshop-like experience made for typesetters. The same as the web version, as an app."), [
+      [T("Mac (Apple chip)"), `${STUDIO_RELEASE}TypeR-Studio-arm64.dmg`],
+      ["Mac (Intel)", `${STUDIO_RELEASE}TypeR-Studio-x64.dmg`],
+      ["Windows", `${STUDIO_RELEASE}TypeR-Studio-Setup.exe`],
+    ]);
+    const [extension] = option(T("TypeR extension for Photoshop"), "", [[T("Download the .zip"), EXTENSION_ZIP]]);
+    extension.classList.add("btn--main");
+    // This computer's own download stands out, when the browser can tell which it is
+    if (/win/i.test(navigator.platform || "")) windows.classList.add("btn--main");
+    else if (IS_MAC) {
+      appleChip.classList.add("btn--main");
+      if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+        navigator.userAgentData.getHighEntropyValues(["architecture"]).then(({ architecture }) => {
+          if (architecture !== "x86") return;
+          appleChip.classList.remove("btn--main");
+          intel.classList.add("btn--main");
+        }).catch(() => {});
+      }
+    }
+    return dialog({ title: T("Download"), body, ok: T("Close"), cancel: false });
+  };
+
   // The app has all the keys a browser tab keeps for itself, so Photoshop's work as they are
   const DESKTOP = Boolean(window.TypeRDesktop);
   const MENUS = [
@@ -5089,7 +5146,9 @@
       { label: "TypeR Tutorial", action: () => startPanel({ tour: true }) },
       { label: "Keyboard Shortcuts", action: () => showShortcuts() },
       null,
-      { label: "Download the Photoshop Plugin", action: () => window.open("https://github.com/ScanR/TypeR/releases/latest", "_blank", "noopener") },
+      DESKTOP
+        ? { label: "Download the Photoshop Plugin", action: () => window.open(EXTENSION_ZIP, "_blank", "noopener") }
+        : { label: "Download…", action: () => showDownloads() },
       { label: "Report a Problem", action: () => window.open("https://github.com/ScanR/TypeR/issues/new", "_blank", "noopener") },
       { label: "Discord Server", action: () => window.open(DISCORD, "_blank", "noopener") },
       { label: "Support the Project", action: () => window.open(KOFI, "_blank", "noopener") },
@@ -5343,7 +5402,7 @@
           said.push(fill(T("Taken from {name}."), { name: T(other.item.label) }));
         });
         draft[id] = combo;
-        if (BROWSER_KEEPS.has(combo)) said.push(T("The browser keeps this shortcut in a tab: it may not work there."));
+        if (!DESKTOP && BROWSER_KEEPS.has(combo)) said.push(T("The browser keeps this shortcut in a tab: it may not work there."));
         if (said.length) notes[id] = said.join(" ");
         else delete notes[id];
         stopRecording();
@@ -6077,7 +6136,11 @@
     window.location.href = url.href;
   });
 
-  $("get-plugin").textContent = T("Get the Photoshop plugin");
+  $("get-plugin").textContent = T("Download");
+  $("get-plugin").addEventListener("click", (event) => {
+    event.preventDefault();
+    showDownloads();
+  });
   $("support-text").textContent = T("Support the project");
   $("support").title = T("Support the project");
   $("support").setAttribute("aria-label", T("Support the project"));

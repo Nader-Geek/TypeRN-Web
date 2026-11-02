@@ -418,4 +418,10 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .picker__hex { margin-top: 10px; grid-template-columns: 26px 1fr; }
 .picker__right { display: flex; flex-direction: column; gap: 6px; }
 .picker__right .btn { width: 100%; }
+.modal__body .downloads { display: grid; gap: 10px; }
+.downloads__option { display: grid; gap: 8px; padding: 12px; background: var(--ui-dark); border: 1px solid var(--line); border-radius: 4px; }
+.downloads__option h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.downloads__option p { color: var(--muted); line-height: 1.4; }
+.downloads__links { display: flex; flex-wrap: wrap; gap: 6px; }
+.downloads__links .btn { text-decoration: none; }
 .modal__foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px; background: var(--ui-dark); }
