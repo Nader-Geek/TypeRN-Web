@@ -2454,7 +2454,19 @@
   const isBrushAdjust = (event) => (event.button === 2 && event.altKey) || (IS_MAC && event.button === 0 && event.ctrlKey && event.altKey);
   // Alt turns the brush into the eyedropper while it is held, except during what it is already doing
   const isSampling = (event) => app.tool === "brush" && event.altKey && !event.ctrlKey && !event.metaKey && !spacing;
+  // Ctrl or Cmd sets the wand aside for as long as it is held: a click on a text edits it, a drag
+  // moves it, and nothing gets selected.
+  const wandSetAside = (event) => app.tool === "wand" && (event.ctrlKey || event.metaKey) && !event.altKey;
+  let hoverAt = null;
+  const showWandSetAside = (event) => {
+    // A key has no position: it goes by where the pointer last was
+    if (event.clientX !== undefined) hoverAt = event;
+    if (app.tool !== "wand" || !app.doc || gesture || !ui.editor.hidden || transformOf()) return;
+    const aside = hoverAt && wandSetAside(event);
+    ui.stage.style.cursor = aside ? (textAt(toDoc(hoverAt)) ? "text" : "default") : "";
+  };
   const showSampling = (event) => {
+    showWandSetAside(event);
     ui.stage.classList.toggle("is-sampling", gesture ? gesture.kind === "pick" : isSampling(event));
     const cloning = !gesture && app.tool === "stamp" && event.altKey && !event.ctrlKey && !event.metaKey && !spacing;
     ui.stage.classList.toggle("is-cloning", cloning);
@@ -2672,7 +2684,8 @@
     const fingerWhileTyping = !ui.editor.hidden && !handleWhileTyping && isFinger(event);
     if (!ui.editor.hidden && !handleWhileTyping && !fingerWhileTyping) {
       endEdit();
-      if (app.tool === "text") return;
+      // The click that closes a text only closes it: with the wand it would paste the next line
+      if (app.tool === "text" || (app.tool === "wand" && !wandSetAside(event))) return;
     }
     if (!handleWhileTyping && !fingerWhileTyping) ui.stage.focus({ preventScroll: true });
     if (event.pointerType === "pen") penSeen = true;
@@ -2726,6 +2739,19 @@
       const { cx, cy, sx, sy, angle } = turning;
       gesture = Object.assign(base, { kind: "transform", from: { cx, cy, sx, sy, angle }, mode: over ? over.kind : inTransform(turning, point) ? "move" : "rotate" });
       ui.stage.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (!handleWhileTyping && wandSetAside(event)) {
+      const text = textAt(point);
+      if (!text) return;
+      if (!doc.state.activeIds.includes(text.id)) ops.selectLayer(text.id);
+      if (ops.beginLiveMove(doc.state.activeIds).length) {
+        gesture = Object.assign(base, { kind: "move", tapEdit: text });
+        ui.stage.setPointerCapture(event.pointerId);
+      } else {
+        ops.endLiveMove(false);
+        beginEdit(text);
+      }
       return;
     }
     if (tool === "zoom") {
@@ -3082,6 +3108,7 @@
       if (current.tapEnds) endEdit();
       else if (current.tapEdit) beginEdit(current.tapEdit);
       else if (current.tapText) ops.selectLayer(current.tapText.id);
+      else if (current.tapWand === "new" && ops.selectionContains(point[0], point[1])) ops.deselect();
       else if (current.tapWand) ops.wandAt(point[0], point[1], current.tapWand);
     } else if (kind === "textBox") {
       const doc = app.doc;
@@ -3095,7 +3122,6 @@
       beginEdit(ops.newText(point[0], point[1] + app.textDefaults.size * 0.35 * (doc.resolution / 72)), true);
     } else if (kind === "moveSelection") {
       if (current.moved) ops.nudgeSelection(Math.round(point[0] - current.start[0]), Math.round(point[1] - current.start[1]));
-      else if (current.tool === "wand") ops.wandAt(point[0], point[1], "new");
       else ops.deselect();
     } else if (kind === "wand") {
       if (!current.moved) ops.wandAt(point[0], point[1], mode);
@@ -3117,9 +3143,12 @@
     hideStampPreview();
   });
   ui.stage.addEventListener("contextmenu", (event) => {
+    // On a Mac, Ctrl + click also asks for the menu: with the wand, Ctrl means something else
+    const macWandClick = IS_MAC && event.ctrlKey && app.tool === "wand";
     // The editor keeps the browser's menu: that's where spelling suggestions are
-    if (event.target === ui.editor) return;
+    if (event.target === ui.editor && !macWandClick) return;
     event.preventDefault();
+    if (macWandClick) return;
     if (!app.doc || event.altKey || Shell.touch || event.target.closest(".start")) return;
     const point = toDoc(event);
     const hit = ops.hitLayer(point[0], point[1]);
@@ -3149,8 +3178,14 @@
     return null;
   };
 
+  const EDITS_ON_DOUBLE_CLICK = new Set(["move", "rectangle", "ellipse", "lasso"]);
   ui.stage.addEventListener("dblclick", (event) => {
-    if (app.tool !== "move" || !app.doc) return;
+    if (event.target === ui.editor) {
+      // Ctrl and a double-click with the wand: the first click opened the text, all of it stays selected
+      if (wandSetAside(event)) ui.editor.select();
+      return;
+    }
+    if (!EDITS_ON_DOUBLE_CLICK.has(app.tool) || !app.doc) return;
     const hit = textAt(toDoc(event));
     if (hit) beginEdit(hit);
   });
