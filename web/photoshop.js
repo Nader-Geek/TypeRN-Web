@@ -3341,6 +3341,21 @@
     stroke: strokeToApply(stroke),
   });
 
+  // New text goes first in the active layer's folder (or in the selected folder),
+  // on top of the document outside any folder. The list runs from the bottom of
+  // the stack up, with a folder's own entry right above its content.
+  const textFolderOf = (doc) => {
+    const active = doc.state.layers.find((layer) => layer.id === doc.state.activeIds[doc.state.activeIds.length - 1]);
+    if (!active) return null;
+    return active.kind === "group" ? active.id : active.group || null;
+  };
+  const addNewTexts = (layers, created, folder) => {
+    const at = folder ? layers.findIndex((layer) => layer.id === folder) : -1;
+    if (at < 0) return layers.concat(created);
+    created.forEach((layer) => { layer.group = folder; });
+    return layers.slice(0, at).concat(created, layers.slice(at));
+  };
+
   const isPunctuationOnly = (text) => typeof text === "string" && /^[!?.,;:'"()\[\]~\-\u00A1\u00AB\u00BB\u00BF\u060C\u061B\u061F\u2013\u2014\u2018\u2019\u201C\u201D\u2026\u203C\u203D\u2047\u2048\u2049\u3001\u3002\u301C\uFF01\uFF1F\uFF5E]+$/.test(text.replace(/[\s\u00A0\u202F]+/g, ""));
 
   // Style option: a line made only of punctuation ("?!", "!!") is set larger
@@ -3699,7 +3714,7 @@
       const params = classicParams(doc, Object.assign({}, data, { textSizeOverride: size }), selection.bounds);
       const layer = newTextLayer(doc, params, data.style && data.style.stroke, data.text);
       layer.source = String(data.text || "");
-      commitState(doc, "TyperTools Paste", { layers: doc.state.layers.concat([layer]), activeIds: [layer.id] });
+      commitState(doc, "TyperTools Paste", { layers: addNewTexts(doc.state.layers, [layer], textFolderOf(doc)), activeIds: [layer.id] });
       emit("paste", { classic: true, layers: [layer] });
       return "";
     },
@@ -3715,7 +3730,7 @@
         const params = classicParams(doc, { text: texts[i], style: styles[i] || styles[0], padding: data.padding }, rectFrom(bounds.left, bounds.top, bounds.right, bounds.bottom));
         created.push(newTextLayer(doc, params, styles[i] && styles[i].stroke, texts[i]));
       });
-      commitState(doc, "TyperTools Paste", { layers: doc.state.layers.concat(created), activeIds: created.map((layer) => layer.id), selection: null });
+      commitState(doc, "TyperTools Paste", { layers: addNewTexts(doc.state.layers, created, textFolderOf(doc)), activeIds: created.map((layer) => layer.id), selection: null });
       emit("paste", { classic: true, layers: created });
       return "";
     },
@@ -3933,6 +3948,7 @@
       const before = doc.history[doc.historyIndex].id;
       let layers = doc.state.layers;
       const created = [];
+      const folder = textFolderOf(doc);
       (data.sessions || []).forEach((session) => {
         const plan = session.plan;
         if (plan.autoClean && plan.cleanupPolygon) {
@@ -3941,7 +3957,17 @@
           if (clean) layers = layers.map((layer) => (layer === clean ? Object.assign({}, layer, { paint: (layer.paint || NONE).concat([op]) }) : layer));
           else {
             // Above the page, under the text
-            const firstText = layers.findIndex((layer) => layer.kind === "text");
+            let firstText = layers.findIndex((layer) => layer.kind === "text");
+            // A text in a folder: under the whole folder, not among its content
+            const rootOf = (layer) => {
+              let root = layer;
+              while (root && root.group) root = layers.find((item) => item.id === root.group);
+              return root;
+            };
+            if (firstText >= 0 && layers[firstText].group) {
+              const root = rootOf(layers[firstText]);
+              while (firstText > 0 && rootOf(layers[firstText - 1]) === root) firstText--;
+            }
             const made = newRaster("TypeR Clean", { clean: true, paint: [op] });
             layers = layers.slice();
             layers.splice(firstText < 0 ? layers.length : firstText, 0, made);
@@ -3950,7 +3976,7 @@
         const layer = newTextLayer(doc, session.text.params, session.text.stroke, session.layerName);
         layer.source = session.layerName || "";
         created.push(layer);
-        layers = layers.concat([layer]);
+        layers = addNewTexts(layers, [layer], folder);
       });
       commitState(doc, "TyperTools Smart Paste", { layers, selection: null, activeIds: created.length ? [created[created.length - 1].id] : doc.state.activeIds });
       emit("selection", null);
