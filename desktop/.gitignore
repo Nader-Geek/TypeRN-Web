@@ -1,0 +1,5 @@
+node_modules/
+dist/
+# Made from the site's files by scripts/build-content.js
+content/
+test-output/
