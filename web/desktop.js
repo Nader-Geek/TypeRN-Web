@@ -65,6 +65,7 @@
       items: items.map((item, n) => (item
         ? {
           id: `${m}:${n}`,
+          name: item.label,
           label: App.T(item.label),
           accelerator: accelerator(item.keys),
           enabled: item.enabled ? Boolean(item.enabled()) : true,
@@ -89,11 +90,25 @@
     }, 120);
   };
 
+  const typingNow = () => {
+    let active = document.activeElement;
+    while (active && active.tagName === "IFRAME") {
+      try {
+        active = active.contentDocument.activeElement;
+      } catch (error) {
+        return false;
+      }
+    }
+    return Boolean(active) && (/^(INPUT|TEXTAREA)$/.test(active.tagName) || active.isContentEditable);
+  };
+
   // The page's scripts have run; bringing the last session back still takes its time
   const whenLoaded = () => {
     const App = window.TypeRApp;
     Desktop.setStrings({
       closeTitle: App.T("Save your changes before closing?"),
+      protectedPlace: App.T("This place is protected by the system. Choose another one."),
+      ok: App.T("OK"),
       discard: App.T("Don't save"),
       cancel: App.T("Cancel"),
     });
@@ -104,9 +119,15 @@
       Desktop.onMenuAction((id) => {
         const [m, n] = id.split(":").map(Number);
         const item = App.MENUS[m][1][n];
+        // As with the page's own menus, a dialog on screen comes first
+        if (document.getElementById("modal").open) return;
         App.renderMenusState();
         if (item && item.row && !item.row.disabled) item.row.click();
         syncSoon();
+      });
+      // A key the page left alone: only a text field has a use for it, Undo in it is the field's
+      Desktop.onMenuKey((command) => {
+        if (typingNow()) Desktop.textEdit(command);
       });
     }
     // An update applies to the next launch, or right now if there's no page to disturb
@@ -120,8 +141,8 @@
   document.addEventListener("DOMContentLoaded", () => {
     const logo = document.querySelector(".mbar__logo");
     if (logo) logo.removeAttribute("href");
-    const title = document.querySelector(".mbar__title");
-    if (title) title.textContent = "TypeR Studio";
+    document.title = "TypeR Studio";
+    document.querySelectorAll(".mbar__title, .start h1").forEach((title) => { title.textContent = "TypeR Studio"; });
     if (!window.TypeRApp) return;
     whenLoaded();
     if (window.TypeRApp.booted) Desktop.ready();

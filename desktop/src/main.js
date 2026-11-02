@@ -105,6 +105,7 @@ const openPaths = async (paths) => {
 // The page knows its menus, in its language. On a Mac they go in the system's menu bar, as
 // Photoshop's do; the keys stay with the page (registerAccelerator: false), and what it leaves,
 // like Paste in a text field, reaches the hidden standard items.
+const TEXT_EDITS = { Undo: "undo", Redo: "redo", Cut: "cut", Copy: "copy", All: "selectAll" };
 const setMenu = (model) => {
   if (!isMac) return;
   const toItem = (item) => {
@@ -112,9 +113,19 @@ const setMenu = (model) => {
     const out = {
       label: item.label,
       enabled: item.enabled,
-      click: () => win && win.webContents.send("menu-action", item.id),
+      click: (menuItem, owner, event) => {
+        if (!win) return;
+        // The keys go to the page first: what comes here by key is what it left to the system
+        if (event && event.triggeredByAccelerator) {
+          if (TEXT_EDITS[item.name]) win.webContents.send("menu-key", TEXT_EDITS[item.name]);
+          return;
+        }
+        win.webContents.send("menu-action", item.id);
+      },
     };
-    if (item.accelerator) {
+    // A greyed Undo or Cut would keep its key from the text field being typed in, which the
+    // hidden standard item below then serves
+    if (item.accelerator && (item.enabled || !TEXT_EDITS[item.name])) {
       out.accelerator = item.accelerator;
       out.registerAccelerator = false;
     }
@@ -277,8 +288,11 @@ const setPermissions = () => {
   const { defaultSession: ours } = session;
   ours.setPermissionRequestHandler((contents, permission, grant, details) => grant(ALLOWED.has(permission) && isOurs(details.requestingUrl)));
   ours.setPermissionCheckHandler((contents, permission, origin) => ALLOWED.has(permission) && origin.startsWith(`${SCHEME}://`));
-  // The picker's choice is the user's: a desktop app can open the Desktop or the Documents root
-  ours.on("file-system-access-restricted", (event, details, callback) => callback("allow"));
+  // Answering "allow" here only leaves an empty file behind: the writing is refused later anyway
+  ours.on("file-system-access-restricted", async (event, details, callback) => {
+    await dialog.showMessageBox(win, { type: "info", message: strings.protectedPlace || "This place is protected by the system. Choose another one.", buttons: [strings.ok || "OK"] });
+    callback("tryAgain");
+  });
 };
 
 /* -------------------------------------- updates ------------------------------------- */
@@ -320,6 +334,9 @@ ipcMain.on("page-ready", () => {
   }, isTest ? 500 : 5000);
 });
 ipcMain.on("set-menu", (event, model) => setMenu(model));
+ipcMain.on("text-edit", (event, command) => {
+  if (Object.values(TEXT_EDITS).includes(command) && win) win.webContents[command]();
+});
 ipcMain.on("set-strings", (event, given) => { strings = given; });
 ipcMain.on("reload-for-update", () => {
   app.relaunch();
