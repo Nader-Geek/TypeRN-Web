@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
   setMenu: (model) => ipcRenderer.send("set-menu", model),
   setStrings: (strings) => ipcRenderer.send("set-strings", strings),
   onMenuAction: (listener) => ipcRenderer.on("menu-action", (event, id) => listener(id)),
+  onMenuKey: (listener) => ipcRenderer.on("menu-key", (event, command) => listener(command)),
+  textEdit: (command) => ipcRenderer.send("text-edit", command),
   onUpdateReady: (listener) => ipcRenderer.on("update-ready", () => listener()),
   reloadForUpdate: () => ipcRenderer.send("reload-for-update"),
 });

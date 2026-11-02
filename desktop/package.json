@@ -42,11 +42,34 @@
     "asar": true,
     "compression": "maximum",
     "npmRebuild": false,
-    "electronLanguages": ["en", "en-US", "fr", "es", "it", "de", "pt-BR", "ru", "uk", "pl", "nl", "tr", "ar", "vi", "id", "th", "ja", "ko", "zh-CN"],
+    "electronLanguages": [
+      "en",
+      "en-US",
+      "fr",
+      "es",
+      "it",
+      "de",
+      "pt-BR",
+      "ru",
+      "uk",
+      "pl",
+      "nl",
+      "tr",
+      "ar",
+      "vi",
+      "id",
+      "th",
+      "ja",
+      "ko",
+      "zh-CN"
+    ],
     "mac": {
       "category": "public.app-category.graphics-design",
       "icon": "build/icon.png",
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
@@ -56,31 +79,45 @@
         "CFBundleDocumentTypes": [
           {
             "CFBundleTypeName": "Photoshop Document",
-            "CFBundleTypeExtensions": ["psd", "psb"],
+            "CFBundleTypeExtensions": [
+              "psd",
+              "psb"
+            ],
             "CFBundleTypeRole": "Editor",
             "LSHandlerRank": "Alternate"
           },
           {
             "CFBundleTypeName": "Image",
-            "CFBundleTypeExtensions": ["png", "jpg", "jpeg", "webp"],
+            "CFBundleTypeExtensions": [
+              "png",
+              "jpg",
+              "jpeg",
+              "webp"
+            ],
             "CFBundleTypeRole": "Editor",
             "LSHandlerRank": "None"
           }
         ]
-      }
+      },
+      "artifactName": "TypeR-Studio-${arch}-mac.${ext}"
     },
     "dmg": {
-      "sign": false
+      "sign": false,
+      "artifactName": "TypeR-Studio-${arch}.dmg"
     },
     "win": {
       "icon": "build/icon.png",
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
       "deleteAppDataOnUninstall": false,
-      "include": "build/installer.nsh"
+      "include": "build/installer.nsh",
+      "differentialPackage": false,
+      "artifactName": "TypeR-Studio-Setup.${ext}"
     },
     "publish": [
       {
