@@ -13,6 +13,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Settings…": "การตั้งค่า…",
     "Interface language": "ภาษาของอินเทอร์เฟซ",
     "Mouse wheel": "ล้อเมาส์",
+    "The wheel zooms": "ล้อซูม",
+    "The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.": "ล้อซูม Alt + ล้อเพื่อเลื่อนขึ้นลง Shift + ล้อเพื่อเลื่อนซ้ายขวา บนแทร็กแพด สองนิ้วและการจีบนิ้วก็ซูมเช่นกัน",
     "Language of new text": "ภาษาของข้อความใหม่",
     "Standard ligatures in new text": "อักษรควบมาตรฐานในข้อความใหม่",
     "Drag to change the value. Hold Shift to go faster.": "ลากเพื่อเปลี่ยนค่า กด Shift ค้างไว้เพื่อให้เร็วขึ้น",

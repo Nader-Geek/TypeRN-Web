@@ -2060,8 +2060,9 @@
   const settings = { wheel: "pan", smartGuides: true, transformControls: true, spellcheck: true };
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORE_SETTINGS)) || {};
-    // "zoom" was a choice of its own for a while: this is the closest one left
-    if (saved.wheel === "zoom" || saved.wheel === "auto") settings.wheel = "auto";
+    // On a Mac a mouse can't be told from a trackpad, so "auto" isn't offered there
+    if (saved.wheel === "zoom" || (saved.wheel === "auto" && IS_MAC)) settings.wheel = "zoom";
+    else if (saved.wheel === "auto") settings.wheel = "auto";
     if (PS.TEXT_LANGUAGES.some(([name]) => name === saved.language)) app.textDefaults.language = saved.language;
     if (saved.ligature === false) app.textDefaults.ligature = false;
     if (saved.smartGuides === false) settings.smartGuides = false;
@@ -2114,7 +2115,7 @@
       },
       fields: [
         { id: "lang", label: T("Interface language"), value: lang, options: Object.keys(LANGUAGES).map((code) => [code, LANGUAGES[code]]) },
-        { id: "wheel", label: T("Mouse wheel"), value: settings.wheel, options: [["pan", T("Like Photoshop")], ["auto", T("Mouse zooms, trackpad scrolls")]], hint: (value) => T(value === "auto" ? "A mouse's wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers scroll and a pinch zooms." : "The wheel scrolls up and down. Alt + wheel zooms, Ctrl or Cmd + wheel scrolls sideways. On a trackpad, two fingers scroll and a pinch zooms.") },
+        { id: "wheel", label: T("Mouse wheel"), value: settings.wheel, options: [["pan", T("Like Photoshop")], ["zoom", T("The wheel zooms")], ...(IS_MAC ? [] : [["auto", T("Mouse zooms, trackpad scrolls")]])], hint: (value) => (value === "zoom" ? T("The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.") : T(value === "auto" ? "A mouse's wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers scroll and a pinch zooms." : "The wheel scrolls up and down. Alt + wheel zooms, Ctrl or Cmd + wheel scrolls sideways. On a trackpad, two fingers scroll and a pinch zooms.")) },
         { id: "language", label: T("Language of new text"), value: d.language, options: PS.TEXT_LANGUAGES.map(([name, , own]) => [name, own]) },
         { id: "ligature", label: T("Standard ligatures in new text"), type: "checkbox", checked: d.ligature },
       ],
@@ -3191,7 +3192,8 @@
   });
 
   // Browsers don't say what scrolled. Firefox counts a mouse's wheel in lines. Elsewhere a
-  // notch is a multiple of 120, except on a Mac: there, only a mouse sends fractions.
+  // notch is a multiple of 120. On a Mac, Chrome can spread a notch over small whole numbers,
+  // just like a trackpad, so a fraction proves a mouse but its absence proves nothing.
   const looksLikeMouse = (event) => {
     if (event.deltaMode) return true;
     // Shift turns a mouse's wheel sideways
@@ -3224,15 +3226,17 @@
     const x = notch(event.deltaX * pixels);
     const y = notch(event.deltaY * pixels);
     const zoomBy = (power) => zoomTo(view().zoom * Math.exp(-power), event.clientX - rect.left, event.clientY - rect.top);
-    const zoom = () => zoomBy(y * (mouse ? 0.0015 : 0.003));
+    const wheelZooms = settings.wheel === "zoom";
+    // A notch spread over small events adds up to the same 120 as one whole notch
+    const zoom = () => zoomBy(y * (mouse || wheelZooms ? 0.0015 : 0.003));
     const sideways = () => panBy(-(y || x), 0);
     const command = event.metaKey || (event.ctrlKey && app.keys.ctrl);
     if (event.ctrlKey && !command && !mouse) zoomBy(event.deltaY * pixels * 0.01);
-    else if (settings.wheel === "auto") {
+    else if (settings.wheel !== "pan") {
       if (command || event.ctrlKey) zoom();
       else if (event.altKey) panBy(0, -y);
       else if (event.shiftKey) sideways();
-      else if (mouse) zoom();
+      else if (wheelZooms || mouse) zoom();
       else panBy(-x, -y);
     } else if (event.altKey) zoom();
     else if (command || event.ctrlKey || event.shiftKey) sideways();

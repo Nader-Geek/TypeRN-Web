@@ -13,6 +13,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Settings…": "Pengaturan…",
     "Interface language": "Bahasa antarmuka",
     "Mouse wheel": "Roda mouse",
+    "The wheel zooms": "Roda memperbesar",
+    "The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.": "Roda memperbesar. Alt + roda menggulir ke atas dan bawah, Shift + roda ke samping. Di trackpad, dua jari juga memperbesar, begitu pula cubitan.",
     "Language of new text": "Bahasa teks baru",
     "Standard ligatures in new text": "Ligatur standar pada teks baru",
     "Drag to change the value. Hold Shift to go faster.": "Seret untuk mengubah nilai. Tahan Shift agar lebih cepat.",

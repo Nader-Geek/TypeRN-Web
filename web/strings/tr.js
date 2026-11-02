@@ -13,6 +13,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Settings…": "Ayarlar…",
     "Interface language": "Arayüz dili",
     "Mouse wheel": "Fare tekerleği",
+    "The wheel zooms": "Tekerlek yakınlaştırır",
+    "The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.": "Tekerlek yakınlaştırır. Alt + tekerlek dikey, Shift + tekerlek yatay kaydırır. İzleme dörtgeninde iki parmak ve kıstırma da yakınlaştırır.",
     "Language of new text": "Yeni metnin dili",
     "Standard ligatures in new text": "Yeni metinde standart bitişik harfler",
     "Drag to change the value. Hold Shift to go faster.": "Değeri değiştirmek için sürükleyin. Daha hızlı gitmek için Shift tuşunu basılı tutun.",

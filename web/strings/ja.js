@@ -13,6 +13,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Settings…": "設定…",
     "Interface language": "インターフェイスの言語",
     "Mouse wheel": "マウスホイール",
+    "The wheel zooms": "ホイールでズーム",
+    "The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.": "ホイールでズーム。Alt + ホイールで上下、Shift + ホイールで左右にスクロール。トラックパッドでは 2 本指とピンチでもズーム。",
     "Language of new text": "新規テキストの言語",
     "Standard ligatures in new text": "新規テキストの標準合字",
     "Drag to change the value. Hold Shift to go faster.": "ドラッグして値を変更します。Shift を押すと速くなります。",

@@ -13,6 +13,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Settings…": "Ustawienia…",
     "Interface language": "Język interfejsu",
     "Mouse wheel": "Kółko myszy",
+    "The wheel zooms": "Kółko powiększa",
+    "The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.": "Kółko powiększa. Alt + kółko przewija w pionie, Shift + kółko w poziomie. Na gładziku powiększają też dwa palce i uszczypnięcie.",
     "Language of new text": "Język nowego tekstu",
     "Standard ligatures in new text": "Standardowe ligatury w nowym tekście",
     "Drag to change the value. Hold Shift to go faster.": "Przeciągnij, aby zmienić wartość. Z klawiszem Shift szybciej.",

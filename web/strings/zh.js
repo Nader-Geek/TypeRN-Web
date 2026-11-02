@@ -13,6 +13,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Settings…": "设置…",
     "Interface language": "界面语言",
     "Mouse wheel": "鼠标滚轮",
+    "The wheel zooms": "滚轮缩放",
+    "The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.": "滚轮缩放。Alt + 滚轮上下滚动,Shift + 滚轮左右滚动。在触控板上,双指和捏合同样缩放。",
     "Language of new text": "新文本的语言",
     "Standard ligatures in new text": "新文本使用标准连字",
     "Drag to change the value. Hold Shift to go faster.": "拖动以更改数值。按住 Shift 可加快速度。",
