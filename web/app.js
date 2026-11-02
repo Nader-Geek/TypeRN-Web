@@ -4977,15 +4977,17 @@
 
   const Workspace = () => window.TypeRWorkspace;
 
+  // The app has all the keys a browser tab keeps for itself, so Photoshop's work as they are
+  const DESKTOP = Boolean(window.TypeRDesktop);
   const MENUS = [
     ["File", [
-      { label: "New…", keys: "Alt+Cmd+N", action: newDocument },
+      { label: "New…", keys: DESKTOP ? "Cmd+N" : "Alt+Cmd+N", action: newDocument },
       { label: "Open…", keys: "Cmd+O", action: openDialog },
       { label: "Open Folder…", keys: "Shift+Cmd+O", action: openFolder },
       { label: "Open Recent…", enabled: () => Recent.available, action: showRecentFiles },
       null,
-      { label: "Close", keys: "Alt+Cmd+W", enabled: hasDoc, action: () => closeDoc() },
-      { label: "Close All", keys: "Alt+Shift+Cmd+W", enabled: hasDoc, action: closeAllDocs },
+      { label: "Close", keys: DESKTOP ? "Cmd+W" : "Alt+Cmd+W", enabled: hasDoc, action: () => closeDoc() },
+      { label: "Close All", keys: DESKTOP ? "Alt+Cmd+W" : "Alt+Shift+Cmd+W", enabled: hasDoc, action: closeAllDocs },
       null,
       { label: "Save", keys: "Cmd+S", enabled: hasDoc, action: () => save() },
       { label: "Save As…", keys: "Shift+Cmd+S", enabled: hasDoc, action: () => saveAs() },
@@ -5010,7 +5012,7 @@
       { label: "Clear", keys: "Backspace", enabled: () => hasSelection() || hasLayer(), action: () => clearOrDelete() },
       null,
       // A browser tab keeps Ctrl+T for itself: Photoshop's shortcut only arrives in the installed app or full screen
-      { label: "Free Transform", keys: "Alt+Cmd+T", alias: "Cmd+T", keepsTransform: true, enabled: () => !Shell.touch && canTransform(), action: beginTransform },
+      { label: "Free Transform", keys: DESKTOP ? "Cmd+T" : "Alt+Cmd+T", alias: DESKTOP ? undefined : "Cmd+T", keepsTransform: true, enabled: () => !Shell.touch && canTransform(), action: beginTransform },
       { label: "Rotate 180°", keepsTransform: true, enabled: canTransform, action: () => transformStep(turnBy(180)) },
       { label: "Rotate 90° Clockwise", keepsTransform: true, enabled: canTransform, action: () => transformStep(turnBy(90)) },
       { label: "Rotate 90° Counterclockwise", keepsTransform: true, enabled: canTransform, action: () => transformStep(turnBy(-90)) },
@@ -5026,7 +5028,7 @@
     ]],
     ["Layer", [
       // Photoshop's Shift+Cmd+N opens a private window from a browser tab: it only arrives in the installed app or full screen
-      { label: "New Layer", keys: "Alt+Shift+Cmd+N", alias: "Shift+Cmd+N", enabled: hasDoc, action: () => ops.newLayer(nextLayerName()) },
+      { label: "New Layer", keys: DESKTOP ? "Shift+Cmd+N" : "Alt+Shift+Cmd+N", alias: DESKTOP ? undefined : "Shift+Cmd+N", enabled: hasDoc, action: () => ops.newLayer(nextLayerName()) },
       { label: "New Group", enabled: hasDoc, action: () => ops.newGroup(T("Group")) },
       { label: "Duplicate Layer", keys: "Cmd+J", enabled: hasLayer, action: () => ops.duplicateLayers() },
       { label: "Delete Layer", enabled: hasLayer, action: () => ops.deleteLayers() },
@@ -5081,7 +5083,7 @@
       { label: "Line Breaks", keys: "Shift+L", check: () => Workspace().isVisible("breaks"), action: () => Workspace().toggle("breaks") },
       null,
       { label: "Reset Workspace", action: () => Workspace().reset() },
-      { label: "Touch Interface", action: () => Shell.prefer("touch") },
+      ...(DESKTOP ? [] : [{ label: "Touch Interface", action: () => Shell.prefer("touch") }]),
     ]],
     ["Help", [
       { label: "TypeR Tutorial", action: () => startPanel({ tour: true }) },
@@ -5091,7 +5093,7 @@
       { label: "Report a Problem", action: () => window.open("https://github.com/ScanR/TypeR/issues/new", "_blank", "noopener") },
       { label: "Discord Server", action: () => window.open(DISCORD, "_blank", "noopener") },
       { label: "Support the Project", action: () => window.open(KOFI, "_blank", "noopener") },
-      { label: "Back to the Site", action: () => { window.location.href = "../"; } },
+      ...(DESKTOP ? [] : [{ label: "Back to the Site", action: () => { window.location.href = "../"; } }]),
     ]],
   ];
 
@@ -6183,12 +6185,15 @@
     });
     renderStartRecent();
     registerWorker();
+    window.TypeRApp.booted = true;
+    window.dispatchEvent(new Event("typer-booted"));
   };
 
   // sw.js keeps a copy of the app to work offline. It starts once all is on screen, and is
   // told what this first visit already fetched before it was there.
   const registerWorker = () => {
-    if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
+    // The desktop app keeps its own copy (desktop/src/content.js)
+    if (!("serviceWorker" in navigator) || !window.isSecureContext || window.TypeRDesktop) return;
     setTimeout(async () => {
       try {
         await navigator.serviceWorker.register("sw.js");

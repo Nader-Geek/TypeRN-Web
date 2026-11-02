@@ -1,0 +1,93 @@
+{
+  "name": "typer-studio",
+  "productName": "TypeR Studio",
+  "version": "0.1.0",
+  "minContentShell": "0.1.0",
+  "description": "TypeR's Photoshop-like workspace for manga and comics typesetters, as a desktop app.",
+  "author": "ScanR",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "content": "node scripts/build-content.js",
+    "start": "npm run content && node scripts/start.js",
+    "test": "npm run content && node scripts/test-e2e.js",
+    "update-key": "node scripts/generate-update-key.js",
+    "publish-web": "node scripts/publish-web.js",
+    "dist": "npm run content && electron-builder",
+    "dist:mac": "npm run content && electron-builder --mac --arm64 --x64",
+    "dist:win": "npm run content && electron-builder --win --x64"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
+  },
+  "devDependencies": {
+    "electron": "45.2.1",
+    "electron-builder": "^26.0.12",
+    "playwright-core": "^1.56.0"
+  },
+  "build": {
+    "appId": "fr.hayasaku.typer-studio",
+    "productName": "TypeR Studio",
+    "copyright": "ScanR",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**",
+      "content/**",
+      "package.json"
+    ],
+    "asar": true,
+    "compression": "maximum",
+    "npmRebuild": false,
+    "electronLanguages": ["en", "en-US", "fr", "es", "it", "de", "pt-BR", "ru", "uk", "pl", "nl", "tr", "ar", "vi", "id", "th", "ja", "ko", "zh-CN"],
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "icon": "build/icon.png",
+      "target": ["dmg", "zip"],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
+      "extendInfo": {
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Photoshop Document",
+            "CFBundleTypeExtensions": ["psd", "psb"],
+            "CFBundleTypeRole": "Editor",
+            "LSHandlerRank": "Alternate"
+          },
+          {
+            "CFBundleTypeName": "Image",
+            "CFBundleTypeExtensions": ["png", "jpg", "jpeg", "webp"],
+            "CFBundleTypeRole": "Editor",
+            "LSHandlerRank": "None"
+          }
+        ]
+      }
+    },
+    "dmg": {
+      "sign": false
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": ["nsis"]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ScanR",
+        "repo": "TypeR-Web"
+      }
+    ]
+  }
+}
