@@ -224,29 +224,41 @@
     };
   };
 
-  // A layer style's stroke, drawn around Photoshop's pixels
+  // A layer style's stroke, drawn around Photoshop's pixels. Two strokes, as TypeR saves a
+  // stroke around the stroke: the narrower one, and the wider one around it
   const strokeFromEffects = (effects) => {
-    const stroke = effects && effects.stroke && effects.stroke[0];
-    if (!stroke || stroke.enabled === false || (stroke.fillType && stroke.fillType !== "color")) return null;
-    const size = stroke.size ? stroke.size.value || 0 : 0;
-    if (!size) return null;
-    const color = stroke.color || { r: 0, g: 0, b: 0 };
-    return { enabled: true, size, opacity: stroke.opacity === undefined ? 100 : stroke.opacity * 100, position: "outer", color: { r: channel(color.r), g: channel(color.g), b: channel(color.b) } };
+    const usable = ((effects && effects.stroke) || []).slice(0, 2)
+      .filter((stroke) => stroke && stroke.enabled !== false && (!stroke.fillType || stroke.fillType === "color") && stroke.size && stroke.size.value > 0)
+      .sort((a, b) => a.size.value - b.size.value);
+    const stroke = usable[0];
+    if (!stroke) return null;
+    const rgb = (color) => ({ r: channel((color || {}).r), g: channel((color || {}).g), b: channel((color || {}).b) });
+    const out = { enabled: true, size: stroke.size.value, opacity: stroke.opacity === undefined ? 100 : stroke.opacity * 100, position: "outer", color: rgb(stroke.color) };
+    const around = usable[1];
+    if (around && around.size.value > stroke.size.value) out.outer = { size: around.size.value - stroke.size.value, color: rgb(around.color) };
+    return out;
   };
 
   const strokedDisplay = (bitmap, stroke) => {
-    const pad = Math.ceil(stroke.size) + 1;
+    const reach = stroke.size + (stroke.outer ? stroke.outer.size : 0);
+    const pad = Math.ceil(reach) + 1;
     const canvas = PS().newCanvas(bitmap.width + pad * 2, bitmap.height + pad * 2);
     const ctx = canvas.getContext("2d");
-    const steps = Math.min(48, Math.max(12, Math.round(stroke.size * 6)));
-    for (let i = 0; i < steps; i++) {
-      const angle = (i / steps) * Math.PI * 2;
-      ctx.drawImage(bitmap, pad + Math.cos(angle) * stroke.size, pad + Math.sin(angle) * stroke.size);
-    }
-    ctx.globalCompositeOperation = "source-in";
-    ctx.fillStyle = `rgb(${stroke.color.r},${stroke.color.g},${stroke.color.b})`;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.globalCompositeOperation = "source-over";
+    const steps = Math.min(48, Math.max(12, Math.round(reach * 6)));
+    const ring = (size, color) => {
+      const layer = PS().newCanvas(canvas.width, canvas.height);
+      const c = layer.getContext("2d");
+      for (let i = 0; i < steps; i++) {
+        const angle = (i / steps) * Math.PI * 2;
+        c.drawImage(bitmap, pad + Math.cos(angle) * size, pad + Math.sin(angle) * size);
+      }
+      c.globalCompositeOperation = "source-in";
+      c.fillStyle = `rgb(${color.r},${color.g},${color.b})`;
+      c.fillRect(0, 0, layer.width, layer.height);
+      ctx.drawImage(layer, 0, 0);
+    };
+    if (stroke.outer) ring(stroke.size + stroke.outer.size, stroke.outer.color);
+    ring(stroke.size, stroke.color);
     ctx.drawImage(bitmap, pad, pad);
     return { canvas, pad };
   };
@@ -418,15 +430,23 @@
     return out;
   };
 
-  const strokeToPsd = (stroke) => ({
+  const strokeToPsd = (stroke, size = stroke.size, color = stroke.color) => ({
     enabled: true,
-    size: { units: "Pixels", value: stroke.size },
+    size: { units: "Pixels", value: size },
     position: "outside",
     fillType: "color",
-    color: { r: stroke.color.r, g: stroke.color.g, b: stroke.color.b },
+    color: { r: color.r, g: color.g, b: color.b },
     opacity: (stroke.opacity === undefined ? 100 : stroke.opacity) / 100,
     blendMode: "normal",
   });
+
+  // Photoshop draws the first stroke of a list on top: the stroke around the stroke is a
+  // wider one under it
+  const strokesToPsd = (stroke) => {
+    const list = [strokeToPsd(stroke)];
+    if (stroke.outer && stroke.outer.size > 0) list.push(strokeToPsd(stroke, stroke.size + stroke.outer.size, stroke.outer.color));
+    return list;
+  };
 
   const commonOut = (layer) => {
     const node = Object.assign({}, layer.raw || {});
@@ -474,7 +494,7 @@
       node.text = textToPsd(layer, doc);
       const visual = engine.visualOf(layer, doc);
       if (visual) place(node, visual.canvas, visual.x, visual.y);
-      if (layer.stroke && layer.stroke.enabled) node.effects = Object.assign({}, node.effects, { stroke: [strokeToPsd(layer.stroke)] });
+      if (layer.stroke && layer.stroke.enabled) node.effects = Object.assign({}, node.effects, { stroke: strokesToPsd(layer.stroke) });
       else if (node.effects && node.effects.stroke) {
         node.effects = Object.assign({}, node.effects);
         delete node.effects.stroke;

@@ -411,6 +411,9 @@
 
   const rgbCss = (color) => (color ? `rgb(${color.red},${color.green},${color.blue})` : "#000");
 
+  // How far a stroke reaches past the letters: its own size, plus the stroke around it if any
+  const strokeReach = (stroke) => (stroke ? stroke.size + (stroke.outer && stroke.outer.size > 0 ? stroke.outer.size : 0) : 0);
+
   const drawLines = (ctx, lines, stroke, layer) => {
     const paragraph = layer.params.layerText.paragraphStyleRange && layer.params.layerText.paragraphStyleRange[0];
     const direction = paragraph && paragraph.paragraphStyle && paragraph.paragraphStyle.directionType;
@@ -429,17 +432,21 @@
       draw();
       ctx.restore();
     };
-    if (stroke) {
-      ctx.strokeStyle = colorCss(stroke.color);
+    // The stroke around the stroke first, as wide as both, then the stroke over it
+    const passes = [];
+    if (stroke && stroke.outer && stroke.outer.size > 0) passes.push({ color: stroke.outer.color, size: strokeReach(stroke) });
+    if (stroke) passes.push({ color: stroke.color, size: stroke.size });
+    passes.forEach((pass) => {
+      ctx.strokeStyle = colorCss(pass.color);
       lines.forEach((line) => {
         line.m.placed.forEach((item) => {
           place(line, item, () => {
-            ctx.lineWidth = stroke.size * 2;
+            ctx.lineWidth = pass.size * 2;
             ctx.strokeText(item.shown, 0, 0);
           });
         });
       });
-    }
+    });
     lines.forEach((line) => {
       line.m.placed.forEach((item) => {
         place(line, item, () => {
@@ -468,6 +475,32 @@
     if (layer.raster) return boxOf(layer, doc);
     const b = layout.box;
     return rectFrom(b.left, layout.anchor[1] - layout.relative.firstOffset, b.right, Math.max(b.bottom, layout.anchor[1] - layout.relative.firstOffset + 1));
+  };
+
+  // How far a text is turned, in radians: 0 for a straight one. One in perspective, as far
+  // as the top edge of its surface.
+  const turnOf = (layer) => {
+    if (layer.warp) {
+      const [a, b] = layer.warp.corners;
+      return Math.atan2(b[1] - a[1], b[0] - a[0]);
+    }
+    const spin = spinOf(layer);
+    return spin ? Math.atan2(spin[1], spin[0]) : 0;
+  };
+  // A text's frame as it shows: the box its handles sit on, turned with it around its anchor.
+  // The corners go clockwise from the top left.
+  const turnedFrame = (layer, doc) => {
+    const f = frameOf(Object.assign({}, layer, { rotated: false, spin: null, raster: null }), doc);
+    const spin = spinOf(layer) || [1, 0, 0, 1];
+    const [ax, ay] = anchorOf(layer.params.layerText, doc);
+    const at = (x, y) => [ax + spin[0] * (x - ax) + spin[2] * (y - ay), ay + spin[1] * (x - ax) + spin[3] * (y - ay)];
+    return {
+      corners: [at(f.left, f.top), at(f.right, f.top), at(f.right, f.bottom), at(f.left, f.bottom)],
+      center: at(f.left + f.width / 2, f.top + f.height / 2),
+      angle: turnOf(layer),
+      width: f.width,
+      height: f.height,
+    };
   };
 
   /* ========================== outlines, wand ========================= */
@@ -773,6 +806,8 @@
         c.stroke();
       }
       ctx.drawImage(shape, left, top);
+    } else if (op.t === "image") {
+      ctx.drawImage(op.canvas, op.x, op.y);
     } else if (op.t === "stroke" && op.source) {
       const box = strokeBox(op.points, op.size);
       const pixels = clonedPixels(op, box, (c) => {
@@ -808,6 +843,18 @@
         ctx.strokeStyle = op.erase ? "#000" : colorCss(op.color);
         paintStroke(ctx, op, list);
       }
+    } else if (op.t === "patch") {
+      // Pixels made elsewhere (a Content-Aware Fill), laid within the selection they filled
+      const shape = newCanvas(op.source.canvas.width, op.source.canvas.height);
+      const c = shape.getContext("2d");
+      c.drawImage(op.source.canvas, 0, 0);
+      if (op.clip) {
+        c.globalCompositeOperation = "destination-in";
+        c.translate(-op.source.x, -op.source.y);
+        if (op.clip.canvas) c.drawImage(op.clip.canvas, op.clip.x, op.clip.y);
+        else c.fillRect(op.clip.x, op.clip.y, op.clip.width, op.clip.height);
+      }
+      ctx.drawImage(shape, op.source.x, op.source.y);
     } else if (op.t === "fill" && !op.clip.canvas) {
       ctx.globalCompositeOperation = op.erase ? "destination-out" : "source-over";
       ctx.fillStyle = op.erase ? "#000" : colorCss(op.color);
@@ -1004,7 +1051,7 @@
     const down = Math.max(length(p0, p3), length(p1, p2));
     let largest = 0;
     relative.lines.forEach((line) => line.m.placed.forEach((item) => { largest = Math.max(largest, item.size); }));
-    const pad = Math.ceil(6 + largest * 0.2 + (stroke ? stroke.size * 1.5 : 0));
+    const pad = Math.ceil(6 + largest * 0.2 + strokeReach(stroke) * 1.5);
     const b = relative.box;
     const sourceW = b.width + pad * 2;
     const sourceH = b.height + pad * 2;
@@ -1170,7 +1217,7 @@
     if (!entry) {
       let largest = 0;
       relative.lines.forEach((line) => line.m.placed.forEach((item) => { largest = Math.max(largest, item.size); }));
-      const pad = Math.ceil(6 + largest * 0.2 + (stroke ? stroke.size * 1.5 : 0));
+      const pad = Math.ceil(6 + largest * 0.2 + strokeReach(stroke) * 1.5);
       const b = relative.box;
       if (spin) {
         const { minX, minY, maxX, maxY } = spunBounds({ left: b.left - pad, top: b.top - pad, right: b.right + pad, bottom: b.bottom + pad }, spin);
@@ -1343,6 +1390,7 @@
     (layer.paint || NONE).forEach((op) => {
       if (op.clip && op.clip.canvas) found.add(op.clip.canvas);
       if (op.source && op.source.canvas) found.add(op.source.canvas);
+      if (op.canvas) found.add(op.canvas);
     });
   };
   const pixelsOfState = (state, found, seen) => {
@@ -1414,8 +1462,8 @@
   };
 
   // What the Magic Wand reads: the pixel layers on white, never the text
-  const sampleData = (doc) => {
-    const onlyActive = !app.sampleAll && activeRaster(doc);
+  const sampleData = (doc, everyLayer) => {
+    const onlyActive = !everyLayer && !app.sampleAll && activeRaster(doc);
     // Pixels are never drawn on again once made: the same objects are the same picture
     const key = doc.state.layers.filter((layer) => layer.kind !== "text").map((layer) => [layer.id, layer.visible, layer.opacity, layer.blend, layer.group, layer.clipping, layer.dx, layer.dy, layer.left, layer.top, identity(layer.bitmap), identity(layer.mask), identity((layer.paint || NONE)[(layer.paint || NONE).length - 1]), (layer.paint || NONE).length].join(",")).join(";") + "|" + (onlyActive ? onlyActive.id : "all");
     if (doc.sampleCache && doc.sampleKey === key) return doc.sampleCache;
@@ -1719,6 +1767,574 @@
     return hist;
   };
 
+  /* ============ the Bubble Cleaner: a bubble's text off, in its own colours ============ */
+
+  // A bubble is a plain area that wraps its lettering: the letters are the holes in it. They
+  // are painted over with the colours around them, carried in from every side, so a white, a
+  // black, a pink or a shaded bubble all come out as they were without their text.
+
+  // Pixels close to a seed's colour, joined to it, inside a window of the page (window
+  // coordinates). They get `id` in `labels`, which several floods share.
+  const cleanFlood = (data, pageW, win, sx, sy, tolerance, labels, id) => {
+    const w = win.right - win.left;
+    const h = win.bottom - win.top;
+    const at = ((sy + win.top) * pageW + sx + win.left) * 4;
+    const seed = [data[at], data[at + 1], data[at + 2]];
+    const close = (x, y) => {
+      const i = ((y + win.top) * pageW + x + win.left) * 4;
+      return Math.abs(data[i] - seed[0]) <= tolerance && Math.abs(data[i + 1] - seed[1]) <= tolerance && Math.abs(data[i + 2] - seed[2]) <= tolerance;
+    };
+    const mask = labels;
+    const stack = [sx, sy];
+    let area = 0;
+    let left = sx;
+    let right = sx;
+    let top = sy;
+    let bottom = sy;
+    while (stack.length) {
+      const y = stack.pop();
+      let x = stack.pop();
+      while (x >= 0 && !mask[y * w + x] && close(x, y)) x--;
+      x++;
+      let up = false;
+      let down = false;
+      for (; x < w; x++) {
+        const index = y * w + x;
+        if (mask[index] || !close(x, y)) break;
+        mask[index] = id;
+        area++;
+        if (x < left) left = x;
+        if (x > right) right = x;
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+        if (y > 0) {
+          if (!mask[index - w] && close(x, y - 1)) {
+            if (!up) {
+              stack.push(x, y - 1);
+              up = true;
+            }
+          } else up = false;
+        }
+        if (y < h - 1) {
+          if (!mask[index + w] && close(x, y + 1)) {
+            if (!down) {
+              stack.push(x, y + 1);
+              down = true;
+            }
+          } else down = false;
+        }
+      }
+    }
+    return { id, area, seed, box: { left, top, right: right + 1, bottom: bottom + 1 } };
+  };
+
+  // What the region wraps: the pixels outside it that can't reach the window's edge without
+  // crossing it. Each hole is measured, to tell lettering from a drawing inside the bubble.
+  const cleanHoles = (region, w, h) => {
+    const { mask } = region;
+    const outside = new Uint8Array(w * h);
+    const queue = new Int32Array(w * h);
+    let head = 0;
+    let tail = 0;
+    const push = (index) => {
+      if (mask[index] || outside[index]) return;
+      outside[index] = 1;
+      queue[tail++] = index;
+    };
+    for (let x = 0; x < w; x++) {
+      push(x);
+      push((h - 1) * w + x);
+    }
+    for (let y = 0; y < h; y++) {
+      push(y * w);
+      push(y * w + w - 1);
+    }
+    while (head < tail) {
+      const index = queue[head++];
+      const x = index % w;
+      if (x > 0) push(index - 1);
+      if (x < w - 1) push(index + 1);
+      if (index >= w) push(index - w);
+      if (index < w * (h - 1)) push(index + w);
+    }
+    // The holes, one by one
+    const label = new Int32Array(w * h);
+    const sizes = [0];
+    for (let start = 0; start < w * h; start++) {
+      if (mask[start] || outside[start] || label[start]) continue;
+      const id = sizes.length;
+      let size = 0;
+      head = 0;
+      tail = 0;
+      label[start] = id;
+      queue[tail++] = start;
+      while (head < tail) {
+        const index = queue[head++];
+        size++;
+        const x = index % w;
+        const near = [x > 0 ? index - 1 : -1, x < w - 1 ? index + 1 : -1, index >= w ? index - w : -1, index < w * (h - 1) ? index + w : -1];
+        for (let k = 0; k < 4; k++) {
+          const n = near[k];
+          if (n < 0 || mask[n] || outside[n] || label[n]) continue;
+          label[n] = id;
+          queue[tail++] = n;
+        }
+      }
+      sizes.push(size);
+    }
+    return { outside, label, sizes };
+  };
+
+  // How far each pixel of a shape is from its edge, in pixels (0 outside it)
+  const cleanDistances = (inside, w, h) => {
+    const d = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      const x = i % w;
+      d[i] = inside[i] && x > 0 && x < w - 1 && i >= w && i < w * (h - 1) ? 1e9 : inside[i] ? 1 : 0;
+    }
+    const D = 1.4142;
+    for (let y = 1; y < h; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const i = y * w + x;
+        if (d[i] > 1) d[i] = Math.min(d[i], d[i - 1] + 1, d[i - w] + 1, d[i - w - 1] + D, d[i - w + 1] + D);
+      }
+    }
+    for (let y = h - 2; y >= 0; y--) {
+      for (let x = w - 2; x > 0; x--) {
+        const i = y * w + x;
+        if (d[i] > 1) d[i] = Math.min(d[i], d[i + 1] + 1, d[i + w] + 1, d[i + w + 1] + D, d[i + w - 1] + D);
+      }
+    }
+    return d;
+  };
+
+  // How thick a flooded region is at its thickest: a letter's stroke is thin, a bubble isn't
+  const cleanThickness = (labels, id, w, box) => {
+    const bw = box.right - box.left;
+    const bh = box.bottom - box.top;
+    const inside = new Uint8Array(bw * bh);
+    for (let y = 0; y < bh; y++) {
+      for (let x = 0; x < bw; x++) inside[y * bw + x] = labels[(y + box.top) * w + x + box.left] === id ? 1 : 0;
+    }
+    const d = cleanDistances(inside, bw, bh);
+    let most = 0;
+    for (let i = 0; i < d.length; i++) if (d[i] > most) most = d[i];
+    return most;
+  };
+
+  // A shape grown by `r` pixels on every side (a square)
+  const cleanGrow = (shape, w, h, r) => {
+    const across = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      // From both sides: the nearest marked pixel to the left, then to the right
+      let prev = -1e9;
+      for (let x = 0; x < w; x++) {
+        if (shape[y * w + x]) prev = x;
+        if (x - prev <= r) across[y * w + x] = 1;
+      }
+      let nextOn = 1e9;
+      for (let x = w - 1; x >= 0; x--) {
+        if (shape[y * w + x]) nextOn = x;
+        if (nextOn - x <= r) across[y * w + x] = 1;
+      }
+    }
+    const out = new Uint8Array(w * h);
+    for (let x = 0; x < w; x++) {
+      let prev = -1e9;
+      for (let y = 0; y < h; y++) {
+        if (across[y * w + x]) prev = y;
+        if (y - prev <= r) out[y * w + x] = 1;
+      }
+      let nextOn = 1e9;
+      for (let y = h - 1; y >= 0; y--) {
+        if (across[y * w + x]) nextOn = y;
+        if (nextOn - y <= r) out[y * w + x] = 1;
+      }
+    }
+    return out;
+  };
+
+  // Colours carried into the unknown pixels from the known ones around them, coarser and
+  // coarser, then back down (push-pull). Smooth enough for a shaded bubble, exact on a flat one.
+  const cleanInpaint = (rgb, known, w, h) => {
+    const levels = [];
+    let lw = w;
+    let lh = h;
+    let r = new Float32Array(w * h);
+    let g = new Float32Array(w * h);
+    let b = new Float32Array(w * h);
+    let k = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      if (!known[i]) continue;
+      r[i] = rgb[i * 3];
+      g[i] = rgb[i * 3 + 1];
+      b[i] = rgb[i * 3 + 2];
+      k[i] = 1;
+    }
+    levels.push({ w: lw, h: lh, r, g, b, k });
+    while (lw > 1 || lh > 1) {
+      const nw = Math.max(1, Math.ceil(lw / 2));
+      const nh = Math.max(1, Math.ceil(lh / 2));
+      const nr = new Float32Array(nw * nh);
+      const ng = new Float32Array(nw * nh);
+      const nb = new Float32Array(nw * nh);
+      const nk = new Float32Array(nw * nh);
+      for (let y = 0; y < lh; y++) {
+        for (let x = 0; x < lw; x++) {
+          const i = y * lw + x;
+          if (!k[i]) continue;
+          const j = (y >> 1) * nw + (x >> 1);
+          nr[j] += r[i];
+          ng[j] += g[i];
+          nb[j] += b[i];
+          nk[j] += k[i];
+        }
+      }
+      lw = nw;
+      lh = nh;
+      r = nr;
+      g = ng;
+      b = nb;
+      k = nk;
+      levels.push({ w: lw, h: lh, r, g, b, k });
+    }
+    // Every level as plain colours, filled from the level above where nothing was known
+    const top = levels[levels.length - 1];
+    const colours = [];
+    const flat = (level) => {
+      const out = new Float32Array(level.w * level.h * 3);
+      for (let i = 0; i < level.w * level.h; i++) {
+        if (!level.k[i]) continue;
+        out[i * 3] = level.r[i] / level.k[i];
+        out[i * 3 + 1] = level.g[i] / level.k[i];
+        out[i * 3 + 2] = level.b[i] / level.k[i];
+      }
+      return out;
+    };
+    colours[levels.length - 1] = flat(top);
+    for (let n = levels.length - 2; n >= 0; n--) {
+      const level = levels[n];
+      const above = levels[n + 1];
+      const coarse = colours[n + 1];
+      const out = flat(level);
+      for (let y = 0; y < level.h; y++) {
+        for (let x = 0; x < level.w; x++) {
+          const i = y * level.w + x;
+          if (level.k[i]) continue;
+          // Bilinear, from the coarser level's centres
+          const fx = Math.max(0, Math.min(above.w - 1, (x + 0.5) / 2 - 0.5));
+          const fy = Math.max(0, Math.min(above.h - 1, (y + 0.5) / 2 - 0.5));
+          const x0 = Math.floor(fx);
+          const y0 = Math.floor(fy);
+          const x1 = Math.min(above.w - 1, x0 + 1);
+          const y1 = Math.min(above.h - 1, y0 + 1);
+          const ax = fx - x0;
+          const ay = fy - y0;
+          const a = (y0 * above.w + x0) * 3;
+          const bb = (y0 * above.w + x1) * 3;
+          const c = (y1 * above.w + x0) * 3;
+          const d = (y1 * above.w + x1) * 3;
+          for (let o = 0; o < 3; o++) out[i * 3 + o] = (coarse[a + o] * (1 - ax) + coarse[bb + o] * ax) * (1 - ay) + (coarse[c + o] * (1 - ax) + coarse[d + o] * ax) * ay;
+        }
+      }
+      colours[n] = out;
+    }
+    return colours[0];
+  };
+
+  // The plan of a clean: what gets painted, in which colours. `at` is a click, `box` a dragged
+  // box. Returns { left, top, width, height, pixels (RGBA) } or { error }.
+  const planBubbleClean = (doc, options) => {
+    const data = sampleData(doc, true);
+    const pageW = doc.width;
+    const pageH = doc.height;
+    const tolerance = Math.max(0, Math.min(255, options.tolerance));
+    const margin = Math.max(0, Math.min(20, Math.round(options.margin)));
+    let win;
+    let region;
+    let labels;
+    let holeLimit;
+    if (options.box) {
+      const b = options.box;
+      win = { left: Math.max(0, Math.floor(b.left)), top: Math.max(0, Math.floor(b.top)), right: Math.min(pageW, Math.ceil(b.right)), bottom: Math.min(pageH, Math.ceil(b.bottom)) };
+      const w = win.right - win.left;
+      const h = win.bottom - win.top;
+      if (w < 4 || h < 4) return { error: "nothing" };
+      // The background is the box's most common colour, and every pixel near it
+      const bins = new Map();
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = ((y + win.top) * pageW + x + win.left) * 4;
+          const key = ((data[i] >> 3) << 10) | ((data[i + 1] >> 3) << 5) | (data[i + 2] >> 3);
+          bins.set(key, (bins.get(key) || 0) + 1);
+        }
+      }
+      let best = -1;
+      let count = 0;
+      bins.forEach((n, key) => {
+        if (n > count) {
+          count = n;
+          best = key;
+        }
+      });
+      const seed = [((best >> 10) & 31) * 8 + 4, ((best >> 5) & 31) * 8 + 4, (best & 31) * 8 + 4];
+      labels = new Uint8Array(w * h);
+      let area = 0;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = ((y + win.top) * pageW + x + win.left) * 4;
+          if (Math.abs(data[i] - seed[0]) <= tolerance && Math.abs(data[i + 1] - seed[1]) <= tolerance && Math.abs(data[i + 2] - seed[2]) <= tolerance) {
+            labels[y * w + x] = 1;
+            area++;
+          }
+        }
+      }
+      if (area < w * h * 0.3) return { error: "plain" };
+      region = { id: 1, area, seed, box: { left: 0, top: 0, right: w, bottom: h } };
+      holeLimit = Infinity;
+    } else {
+      // A click: the region under it, or, on a letter, the plain area around the letter
+      win = { left: 0, top: 0, right: pageW, bottom: pageH };
+      const x = Math.max(0, Math.min(pageW - 1, Math.round(options.x)));
+      const y = Math.max(0, Math.min(pageH - 1, Math.round(options.y)));
+      const THICK = 6;
+      const leaks = (r) => {
+        const edges = (r.box.left <= 0 ? 1 : 0) + (r.box.top <= 0 ? 1 : 0) + (r.box.right >= pageW ? 1 : 0) + (r.box.bottom >= pageH ? 1 : 0);
+        return edges >= 3 || (r.box.right - r.box.left) * (r.box.bottom - r.box.top) > pageW * pageH * 0.6;
+      };
+      labels = new Uint8Array(pageW * pageH);
+      const first = cleanFlood(data, pageW, win, x, y, tolerance, labels, 1);
+      region = first;
+      if (cleanThickness(labels, 1, pageW, first.box) < THICK) {
+        // Out from the click in 16 directions: past the letter, what each direction meets
+        const found = new Map();
+        const tried = [first];
+        let next = 2;
+        for (let n = 0; n < 16; n++) {
+          const angle = (n * Math.PI) / 8;
+          const dx = Math.cos(angle);
+          const dy = Math.sin(angle);
+          let past = -1;
+          for (let step = 1; step < 400; step++) {
+            const px = Math.round(x + dx * step);
+            const py = Math.round(y + dy * step);
+            if (px < 0 || py < 0 || px >= pageW || py >= pageH) break;
+            const owner = labels[py * pageW + px];
+            if (past < 0 && owner === 1) continue;
+            if (past < 0) past = step;
+            if (step - past > 6) break;
+            let r = owner ? tried[owner - 1] : null;
+            if (!r) {
+              if (next > 255) break;
+              r = cleanFlood(data, pageW, win, px, py, tolerance, labels, next++);
+              r.thick = leaks(r) ? 0 : cleanThickness(labels, r.id, pageW, r.box);
+              tried.push(r);
+            }
+            if (r === first || !(r.thick >= THICK)) continue;
+            found.set(r, (found.get(r) || 0) + 1);
+            break;
+          }
+        }
+        let votes = 0;
+        found.forEach((n, r) => {
+          if (n > votes) {
+            votes = n;
+            region = r;
+          }
+        });
+        if (region === first) return { error: "background" };
+      }
+      if (leaks(region)) return { error: "open" };
+      holeLimit = 0.18;
+    }
+    const w = win.right - win.left;
+    const h = win.bottom - win.top;
+    // The work happens in the region's box, one pixel wider so that its edge is outside
+    const rb = region.box;
+    const area = { left: Math.max(0, rb.left - 1), top: Math.max(0, rb.top - 1), right: Math.min(w, rb.right + 1), bottom: Math.min(h, rb.bottom + 1) };
+    const aw = area.right - area.left;
+    const ah = area.bottom - area.top;
+    const mask = new Uint8Array(aw * ah);
+    for (let y = 0; y < ah; y++) {
+      for (let x = 0; x < aw; x++) mask[y * aw + x] = labels[(y + area.top) * w + x + area.left] === region.id ? 1 : 0;
+    }
+    const { outside, label, sizes } = cleanHoles({ mask }, aw, ah);
+    let filled = region.area;
+    for (let i = 1; i < sizes.length; i++) filled += sizes[i];
+    if (!options.box && filled > pageW * pageH * 0.2) return { error: "open" };
+    // A hole too big or too thick for lettering is a drawing, or a bubble in a panel: it stays
+    let keep = sizes.map((size, id) => id > 0 && size <= filled * holeLimit);
+    if (!options.box) {
+      const depth = cleanDistances(label, aw, ah);
+      const thickest = new Float32Array(sizes.length);
+      for (let i = 0; i < aw * ah; i++) if (label[i] && depth[i] > thickest[label[i]]) thickest[label[i]] = depth[i];
+      const most = Math.max(12, Math.min(pageW, pageH) * 0.04);
+      keep = keep.map((on, id) => on && thickest[id] <= most);
+    }
+    const unknown = new Uint8Array(aw * ah);
+    let any = false;
+    for (let i = 0; i < aw * ah; i++) {
+      if (label[i] && keep[label[i]]) {
+        unknown[i] = 1;
+        any = true;
+      }
+    }
+    if (!any) return { error: "nothing" };
+    // A pixel against the outline or a drawing is partly theirs: it is left as it is, and it
+    // doesn't tell the bubble's colour
+    const other = (i) => outside[i] === 1 || (label[i] > 0 && !keep[label[i]]);
+    const againstOther = (x, y) => {
+      for (let ny = Math.max(0, y - 1); ny <= Math.min(ah - 1, y + 1); ny++) {
+        for (let nx = Math.max(0, x - 1); nx <= Math.min(aw - 1, x + 1); nx++) if (other(ny * aw + nx)) return true;
+      }
+      return false;
+    };
+    // The lettering's soft edge, and the halo a JPEG leaves around it
+    const grown = cleanGrow(unknown, aw, ah, margin);
+    const near = cleanGrow(unknown, aw, ah, margin + 3);
+    for (let y = 0; y < ah; y++) {
+      for (let x = 0; x < aw; x++) {
+        const i = y * aw + x;
+        if (!unknown[i] && mask[i] && grown[i] && !againstOther(x, y)) unknown[i] = 2;
+      }
+    }
+    // A bubble of one colour, JPEG noise aside, gets that colour all over, as TypeR's Auto
+    // Clean does: no trace of the letters' halo is left. A shaded one gets its own shades.
+    const hist = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+    const pageAt = (x, y) => ((y + area.top + win.top) * pageW + x + area.left + win.left) * 4;
+    let plainCount = 0;
+    for (let y = 0; y < ah; y++) {
+      for (let x = 0; x < aw; x++) {
+        const i = y * aw + x;
+        if (!mask[i] || near[i] || againstOther(x, y)) continue;
+        const pi = pageAt(x, y);
+        hist[0][data[pi]]++;
+        hist[1][data[pi + 1]]++;
+        hist[2][data[pi + 2]]++;
+        plainCount++;
+      }
+    }
+    const median = hist.map((h) => {
+      let seen = 0;
+      for (let v = 0; v < 256; v++) {
+        seen += h[v];
+        if (seen * 2 >= plainCount) return v;
+      }
+      return 255;
+    });
+    let flat = false;
+    if (plainCount >= 200) {
+      const spread = new Uint32Array(256);
+      for (let y = 0; y < ah; y++) {
+        for (let x = 0; x < aw; x++) {
+          const i = y * aw + x;
+          if (!mask[i] || near[i] || againstOther(x, y)) continue;
+          const pi = pageAt(x, y);
+          spread[Math.max(Math.abs(data[pi] - median[0]), Math.abs(data[pi + 1] - median[1]), Math.abs(data[pi + 2] - median[2]))]++;
+        }
+      }
+      let seen = 0;
+      let p90 = 255;
+      for (let v = 0; v < 256; v++) {
+        seen += spread[v];
+        if (seen >= plainCount * 0.9) {
+          p90 = v;
+          break;
+        }
+      }
+      flat = p90 <= 12;
+    }
+    // A box only cleans what it holds: painting all of it would show its edges
+    if (flat && !options.box) {
+      for (let y = 0; y < ah; y++) {
+        for (let x = 0; x < aw; x++) {
+          const i = y * aw + x;
+          if (!unknown[i] && mask[i] && !againstOther(x, y)) unknown[i] = 2;
+        }
+      }
+    }
+    // Only around what changes, with some of the bubble around it to read the colours from
+    let ux0 = aw;
+    let uy0 = ah;
+    let ux1 = -1;
+    let uy1 = -1;
+    for (let y = 0; y < ah; y++) {
+      for (let x = 0; x < aw; x++) {
+        if (!unknown[y * aw + x]) continue;
+        if (x < ux0) ux0 = x;
+        if (x > ux1) ux1 = x;
+        if (y < uy0) uy0 = y;
+        if (y > uy1) uy1 = y;
+      }
+    }
+    const pad = flat ? 0 : 12 + margin * 2;
+    const cx0 = Math.max(0, ux0 - pad);
+    const cy0 = Math.max(0, uy0 - pad);
+    const cw = Math.min(aw, ux1 + 1 + pad) - cx0;
+    const ch = Math.min(ah, uy1 + 1 + pad) - cy0;
+    let colourAt;
+    if (flat) colourAt = () => median;
+    else {
+      const rgb = new Float32Array(cw * ch * 3);
+      const known = new Uint8Array(cw * ch);
+      let knownCount = 0;
+      for (let y = 0; y < ch; y++) {
+        for (let x = 0; x < cw; x++) {
+          const ai = (y + cy0) * aw + x + cx0;
+          if (!mask[ai] || near[ai] || againstOther(x + cx0, y + cy0)) continue;
+          const pi = pageAt(x + cx0, y + cy0);
+          const i = y * cw + x;
+          rgb[i * 3] = data[pi];
+          rgb[i * 3 + 1] = data[pi + 1];
+          rgb[i * 3 + 2] = data[pi + 2];
+          known[i] = 1;
+          knownCount++;
+        }
+      }
+      if (!knownCount) return { error: "nothing" };
+      const colours = cleanInpaint(rgb, known, cw, ch);
+      colourAt = (i) => [colours[i * 3], colours[i * 3 + 1], colours[i * 3 + 2]];
+    }
+    const pixels = new Uint8ClampedArray(cw * ch * 4);
+    let painted = 0;
+    for (let y = 0; y < ch; y++) {
+      for (let x = 0; x < cw; x++) {
+        if (!unknown[(y + cy0) * aw + x + cx0]) continue;
+        const i = y * cw + x;
+        const c = colourAt(i);
+        pixels[i * 4] = c[0];
+        pixels[i * 4 + 1] = c[1];
+        pixels[i * 4 + 2] = c[2];
+        pixels[i * 4 + 3] = 255;
+        painted++;
+      }
+    }
+    return { left: cx0 + area.left + win.left, top: cy0 + area.top + win.top, width: cw, height: ch, pixels, painted, flat, colour: flat ? median : region.seed };
+  };
+
+  // The page's clean layer, "TypeR Clean", with one more thing painted on it. It's made the
+  // first time, above the page and under the texts, as TypeR does in Photoshop.
+  const paintOnCleanLayer = (layers, makeOp) => {
+    const clean = layers.find((layer) => layer.clean);
+    if (clean) return layers.map((layer) => (layer === clean ? Object.assign({}, layer, { paint: (layer.paint || NONE).concat([makeOp(layer)]) }) : layer));
+    let firstText = layers.findIndex((layer) => layer.kind === "text");
+    // A text in a folder: under the whole folder, not among its content
+    const rootOf = (layer) => {
+      let root = layer;
+      while (root && root.group) root = layers.find((item) => item.id === root.group);
+      return root;
+    };
+    if (firstText >= 0 && layers[firstText].group) {
+      const root = rootOf(layers[firstText]);
+      while (firstText > 0 && rootOf(layers[firstText - 1]) === root) firstText--;
+    }
+    const made = newRaster("TypeR Clean", { clean: true });
+    made.paint = [makeOp(made)];
+    const out = layers.slice();
+    out.splice(firstText < 0 ? out.length : firstText, 0, made);
+    return out;
+  };
+
   /* ========================= the application ========================= */
 
   const app = {
@@ -1732,6 +2348,8 @@
     keysMuted: null,
     tool: "wand",
     tolerance: 32,
+    cleanTolerance: 32,
+    cleanMargin: 6,
     contiguous: true,
     sampleAll: true,
     autoSelect: true,
@@ -2167,7 +2785,10 @@
       shape.box.width = Math.max(1, shape.box.width * sx);
       shape.box.height = Math.max(1, shape.box.height * sy);
     }
-    if (layer.stroke) next.stroke = Object.assign({}, layer.stroke, { size: Math.round(layer.stroke.size * sy * 100) / 100 });
+    if (layer.stroke) {
+      next.stroke = Object.assign({}, layer.stroke, { size: Math.round(layer.stroke.size * sy * 100) / 100 });
+      if (layer.stroke.outer) next.stroke.outer = Object.assign({}, layer.stroke.outer, { size: Math.round(layer.stroke.outer.size * sy * 100) / 100 });
+    }
     if (layer.warp) {
       const { source, corners, bendTop, bendBottom } = layer.warp;
       const scaled = ([x, y]) => [x * sx, y * sy];
@@ -2244,6 +2865,158 @@
     return box;
   };
 
+  // Levels on the selected part of the layer's picture, from the pixels it had at the start
+  const levelsPaint = (session, tables) => {
+    const { source, output, box, inside, ctx } = session;
+    const src = source.data;
+    const out = output.data;
+    const width = source.width;
+    const bw = box.right - box.left;
+    const [red, green, blue] = tables || [];
+    for (let y = box.top; y < box.bottom; y++) {
+      let i = (y * width + box.left) * 4;
+      let k = (y - box.top) * bw;
+      for (let x = box.left; x < box.right; x++, i += 4, k++) {
+        if (inside && !inside[k]) continue;
+        if (tables) {
+          out[i] = red[src[i]];
+          out[i + 1] = green[src[i + 1]];
+          out[i + 2] = blue[src[i + 2]];
+        } else {
+          out[i] = src[i];
+          out[i + 1] = src[i + 1];
+          out[i + 2] = src[i + 2];
+        }
+      }
+    }
+    ctx.putImageData(output, 0, 0, box.left, box.top, bw, box.bottom - box.top);
+  };
+  // A masked layer keeps a picture of itself, and this one changes in place
+  const levelsForget = (session) => {
+    const entry = rasterCache.get(session.id);
+    if (entry && entry.bitmap === session.canvas) forgetRaster(session.id, entry);
+  };
+
+  // Edit > Auto-Align Layers works in align-worker.js, away from the page: one worker per run
+  const startAligner = () => new Promise((resolve, reject) => {
+    let worker;
+    try {
+      worker = new Worker("align-worker.js");
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    const jobs = new Map();
+    let last = 0;
+    const late = setTimeout(() => reject(new Error("The alignment worker didn't start.")), 15000);
+    const stop = (error) => {
+      jobs.forEach((job) => job.reject(error));
+      jobs.clear();
+    };
+    worker.onerror = (event) => {
+      clearTimeout(late);
+      const error = new Error((event && event.message) || "The alignment worker stopped.");
+      reject(error);
+      stop(error);
+    };
+    worker.onmessage = ({ data }) => {
+      if (data.ready) {
+        clearTimeout(late);
+        resolve({
+          ask: (type, payload, transfer, progress) => new Promise((done, fail) => {
+            const id = ++last;
+            jobs.set(id, { resolve: done, reject: fail, progress });
+            worker.postMessage({ id, type, payload }, transfer || []);
+          }),
+          stop: () => {
+            worker.terminate();
+            stop(new Error("Stopped."));
+          },
+        });
+        return;
+      }
+      const job = jobs.get(data.id);
+      if (!job) return;
+      if (data.progress !== undefined) {
+        if (job.progress) job.progress(data.progress);
+        return;
+      }
+      jobs.delete(data.id);
+      if (data.error) job.reject(new Error(data.error));
+      else job.resolve(data.result);
+    };
+  });
+  // A part of a picture at (x, y) of the page, as bytes
+  const pixelsOf = (source, x, y, part) => source.getContext("2d").getImageData(part.left - x, part.top - y, part.width, part.height);
+  const canvasOfBytes = ({ data, width, height }) => {
+    const canvas = newCanvas(width, height);
+    canvas.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(data), width, height), 0, 0);
+    return canvas;
+  };
+
+  /* -------------------------- Content-Aware Fill -------------------------- */
+
+  // inpaint.js does the long work in a worker, so the page stays alive. A browser that
+  // refuses workers runs the same code here, as the script it also is.
+  let inpaintWorker = null;
+  let inpaintRefused = false;
+  let inpaintJobs = 0;
+  const inpaintWaiting = new Map();
+  const startInpaintWorker = () => new Promise((resolve) => {
+    if (inpaintWorker || inpaintRefused) {
+      resolve(inpaintWorker);
+      return;
+    }
+    let candidate;
+    const lost = () => {
+      inpaintRefused = true;
+      inpaintWorker = null;
+      resolve(null);
+      inpaintWaiting.forEach((job) => job.reject(new Error("The fill worker stopped.")));
+      inpaintWaiting.clear();
+    };
+    try {
+      candidate = new Worker("inpaint.js");
+    } catch (error) {
+      lost();
+      return;
+    }
+    const late = setTimeout(lost, 15000);
+    candidate.onerror = () => {
+      clearTimeout(late);
+      lost();
+    };
+    candidate.onmessage = ({ data }) => {
+      if (data.ready) {
+        clearTimeout(late);
+        inpaintWorker = candidate;
+        resolve(candidate);
+        return;
+      }
+      const job = inpaintWaiting.get(data.id);
+      if (!job) return;
+      if (data.progress !== undefined) {
+        if (job.progress) job.progress(data.progress);
+        return;
+      }
+      inpaintWaiting.delete(data.id);
+      if (data.error) job.reject(new Error(data.error));
+      else job.resolve(data.result);
+    };
+  });
+  const inpaint = async (payload, options, progress) => {
+    const worker = await startInpaintWorker();
+    if (!worker) {
+      if (!window.TypeRInpaint) throw new Error("inpaint.js isn't loaded.");
+      return window.TypeRInpaint.inpaint(payload, options, progress);
+    }
+    return new Promise((resolve, reject) => {
+      const id = ++inpaintJobs;
+      inpaintWaiting.set(id, { resolve, reject, progress });
+      worker.postMessage({ id, payload, options }, [payload.data.buffer, payload.mask.buffer, payload.source.buffer]);
+    });
+  };
+
   const ops = {
     // Image > Canvas Size: the page changes around an anchor, 0 to 1 on each side
     resizeCanvas(width, height, ax, ay, fill) {
@@ -2294,6 +3067,80 @@
       });
       commitState(doc, name, { layers });
       firePanelEvent(EVENT_HISTORY);
+    },
+    // Edit > Auto-Align Layers: the active pixel layers, and those in the active folders. A locked
+    // one, or the Background, is the reference and stays where it is, as in Photoshop.
+    alignableIds() {
+      const doc = app.doc;
+      if (!doc) return [];
+      const out = new Set();
+      doc.state.activeIds.forEach((id) => familyOf(doc.state.layers, id).forEach((member) => out.add(member)));
+      return doc.state.layers.filter((layer) => out.has(layer.id) && layer.kind === "raster" && !layer.adjustment && visualOf(layer, doc)).map((layer) => layer.id);
+    },
+    // `projection`: auto, perspective, collage or reposition. One step in the history; null when
+    // the page changed meanwhile.
+    async autoAlignLayers(projection, progress = () => {}) {
+      const doc = app.doc;
+      if (!doc) return null;
+      const before = doc.state.layers;
+      const wanted = new Set(ops.alignableIds());
+      const picked = before.filter((layer) => wanted.has(layer.id)).map((layer) => {
+        const part = trimmedBox(layer, doc);
+        const visual = part && visualOf(Object.assign({}, layer, { mask: null }), doc);
+        return visual && { layer, part, visual };
+      }).filter(Boolean);
+      if (picked.length < 2) return { moved: 0, failed: 0, total: picked.length };
+      const aligner = await startAligner();
+      try {
+        const transfer = [];
+        const layers = picked.map(({ layer, part, visual }) => {
+          const { data } = pixelsOf(visual.canvas, visual.x, visual.y, part);
+          transfer.push(data.buffer);
+          return { id: layer.id, x: part.left, y: part.top, width: part.width, height: part.height, data: data.buffer, fixed: Boolean(layer.locked || layer.isBackground) };
+        });
+        const found = await aligner.ask("analyse", { layers, projection }, transfer, (percent) => progress(Math.round(percent * 0.85)));
+        const changed = new Map();
+        for (let index = 0; index < found.moves.length; index++) {
+          const move = found.moves[index];
+          const { layer, part, visual } = picked.find((item) => item.layer.id === move.id);
+          // Moved by whole pixels, the pixels stay as they are; otherwise they are drawn again, bicubic
+          const shift = move.shift && [1, 0, 0, 1, move.shift[0], move.shift[1]];
+          const place = async (source, x, y, rect, fill) => {
+            if (shift) return transformedPixels(source, x, y, rect, shift, fill === undefined ? undefined : fill ? "#fff" : "#000");
+            const { data } = pixelsOf(source, x, y, rect);
+            const out = await aligner.ask("warp", { data: data.buffer, width: rect.width, height: rect.height, x: rect.left, y: rect.top, matrix: move.matrix, fill: fill === undefined ? undefined : fill ? 255 : 0 }, [data.buffer]);
+            return { canvas: canvasOfBytes(out), left: out.left, top: out.top };
+          };
+          let p;
+          let { mask } = layer;
+          try {
+            p = await place(visual.canvas, visual.x, visual.y, part);
+            if (mask && mask.canvas) {
+              const x = (mask.left || 0) + (layer.dx || 0);
+              const y = (mask.top || 0) + (layer.dy || 0);
+              const m = await place(mask.canvas, x, y, rectFrom(x, y, x + mask.canvas.width, y + mask.canvas.height), Boolean(mask.defaultColor));
+              mask = Object.assign({}, mask, { canvas: m.canvas, left: m.left, top: m.top, right: m.left + m.canvas.width, bottom: m.top + m.canvas.height });
+            }
+          } catch (error) {
+            // Taken too far to draw (past the horizon, or far too big): it stays where it was
+            console.warn("TypeR web: a layer could not be aligned", error);
+            found.failed.push(move.id);
+            continue;
+          }
+          const next = withPixels(layer, p.canvas, p.left, p.top, mask);
+          if (layer.isBackground) Object.assign(next, { isBackground: false, name: `${(app.names && app.names.layer) || "Layer"} 0` });
+          changed.set(layer.id, next);
+          progress(85 + Math.round(((index + 1) / found.moves.length) * 15));
+        }
+        if (app.doc !== doc || doc.state.layers !== before) return null;
+        if (changed.size) {
+          commitState(doc, "Auto-Align Layers", { layers: before.map((layer) => changed.get(layer.id) || layer) });
+          firePanelEvent(EVENT_HISTORY);
+        }
+        return { moved: changed.size, failed: found.failed.length, total: picked.length };
+      } finally {
+        aligner.stop();
+      }
     },
     // The Crop tool: the page becomes a part of what it was, or more than it was. Cropped pixels
     // stay on their layers, as with Canvas Size, unless they are to go.
@@ -2369,12 +3216,12 @@
       if (!selection) return mode && mode !== "new" ? null : ops.deselect();
       return ops.userSelection(selection, "Elliptical Marquee", mode);
     },
-    lasso(points, mode) {
+    lasso(points, mode, name = "Lasso") {
       const doc = app.doc;
       if (!doc || points.length < 3) return mode && mode !== "new" ? null : ops.deselect();
       const selection = polygonSelection(doc, points);
       if (!selection) return ops.deselect();
-      return ops.userSelection(selection, "Lasso", mode);
+      return ops.userSelection(selection, name, mode);
     },
     userSelection(selection, name, mode) {
       const doc = app.doc;
@@ -2540,7 +3387,8 @@
       }
       return null;
     },
-    newLayer(name, above, fields) {
+    // A paste is a layer too: one step that also drops the selection, as in Photoshop
+    newLayer(name, above, fields, pasted) {
       const doc = app.doc;
       if (!doc) return null;
       const count = doc.state.layers.filter((layer) => layer.kind === "raster" && !layer.clean).length + 1;
@@ -2552,7 +3400,9 @@
         layer.group = layers[at].kind === "group" ? layers[at].id : layers[at].group;
         layers.splice(layers[at].kind === "group" ? at : at + 1, 0, layer);
       } else layers.push(layer);
-      commitState(doc, "New Layer", { layers, activeIds: [layer.id] });
+      const hadSelection = Boolean(doc.state.selection);
+      commitState(doc, pasted ? "Paste" : "New Layer", pasted ? { layers, activeIds: [layer.id], selection: null } : { layers, activeIds: [layer.id] });
+      if (pasted && hadSelection) emit("selection", null);
       firePanelEvent(EVENT_SELECT);
       return layer;
     },
@@ -2959,6 +3809,90 @@
       commitState(doc, color ? "Fill" : "Clear", { layers: replaceLayer(doc, layer, { paint: (layer.paint || NONE).concat([op]) }) });
       return true;
     },
+    // The Bubble Cleaner: a click in a bubble, or a box dragged around some text
+    cleanBubble(where) {
+      const doc = app.doc;
+      if (!doc) return { error: "doc" };
+      const plan = planBubbleClean(doc, Object.assign({ tolerance: app.cleanTolerance, margin: app.cleanMargin }, where));
+      if (plan.error) return plan;
+      const canvas = newCanvas(plan.width, plan.height);
+      canvas.getContext("2d").putImageData(new ImageData(plan.pixels, plan.width, plan.height), 0, 0);
+      const layers = paintOnCleanLayer(doc.state.layers, (layer) => ({ t: "image", canvas, x: plan.left - (layer.dx || 0), y: plan.top - (layer.dy || 0) }));
+      commitState(doc, "Bubble Cleaner", { layers });
+      return { ok: true, painted: plan.painted, colour: plan.colour };
+    },
+    // Edit > Content-Aware Fill: the selection is painted over with what surrounds it, read
+    // from every pixel layer and never from the text, onto the active pixel layer or a new
+    // one. Long: resolves once done, telling its progress meanwhile, 0 to 1.
+    async contentAwareFill(options, progress) {
+      const doc = app.doc;
+      const selection = doc && doc.state.selection;
+      if (!selection) return "none";
+      let layer = options.output === "new" ? null : activeRaster(doc);
+      if (layer && layer.locked) {
+        emit("layer-locked");
+        return "locked";
+      }
+      const b = selection.bounds;
+      // The fill reads around the selection, as far again as the selection is wide, within reason
+      const reach = options.area === "page" ? Math.max(doc.width, doc.height) : Math.max(64, Math.min(1024, Math.round(Math.max(b.width, b.height)) + 48));
+      const left = Math.max(0, Math.floor(b.left - reach));
+      const top = Math.max(0, Math.floor(b.top - reach));
+      const right = Math.min(doc.width, Math.ceil(b.right + reach));
+      const bottom = Math.min(doc.height, Math.ceil(b.bottom + reach));
+      const width = right - left;
+      const height = bottom - top;
+      if (width <= 0 || height <= 0) return "none";
+      const canvas = newCanvas(width, height);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      paintDoc(doc, ctx, { x: -left, y: -top, skip: (item) => item.kind === "text" });
+      const data = ctx.getImageData(0, 0, width, height).data;
+      const clip = selectionCanvas(selection);
+      const clipData = clip.getContext("2d").getImageData(0, 0, clip.width, clip.height).data;
+      const mask = new Uint8Array(width * height);
+      let any = false;
+      for (let y = 0; y < clip.height; y++) {
+        const py = b.top + y - top;
+        if (py < 0 || py >= height) continue;
+        for (let x = 0; x < clip.width; x++) {
+          const px = b.left + x - left;
+          if (px < 0 || px >= width || !clipData[(y * clip.width + x) * 4 + 3]) continue;
+          mask[py * width + px] = 1;
+          any = true;
+        }
+      }
+      if (!any) return "none";
+      const source = new Uint8Array(width * height).fill(1);
+      const result = await inpaint({ data, width, height, mask, source }, { mirror: Boolean(options.mirror), adapt: options.adapt !== false }, progress);
+      // Meanwhile the page may have closed, or the layer gone
+      if (app.doc !== doc) return "gone";
+      if (layer) {
+        layer = doc.state.layers.find((item) => item.id === layer.id && item.kind === "raster") || null;
+        if (!layer) return "gone";
+      }
+      const region = newCanvas(width, height);
+      region.getContext("2d").putImageData(new ImageData(result, width, height), 0, 0);
+      const pixels = newCanvas(b.width, b.height);
+      pixels.getContext("2d").drawImage(region, b.left - left, b.top - top, b.width, b.height, 0, 0, b.width, b.height);
+      const dx = layer ? layer.dx || 0 : 0;
+      const dy = layer ? layer.dy || 0 : 0;
+      const op = { t: "patch", source: { canvas: pixels, x: b.left - dx, y: b.top - dy }, clip: clipOf(selection, dx, dy) };
+      if (layer) {
+        commitState(doc, "Content-Aware Fill", { layers: replaceLayer(doc, layer, { paint: (layer.paint || NONE).concat([op]) }) });
+        return "done";
+      }
+      // A new layer goes where New Layer puts one: above the active layer, in its folder
+      const made = newRaster(options.name || `${(app.names && app.names.layer) || "Layer"} ${doc.state.layers.filter((item) => item.kind === "raster" && !item.clean).length + 1}`, { paint: [op] });
+      const anchor = doc.state.activeIds[doc.state.activeIds.length - 1];
+      const layers = doc.state.layers.slice();
+      const at = layers.findIndex((item) => item.id === anchor);
+      if (at >= 0) {
+        made.group = layers[at].kind === "group" ? layers[at].id : layers[at].group;
+        layers.splice(layers[at].kind === "group" ? at : at + 1, 0, made);
+      } else layers.push(made);
+      commitState(doc, "Content-Aware Fill", { layers, activeIds: [made.id] });
+      return "done";
+    },
     pickColor(x, y) {
       const doc = app.doc;
       if (!doc) return null;
@@ -3080,6 +4014,36 @@
       firePanelEvent(EVENT_HISTORY);
       return size;
     },
+    // Turns a text by `delta` radians around `pivot`, as Photoshop's transform controls do.
+    // It stays a text: Photoshop gets it turned, and it can still be typed in.
+    turnText(base, delta, pivot, coalesce) {
+      const doc = app.doc;
+      if (!doc || !base || base.kind !== "text" || !doc.state.layers.some((item) => item.id === base.id)) return;
+      const cos = Math.cos(delta);
+      const sin = Math.sin(delta);
+      // In perspective, its surface turns: the corners go round the pivot, the bends with them
+      if (base.warp) {
+        const round = ([x, y]) => [pivot[0] + cos * (x - pivot[0]) - sin * (y - pivot[1]), pivot[1] + sin * (x - pivot[0]) + cos * (y - pivot[1])];
+        const spun = ([x, y]) => [cos * x - sin * y, sin * x + cos * y];
+        const warp = Object.assign({}, base.warp, { corners: base.warp.corners.map(round), bendTop: spun(base.warp.bendTop), bendBottom: spun(base.warp.bendBottom) });
+        commitState(doc, "Free Transform", { layers: replaceLayer(doc, base, { warp }) }, coalesce);
+        firePanelEvent(EVENT_HISTORY);
+        return;
+      }
+      const [a, b, c, d] = spinOf(base) || [1, 0, 0, 1];
+      const clean = (value) => (Math.abs(value) < 1e-9 ? 0 : Math.abs(Math.abs(value) - 1) < 1e-9 ? Math.sign(value) : value);
+      const spin = [cos * a - sin * b, sin * a + cos * b, cos * c - sin * d, sin * c + cos * d].map(clean);
+      const straight = spin[0] === 1 && spin[1] === 0 && spin[2] === 0 && spin[3] === 1;
+      // The anchor goes round the pivot: the turn is drawn around it
+      const [ax, ay] = anchorOf(base.params.layerText, doc);
+      const ux = ax - pivot[0];
+      const uy = ay - pivot[1];
+      const nx = pivot[0] + cos * ux - sin * uy;
+      const ny = pivot[1] + sin * ux + cos * uy;
+      const next = Object.assign({}, base, { rotated: !straight, spin: straight ? null : spin, raster: null });
+      commitState(doc, "Free Transform", { layers: replaceLayer(doc, base, shifted(next, nx - ax, ny - ay, doc)) }, coalesce);
+      firePanelEvent(EVENT_HISTORY);
+    },
     // Type > Convert: a box becomes a point text with the lines it had, and back
     convertText(id) {
       const doc = app.doc;
@@ -3126,6 +4090,104 @@
       if (!layer) return;
       doc.preview = null;
       commitState(doc, "Line Breaks", { layers: replaceLayer(doc, layer, layerWithBreaks(layer, doc, model, breaks)) });
+      firePanelEvent(EVENT_HISTORY);
+    },
+    /* ---- Image > Levels ---- */
+    // The active pixel layer, or what of it is selected. Its pixels are read once: each change
+    // redraws the selected part only, and the page shows it before anything is applied.
+    levelsBegin() {
+      const doc = app.doc;
+      if (!doc) return { error: "none" };
+      const layer = activeRaster(doc);
+      if (!layer || layer.adjustment) return { error: "none" };
+      if (layer.locked) return { error: "locked" };
+      const visual = visualOf(Object.assign({}, layer, { mask: null }), doc);
+      if (!visual || !visual.canvas.width || !visual.canvas.height) return { error: "empty" };
+      const width = visual.canvas.width;
+      const height = visual.canvas.height;
+      const canvas = newCanvas(width, height);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(visual.canvas, 0, 0);
+      const source = ctx.getImageData(0, 0, width, height);
+      const output = new ImageData(new Uint8ClampedArray(source.data), width, height);
+      let box = { left: 0, top: 0, right: width, bottom: height };
+      let inside = null;
+      const selection = doc.state.selection;
+      if (selection) {
+        const b = selection.bounds;
+        box = {
+          left: Math.max(0, Math.floor(b.left - visual.x)),
+          top: Math.max(0, Math.floor(b.top - visual.y)),
+          right: Math.min(width, Math.ceil(b.right - visual.x)),
+          bottom: Math.min(height, Math.ceil(b.bottom - visual.y)),
+        };
+        if (box.right <= box.left || box.bottom <= box.top) return { error: "outside" };
+        const m = selection.mask;
+        if (m) {
+          const bw = box.right - box.left;
+          inside = new Uint8Array(bw * (box.bottom - box.top));
+          for (let y = box.top; y < box.bottom; y++) {
+            const my = y + visual.y - m.top;
+            if (my < 0 || my >= m.height) continue;
+            for (let x = box.left; x < box.right; x++) {
+              const mx = x + visual.x - m.left;
+              if (mx >= 0 && mx < m.width && m.data[my * m.width + mx]) inside[(y - box.top) * bw + x - box.left] = 1;
+            }
+          }
+        }
+      }
+      // What the pixels hold, channel by channel, transparent ones left out
+      const rgb = new Uint32Array(256);
+      const r = new Uint32Array(256);
+      const g = new Uint32Array(256);
+      const b = new Uint32Array(256);
+      const data = source.data;
+      const bw = box.right - box.left;
+      for (let y = box.top; y < box.bottom; y++) {
+        let i = (y * width + box.left) * 4;
+        let k = (y - box.top) * bw;
+        for (let x = box.left; x < box.right; x++, i += 4, k++) {
+          if (!data[i + 3] || (inside && !inside[k])) continue;
+          r[data[i]]++;
+          g[data[i + 1]]++;
+          b[data[i + 2]]++;
+          rgb[(data[i] * 77 + data[i + 1] * 151 + data[i + 2] * 28) >> 8]++;
+        }
+      }
+      doc.levels = { id: layer.id, visual, canvas, ctx, source, output, box, inside, shown: false };
+      return { histograms: { rgb, r, g, b }, selection: Boolean(selection), name: layer.name };
+    },
+    // `tables` is three lists of 256 values, red, green and blue; none shows the layer as it was
+    levelsPreview(tables) {
+      const doc = app.doc;
+      const session = doc && doc.levels;
+      if (!session) return;
+      levelsPaint(session, tables);
+      const layer = doc.state.layers.find((item) => item.id === session.id);
+      if (!session.shown) {
+        session.shown = true;
+        doc.preview = Object.assign({}, layer, { bitmap: session.canvas, left: session.visual.x - (layer.dx || 0), top: session.visual.y - (layer.dy || 0), paint: NONE });
+      }
+      levelsForget(session);
+      const { box, visual } = session;
+      emit("render", pageRect(doc, visual.x + box.left, visual.y + box.top, visual.x + box.right, visual.y + box.bottom));
+    },
+    levelsEnd(tables) {
+      const doc = app.doc;
+      const session = doc && doc.levels;
+      if (!session) return;
+      doc.levels = null;
+      if (session.shown) doc.preview = null;
+      levelsForget(session);
+      const layer = doc.state.layers.find((item) => item.id === session.id);
+      if (!tables || !layer) {
+        emit("render");
+        return;
+      }
+      levelsPaint(session, tables);
+      const { mask, dx = 0, dy = 0 } = layer;
+      const moved = mask && mask.canvas ? Object.assign({}, mask, { left: (mask.left || 0) + dx, top: (mask.top || 0) + dy, right: (mask.right || 0) + dx, bottom: (mask.bottom || 0) + dy }) : mask;
+      commitState(doc, "Levels", { layers: replaceLayer(doc, layer, withPixels(layer, session.canvas, session.visual.x, session.visual.y, moved)) });
       firePanelEvent(EVENT_HISTORY);
     },
     // The text's rectangle becomes a surface, with nothing moved yet
@@ -3969,7 +5031,7 @@
     smartPasteSelectionProbe() {
       const doc = app.doc;
       if (!doc) return JSON.stringify({ error: "doc" });
-      const toolId = { wand: "magicWandTool", rectangle: "marqueeRectTool", ellipse: "marqueeEllipTool", lasso: "lassoTool", move: "moveTool", brush: "paintbrushTool", eraser: "eraserTool", text: "typeCreateOrEditTool" }[app.tool] || "";
+      const toolId = { wand: "magicWandTool", rectangle: "marqueeRectTool", ellipse: "marqueeEllipTool", lasso: "lassoTool", polygon: "polySelTool", move: "moveTool", brush: "paintbrushTool", eraser: "eraserTool", text: "typeCreateOrEditTool" }[app.tool] || "";
       const selection = doc.state.selection;
       const b = selection && selection.bounds;
       return JSON.stringify({ documentId: doc.id, tool: toolId, bounds: b ? { left: b.left, top: b.top, right: b.right, bottom: b.bottom } : null });
@@ -4028,25 +5090,7 @@
         const plan = session.plan;
         if (plan.autoClean && plan.cleanupPolygon) {
           const op = { t: "poly", polygon: plan.cleanupPolygon, color: plan.fillRGB || { red: 255, green: 255, blue: 255 }, inset: plan.cleanupInset || 0 };
-          const clean = layers.find((layer) => layer.clean);
-          if (clean) layers = layers.map((layer) => (layer === clean ? Object.assign({}, layer, { paint: (layer.paint || NONE).concat([op]) }) : layer));
-          else {
-            // Above the page, under the text
-            let firstText = layers.findIndex((layer) => layer.kind === "text");
-            // A text in a folder: under the whole folder, not among its content
-            const rootOf = (layer) => {
-              let root = layer;
-              while (root && root.group) root = layers.find((item) => item.id === root.group);
-              return root;
-            };
-            if (firstText >= 0 && layers[firstText].group) {
-              const root = rootOf(layers[firstText]);
-              while (firstText > 0 && rootOf(layers[firstText - 1]) === root) firstText--;
-            }
-            const made = newRaster("TypeR Clean", { clean: true, paint: [op] });
-            layers = layers.slice();
-            layers.splice(firstText < 0 ? layers.length : firstText, 0, made);
-          }
+          layers = paintOnCleanLayer(layers, () => op);
         }
         const layer = newTextLayer(doc, session.text.params, session.text.stroke, session.layerName);
         layer.source = session.layerName || "";
@@ -4137,6 +5181,8 @@
     visualOf,
     boxOf,
     frameOf,
+    turnOf,
+    turnedFrame,
     lineModel,
     lineWidth,
     layoutLayer,

@@ -435,7 +435,7 @@
   const cardBody = el("button", "tcard__body", { type: "button" }, el("span", "tcard__meta", null, cardCount, cardDot, cardStyle), cardText);
   const cardBack = button("tcard__nav", "back", T("Previous line"), () => pressInPanel(".preview-nav button"));
   const cardNext = button("tcard__nav", "forward", T("Next line"), () => pressInPanel('[data-tour="next-line"]'));
-  const cardTap = button("tcard__tap", "wand", T("Paste on tap"), () => {
+  const cardTap = button("tcard__tap", "tap", T("Paste on tap"), () => {
     pressInPanel('[data-tour="mode-pasteOnClick"]');
     setTimeout(() => {
       const line = readScript();
@@ -523,6 +523,7 @@
     action("grow", T("Expand…"), () => runMenu("Select", "Expand…")),
     action("shrink", T("Contract…"), () => runMenu("Select", "Contract…")),
     action("fill", T("Fill"), () => runMenu("Edit", "Fill with Foreground Colour")),
+    action("stamp", T("Content-Aware Fill"), () => runMenu("Edit", "Content-Aware Fill…")),
     action("trash", T("Clear"), () => runMenu("Edit", "Clear")),
   ];
 

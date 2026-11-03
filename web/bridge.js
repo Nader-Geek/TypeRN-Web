@@ -32,10 +32,17 @@
     // A new user starts as in Photoshop: no styles, no script, and TypeR's own tutorial.
     // On a touch screen the tutorial's gestures don't apply.
     startingStorage = JSON.stringify(seeded ? seed.storage(language) : shell.touch ? kit.freshTouchStorage(window.parent.TypeRApp.T("Dialogue")) : kit.freshStorage(true));
-  } else if (params.get("tour")) {
-    const stored = JSON.parse(startingStorage);
-    stored.notFirstTime = false;
-    startingStorage = JSON.stringify(stored);
+  } else {
+    // The panel speaks the app's language: a language picked in its settings before they
+    // lost the choice would win over it
+    try {
+      const stored = JSON.parse(startingStorage);
+      delete stored.language;
+      if (params.get("tour")) stored.notFirstTime = false;
+      startingStorage = JSON.stringify(stored);
+    } catch (error) {
+      console.warn("TypeR web: could not read TypeR's settings", error);
+    }
   }
   const files = { [ROOT + "/storage"]: startingStorage };
   // The other profiles, and the list of profiles
@@ -383,17 +390,19 @@
 
   // Sentences that say something else here than in Photoshop: there are no profiles
   const loadWebText = () => fetch("../panel-locale/web-text.json").then((response) => response.json()).catch(() => ({}));
-  // The profiles' section is hidden (see panel/index.html): without their titles, the
-  // settings search doesn't offer it either
-  const withoutProfileTitles = (text) => text.replace(/^(profilesTitle|profilesManageTitle|profilesCreateTitle)=.*$/gm, "");
+  // Sections hidden here (see panel/index.html): the profiles; the language, which is the
+  // app's own (?lang=); and the updates, since the web version is always the latest.
+  // Without their titles, the settings search doesn't offer them either
+  const HIDDEN_TITLES = ["profilesTitle", "profilesManageTitle", "profilesCreateTitle", "settingsLanguageLabel", "settingsCheckUpdatesLabel", "settingsAutoUpdateLabel", "settingsCheckUpdatesButton"];
+  const withoutHiddenTitles = (text) => text.replace(new RegExp(`^(${HIDDEN_TITLES.join("|")})=.*$`, "gm"), "");
 
   Promise.all([
     load("locale/messages.properties"),
     appLocale === "en_US" ? "" : load(EXTRA_LOCALES.includes(appLocale) ? `../panel-locale/${appLocale}/messages.properties` : `locale/${appLocale}/messages.properties`),
     loadWebText(),
   ]).then(([fullBase, fullLocal, webText]) => {
-    const base = withoutProfileTitles(fullBase);
-    const local = withoutProfileTitles(fullLocal);
+    const base = withoutHiddenTitles(fullBase);
+    const local = withoutHiddenTitles(fullLocal);
     files[ROOT + "/locale/messages.properties"] = base;
     if (local) files[`${ROOT}/locale/${appLocale}/messages.properties`] = local;
     bundle = Object.assign({}, parseProperties(base), webText.en_US, parseProperties(local), webText[appLocale]);

@@ -12,19 +12,19 @@
   <meta name="apple-mobile-web-app-title" content="TypeR">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="../assets/brand/typer-logo.png">
-  <title>TypeR: Web Version (beta)</title>
+  <title>TypeR Studio for Web (beta)</title>
   <meta name="description" content="TypeR's real panel and paste engine in a Photoshop-like workspace, in your browser. Open and save PSD files. Nothing leaves your computer.">
   <link rel="canonical" href="https://typer.hayasaku.fr/web/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="TypeR">
   <meta property="og:url" content="https://typer.hayasaku.fr/web/">
-  <meta property="og:title" content="TypeR: Web Version">
+  <meta property="og:title" content="TypeR Studio for Web">
   <meta property="og:description" content="A Photoshop-like workspace made for manga and comics typesetters, in your browser. Open and save PSD files. Nothing leaves your computer.">
   <meta property="og:image" content="https://typer.hayasaku.fr/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="TypeR: Web Version">
+  <meta name="twitter:title" content="TypeR Studio for Web">
   <meta name="twitter:description" content="A Photoshop-like workspace made for manga and comics typesetters, in your browser. Open and save PSD files. Nothing leaves your computer.">
   <meta name="twitter:image" content="https://typer.hayasaku.fr/og.png">
   <link rel="icon" type="image/png" href="../images/icon.png">
@@ -43,7 +43,7 @@
     <header class="mbar">
       <a class="mbar__logo" href="../" title="TypeR"><img src="../assets/brand/typer-logo.png" width="24" height="24" alt="TypeR"></a>
       <nav class="mbar__menus" id="menus" role="menubar" aria-label="Menu"></nav>
-      <span class="mbar__title">TypeR: Web Version (beta)</span>
+      <span class="mbar__title">TypeR Studio for Web (beta)</span>
       <div class="mbar__end">
         <select class="mbar__language" id="language" aria-label="Language"></select>
         <a class="mbar__link mbar__support" href="https://ko-fi.com/typertools" id="support" target="_blank" rel="noopener"><img src="../images/kofi.svg" width="14" height="14" alt=""><span id="support-text"></span></a>
@@ -63,7 +63,11 @@
       <aside class="tools" id="tools" role="toolbar" aria-orientation="vertical"></aside>
 
       <main class="docs">
-        <div class="tabs" id="tabs" role="tablist"></div>
+        <div class="tabbar" id="tabbar">
+          <div class="tabs" id="tabs" role="tablist"></div>
+          <div class="tabbar__thumb" id="tabs-thumb" aria-hidden="true"></div>
+          <button class="tabbar__more" id="tabs-more" type="button" aria-haspopup="menu" hidden></button>
+        </div>
         <div class="stage" id="stage" tabindex="0">
           <canvas class="stage__canvas" id="canvas"></canvas>
           <svg class="stage__over" id="over" aria-hidden="true">
@@ -85,10 +89,11 @@
           <div class="spread" id="spread-left" hidden><b>+</b><span></span></div>
           <div class="spread" id="spread-right" hidden><b>+</b><span></span></div>
           <div class="hud" id="hud" hidden></div>
+          <div class="ctxbar" id="ctxbar" role="toolbar" hidden></div>
 
           <div class="start" id="start" hidden>
             <img src="../assets/brand/typer-logo.png" width="96" height="96" alt="">
-            <h1>TypeR: Web Version (beta)</h1>
+            <h1>TypeR Studio for Web (beta)</h1>
             <p id="start-text"></p>
             <p class="start__flow" id="start-flow"></p>
             <div class="start__actions">
@@ -162,11 +167,12 @@
   <input type="file" id="file-fonts" accept=".ttf,.otf,.ttc,.otc,.woff,.woff2" multiple hidden>
   <input type="file" id="file-kit" accept=".zip,.json" multiple hidden>
 
-  <noscript><p>TypeR: Web Version needs JavaScript.</p></noscript>
+  <noscript><p>TypeR Studio for Web needs JavaScript.</p></noscript>
 
   <script>window.TYPER_I18N.apply()</script>
   <script src="fonts.js"></script>
   <script src="kit.js"></script>
+  <script src="inpaint.js"></script>
   <script src="photoshop.js"></script>
   <script src="psd.js"></script>
   <script src="session.js"></script>
