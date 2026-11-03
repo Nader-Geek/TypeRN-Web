@@ -216,6 +216,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Flip Horizontal": "พลิกแนวนอน",
     "Flip Vertical": "พลิกแนวตั้ง",
     "Smart Guides": "เส้นนำอัจฉริยะ",
+    "Snap Text": "สแนปข้อความ",
     "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.": "จุดจับ: ขนาด ด้านนอก: หมุน ด้านใน: ย้าย Shift: รูปทรงอิสระ ทีละ 15° Cmd หรือ Alt: จากกึ่งกลาง Enter: ใช้ Esc: ยกเลิก",
     "This layer has nothing to transform.": "Layer นี้ไม่มีอะไรให้แปลง",
     "The result would be too large: 30000 pixels at most.": "ผลลัพธ์จะใหญ่เกินไป: สูงสุด 30000 พิกเซล",

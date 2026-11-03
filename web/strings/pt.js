@@ -216,6 +216,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Flip Horizontal": "Inverter na horizontal",
     "Flip Vertical": "Inverter na vertical",
     "Smart Guides": "Guias inteligentes",
+    "Snap Text": "Encaixar texto",
     "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.": "Alça: tamanho. Fora: girar. Dentro: mover. Shift: forma livre, passos de 15°. Cmd ou Alt: a partir do centro. Enter: aplicar. Esc: cancelar.",
     "This layer has nothing to transform.": "Esta camada não tem nada para transformar.",
     "The result would be too large: 30000 pixels at most.": "O resultado ficaria grande demais: no máximo 30000 pixels.",

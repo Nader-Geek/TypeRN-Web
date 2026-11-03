@@ -216,6 +216,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Flip Horizontal": "水平翻转",
     "Flip Vertical": "垂直翻转",
     "Smart Guides": "智能参考线",
+    "Snap Text": "文本对齐吸附",
     "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.": "手柄:大小。外部:旋转。内部:移动。Shift:自由形状、15° 步进。Cmd 或 Alt:从中心。Enter:应用。Esc:取消。",
     "This layer has nothing to transform.": "此图层没有可变换的内容。",
     "The result would be too large: 30000 pixels at most.": "结果过大:最多 30000 像素。",

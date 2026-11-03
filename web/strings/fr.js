@@ -216,6 +216,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Flip Horizontal": "Symétrie axe horizontal",
     "Flip Vertical": "Symétrie axe vertical",
     "Smart Guides": "Repères commentés",
+    "Snap Text": "Magnétisme du texte",
     "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.": "Poignée : taille. Dehors : rotation. Dedans : déplacer. Maj : forme libre, pas de 15°. Cmd ou Alt : depuis le centre. Entrée : appliquer. Échap : annuler.",
     "This layer has nothing to transform.": "Ce calque n’a rien à transformer.",
     "The result would be too large: 30000 pixels at most.": "Le résultat serait trop grand : 30000 pixels au maximum.",

@@ -216,6 +216,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Flip Horizontal": "Lật ngang",
     "Flip Vertical": "Lật dọc",
     "Smart Guides": "Đường gióng thông minh",
+    "Snap Text": "Bắt dính văn bản",
     "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.": "Tay nắm: kích thước. Ngoài: xoay. Trong: di chuyển. Shift: hình tự do, bước 15°. Cmd hoặc Alt: từ tâm. Enter: áp dụng. Esc: hủy.",
     "This layer has nothing to transform.": "Layer này không có gì để biến đổi.",
     "The result would be too large: 30000 pixels at most.": "Kết quả sẽ quá lớn: tối đa 30000 pixel.",

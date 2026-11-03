@@ -216,6 +216,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Flip Horizontal": "Horizontaal omdraaien",
     "Flip Vertical": "Verticaal omdraaien",
     "Smart Guides": "Slimme hulplijnen",
+    "Snap Text": "Tekst magnetisch",
     "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.": "Greep: grootte. Buiten: draaien. Binnen: verplaatsen. Shift: vrije vorm, stappen van 15°. Cmd of Alt: vanuit het midden. Enter: toepassen. Esc: annuleren.",
     "This layer has nothing to transform.": "Deze laag heeft niets om te transformeren.",
     "The result would be too large: 30000 pixels at most.": "Het resultaat zou te groot worden: maximaal 30000 pixels.",

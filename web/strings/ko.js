@@ -216,6 +216,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Flip Horizontal": "가로로 뒤집기",
     "Flip Vertical": "세로로 뒤집기",
     "Smart Guides": "고급 안내선",
+    "Snap Text": "텍스트 스냅",
     "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.": "핸들: 크기. 바깥: 회전. 안쪽: 이동. Shift: 자유 형태, 15° 단위. Cmd 또는 Alt: 중심에서. Enter: 적용. Esc: 취소.",
     "This layer has nothing to transform.": "이 레이어에는 변형할 내용이 없습니다.",
     "The result would be too large: 30000 pixels at most.": "결과가 너무 커집니다. 최대 30000픽셀입니다.",

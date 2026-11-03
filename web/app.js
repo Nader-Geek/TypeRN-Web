@@ -1007,6 +1007,7 @@
 
   // What a moving thing lines up with: the page, and the other layers that show, by their edges
   // and their middles. Ctrl or Cmd held turns it off for the time of a drag, as in Photoshop.
+  // A text doesn't snap unless View > Snap Text is on: it goes where the bubble wants it.
   let smartLines = [];
   const SNAP_PIXELS = 6;
   const snapTargets = (movingIds) => {
@@ -1037,7 +1038,9 @@
       targets: snapTargets(ids),
     };
   };
-  const snapsOn = (event) => settings.smartGuides && !event.metaKey && !event.ctrlKey;
+  const movesText = (ids) => app.doc.state.layers.some((layer) => layer.kind === "text" && ids.includes(layer.id));
+  const guidesFor = (ids) => settings.smartGuides && (settings.snapText || !movesText(ids));
+  const snapsOn = (event, ids) => guidesFor(ids) && !event.metaKey && !event.ctrlKey;
   const snapReach = () => SNAP_PIXELS / view().zoom;
   const nearestTarget = (values, targets) => {
     let best = 0;
@@ -1262,7 +1265,7 @@
       }
       t.cx = from.cx + dx;
       t.cy = from.cy + dy;
-      if (snapsOn(event)) {
+      if (snapsOn(event, t.ids)) {
         const [sx, sy] = snapBox(box(), t.targets);
         if (!event.shiftKey || dx) t.cx += sx;
         if (!event.shiftKey || dy) t.cy += sy;
@@ -2067,7 +2070,7 @@
   };
 
   const STORE_SETTINGS = "typer.web.settings";
-  const settings = { wheel: "pan", smartGuides: true, transformControls: true, spellcheck: true };
+  const settings = { wheel: "pan", smartGuides: true, snapText: false, transformControls: true, spellcheck: true };
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORE_SETTINGS)) || {};
     // On a Mac a mouse can't be told from a trackpad, so "auto" isn't offered there
@@ -2076,6 +2079,7 @@
     if (PS.TEXT_LANGUAGES.some(([name]) => name === saved.language)) app.textDefaults.language = saved.language;
     if (saved.ligature === false) app.textDefaults.ligature = false;
     if (saved.smartGuides === false) settings.smartGuides = false;
+    if (saved.snapText === true) settings.snapText = true;
     if (saved.spellcheck === false) settings.spellcheck = false;
     if (saved.transformControls === false) settings.transformControls = false;
   } catch (error) {
@@ -2085,7 +2089,7 @@
     const d = app.textDefaults;
     try {
       // A language nobody chose keeps following the interface
-      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, smartGuides: settings.smartGuides, transformControls: settings.transformControls ? undefined : false, ligature: d.ligature, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
+      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, ligature: d.ligature, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
     } catch (error) {
       console.warn("TypeR web: could not keep the settings", error);
     }
@@ -2976,7 +2980,7 @@
         else dx = 0;
       }
       smartLines = [];
-      if (snapsOn(event)) {
+      if (snapsOn(event, app.doc.live ? Array.from(app.doc.live.ids) : [])) {
         if (!current.snap) current.snap = movingSnap();
         if (current.snap.box) {
           const at = (x, y) => ({ left: current.snap.box.left + x, top: current.snap.box.top + y, right: current.snap.box.right + x, bottom: current.snap.box.bottom + y });
@@ -5146,6 +5150,7 @@
       { label: "100%", keys: "Cmd+1", enabled: hasDoc, browserWhenOff: true, action: () => zoomTo(1) },
       null,
       { label: "Smart Guides", check: () => settings.smartGuides, action: () => { settings.smartGuides = !settings.smartGuides; keepSettings(); } },
+      { label: "Snap Text", check: () => settings.snapText, enabled: () => settings.smartGuides, action: () => { settings.snapText = !settings.snapText; keepSettings(); } },
     ]],
     ["Window", [
       { label: "Next Document", keys: "Alt+Shift+ArrowRight", alias: "Cmd+Tab", enabled: () => app.docs.length > 1, action: () => stepDoc(1) },
