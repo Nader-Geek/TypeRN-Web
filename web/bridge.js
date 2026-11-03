@@ -349,6 +349,13 @@
     pressSvg(event.clientX > row.getBoundingClientRect().right - 48 ? row.querySelector(".text-line-insert") : row.querySelector(".text-line-select"));
   });
 
+  // iOS greys out every file whose extension it doesn't know, .psd included: on a touch screen
+  // the panel's file pickers take anything, and the panel keeps what it can read (see touch.js)
+  document.addEventListener("click", (event) => {
+    const input = event.target;
+    if (document.documentElement.classList.contains("t-touch") && input instanceof HTMLInputElement && input.type === "file") input.removeAttribute("accept");
+  }, true);
+
   // Keys for TypeR's shortcut poll, read in the page and in the panel
   const track = (event) => {
     photoshop.setKeys({ meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, key: event.type === "keydown" ? photoshop.keyName(event) : "" });

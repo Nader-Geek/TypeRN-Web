@@ -139,6 +139,14 @@
     renderSheetHead();
   };
 
+  // The PSDs of a chapter, linked to the script: each "Page 12" line opens its file. The
+  // panel's own button, whose footer has no room here.
+  const pagesLinked = () => {
+    const doc = panel();
+    const target = doc && doc.querySelector('[data-tour="import-pages"]');
+    return Boolean(target && target.classList.contains("is-active"));
+  };
+
   const pasteScript = async () => {
     let text = "";
     try {
@@ -289,6 +297,7 @@
     else if (view) html.dataset.view = view;
   };
 
+  let shownLinked = false;
   function renderSheetHead() {
     if (!current) return;
     sheetTitle.textContent = T(VIEWS[current].title);
@@ -298,6 +307,11 @@
         button("sheet__action", "paste", T("Paste"), pasteScript, true),
         button(`sheet__action${writing ? " is-on" : ""}`, writing ? null : "pencil", T(writing ? "Done" : "Modify"), () => setWriting(!writing, !writing), true),
       );
+      const linked = pagesLinked();
+      shownLinked = linked;
+      const pages = button(`sheet__action${linked ? " is-on" : ""}`, "folder", T("Pages"), () => pressInPanel('[data-tour="import-pages"]'), true);
+      pages.title = panelText(linked ? "footerDesyncRepo" : "footerOpenRepo") || T("Pages");
+      sheetActions.append(pages);
     }
     if (current === "styles" && Shell.kind === "phone") {
       const line = readScript();
@@ -463,7 +477,7 @@
     const on = Boolean(line && line.pasteOnTap);
     cardTap.classList.toggle("is-on", on);
     cardTap.setAttribute("aria-pressed", String(on));
-    if (current === "styles") renderSheetHead();
+    if (current === "styles" || (current === "script" && pagesLinked() !== shownLinked)) renderSheetHead();
   };
 
   const menuItem = (group, label) => {
@@ -489,6 +503,8 @@
 
   const textActions = () => [
     action("pencil", T("Modify"), () => App.beginEdit(App.activeTexts()[0]), "tact--main"),
+    // TypeR's own Align: the text to the middle of the selection, or of the bubble tapped
+    action("alignMiddle", panelText("alignLayer") || T("Align"), () => pressInPanel('[data-tour="align"]')),
     action("lines", T("Lines"), () => toggleSheet("lines")),
     action("shapes", T("Shapes"), () => toggleSheet("shapes")),
     action("font", T("Text"), () => toggleSheet("text")),
@@ -786,6 +802,7 @@
           layoutSheet();
         }
       }
+      if (current === "script" && pagesLinked() !== shownLinked) renderSheetHead();
       const notice = doc.querySelector(".typer-notice__text");
       const said = notice ? notice.textContent.trim() : "";
       if (said && said !== lastNotice && (!current || !VIEWS[current].panel)) toast(said);

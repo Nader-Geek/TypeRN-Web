@@ -150,6 +150,8 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .stage { position: relative; min-height: 0; overflow: hidden; background: #2a2828; outline: 0; touch-action: none; }
 .stage__canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .stage__over { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
+/* Two fingers zooming on a touch screen: the page alone, to see the text as it will be */
+.stage.is-pinching #over-screen { visibility: hidden; }
 .stage[data-tool="wand"], .stage[data-tool="rectangle"], .stage[data-tool="ellipse"], .stage[data-tool="lasso"], .stage[data-tool="crop"] { cursor: crosshair; }
 .stage[data-tool="move"] { cursor: move; }
 .stage[data-tool="text"] { cursor: text; }
