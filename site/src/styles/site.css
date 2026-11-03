@@ -552,3 +552,27 @@ kbd { border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 
   .nav__cta { display: inline-flex; }
   .nav__right { gap: 8px; }
 }
+
+/* ---------- Download: the extension, or TypeR Studio ---------- */
+.downloads {
+  margin: auto; width: min(100% - 2 * var(--gutter), 860px); max-height: calc(100svh - 32px); overflow: auto;
+  padding: clamp(24px, 4vw, 40px); color: var(--text);
+  background: var(--night-2); border: 1px solid var(--line-2); border-radius: 12px;
+  box-shadow: 8px 8px 0 var(--accent);
+}
+.downloads::backdrop { background: rgba(6, 8, 14, .8); backdrop-filter: blur(4px); }
+.downloads[open] { animation: lb .4s var(--spring); }
+.downloads__close { position: absolute; top: 12px; right: 12px; width: 44px; height: 44px; font-size: 26px; line-height: 1; border: 1px solid var(--line-2); border-radius: 50%; background: var(--panel); }
+.downloads__close:hover { border-color: var(--accent); }
+.downloads__title { font: 400 clamp(1.7rem, 3.4vw, 2.4rem)/1.1 var(--f-display); padding-right: 52px; }
+.downloads__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: clamp(20px, 3vw, 28px); }
+.downloads__option { display: flex; flex-direction: column; gap: 12px; padding: clamp(20px, 2.6vw, 28px); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.downloads__option h3 { display: flex; align-items: center; gap: 10px; font: 400 1.4rem/1.15 var(--f-display); }
+.downloads__option h3 .badge--soft { align-self: center; }
+.downloads__option > p { color: var(--muted); }
+.downloads__links { display: grid; gap: 10px; margin-top: auto; padding-top: 6px; }
+.downloads__fine { font-size: .875rem; color: var(--muted); }
+.downloads__fine a { color: var(--text); }
+@media (max-width: 700px) {
+  .downloads__grid { grid-template-columns: minmax(0, 1fr); }
+}
