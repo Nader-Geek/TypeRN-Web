@@ -136,21 +136,25 @@
 
   const canListInstalled = () => typeof window.queryLocalFonts === "function";
 
-  const addInstalled = (entries) => {
+  // Only news is told: listing the same fonts again changes nothing
+  const addInstalled = (entries, first) => {
+    let added = 0;
     entries.forEach((entry) => {
       const ps = entry.postscriptName;
       if (!ps || fonts.has(ps)) return;
       fonts.set(ps, { name: entry.fullName || ps, postScriptName: ps, family: entry.family || ps, style: entry.style || "Regular", source: "local", css: cssNameOf(ps), weight: 400, italic: false, ready: false });
+      added++;
     });
-    changed();
+    if (added || first) changed();
   };
 
   let installedListed = false;
   const useInstalled = async () => {
     if (!canListInstalled()) return 0;
     const entries = await window.queryLocalFonts();
+    const first = !installedListed;
     installedListed = true;
-    addInstalled(entries);
+    addInstalled(entries, first);
     return entries.length;
   };
 
