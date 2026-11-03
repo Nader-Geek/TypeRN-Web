@@ -2593,6 +2593,57 @@
     return layer;
   };
 
+  // A text at `factor` times its size: its letters, its leading and its box. The size of the
+  // last run comes with it.
+  const grownText = (base, factor) => {
+    const params = clone(base.params);
+    const lt = params.layerText;
+    let size = 0;
+    lt.textStyleRange.forEach((range) => {
+      const style = range.textStyle;
+      style.size = Math.max(1, Math.round((style.impliedFontSize || style.size || 14) * factor * 10) / 10);
+      style.impliedFontSize = style.size;
+      if (style.leading) style.leading = Math.round(style.leading * factor * 10) / 10;
+      if (style.impliedLeading) style.impliedLeading = style.leading;
+      size = style.size;
+    });
+    const shape = boxShape(lt);
+    if (shape) {
+      shape.box.width = Math.max(1, shape.box.width * factor);
+      shape.box.height = Math.max(1, shape.box.height * factor);
+    }
+    return { next: Object.assign({}, base, { params, raster: null }), size };
+  };
+  // The middle of a text's frame as it shows, turned or not
+  const middleOfText = (layer, doc) => {
+    if (layer.rotated && !layer.warp) return turnedFrame(layer, doc).center;
+    const f = frameOf(layer, doc);
+    return [f.left + f.width / 2, f.top + f.height / 2];
+  };
+  // A text turned by `delta` radians around `pivot`. In perspective, its surface turns: the
+  // corners go round the pivot, the bends with them.
+  const turnedText = (base, delta, pivot, doc) => {
+    const cos = Math.cos(delta);
+    const sin = Math.sin(delta);
+    if (base.warp) {
+      const round = ([x, y]) => [pivot[0] + cos * (x - pivot[0]) - sin * (y - pivot[1]), pivot[1] + sin * (x - pivot[0]) + cos * (y - pivot[1])];
+      const spun = ([x, y]) => [cos * x - sin * y, sin * x + cos * y];
+      return Object.assign({}, base, { warp: Object.assign({}, base.warp, { corners: base.warp.corners.map(round), bendTop: spun(base.warp.bendTop), bendBottom: spun(base.warp.bendBottom) }) });
+    }
+    const [a, b, c, d] = spinOf(base) || [1, 0, 0, 1];
+    const clean = (value) => (Math.abs(value) < 1e-9 ? 0 : Math.abs(Math.abs(value) - 1) < 1e-9 ? Math.sign(value) : value);
+    const spin = [cos * a - sin * b, sin * a + cos * b, cos * c - sin * d, sin * c + cos * d].map(clean);
+    const straight = spin[0] === 1 && spin[1] === 0 && spin[2] === 0 && spin[3] === 1;
+    // The anchor goes round the pivot: the turn is drawn around it
+    const [ax, ay] = anchorOf(base.params.layerText, doc);
+    const ux = ax - pivot[0];
+    const uy = ay - pivot[1];
+    const nx = pivot[0] + cos * ux - sin * uy;
+    const ny = pivot[1] + sin * ux + cos * uy;
+    const next = Object.assign({}, base, { rotated: !straight, spin: straight ? null : spin, raster: null });
+    return shifted(next, nx - ax, ny - ay, doc);
+  };
+
   const centredOn = (layer, doc, x, y) => {
     // A text on a surface stays there: the surface is what sets its place
     if (layer.warp) return layer;
@@ -3991,57 +4042,58 @@
       const doc = app.doc;
       if (!doc || !doc.state.layers.some((item) => item.id === base.id)) return null;
       const before = frameOf(base, doc);
-      const params = clone(base.params);
-      const lt = params.layerText;
-      let size = 0;
-      lt.textStyleRange.forEach((range) => {
-        const style = range.textStyle;
-        style.size = Math.max(1, Math.round((style.impliedFontSize || style.size || 14) * factor * 10) / 10);
-        style.impliedFontSize = style.size;
-        if (style.leading) style.leading = Math.round(style.leading * factor * 10) / 10;
-        if (style.impliedLeading) style.impliedLeading = style.leading;
-        size = style.size;
-      });
-      const shape = boxShape(lt);
-      if (shape) {
-        shape.box.width = Math.max(1, shape.box.width * factor);
-        shape.box.height = Math.max(1, shape.box.height * factor);
-      }
-      const next = Object.assign({}, base, { params, raster: null });
+      const { next, size } = grownText(base, factor);
       const after = frameOf(next, doc);
       const moved = shifted(next, before.left + ax * before.width - (after.left + ax * after.width), before.top + ay * before.height - (after.top + ay * after.height), doc);
       commitState(doc, "Character", { layers: replaceLayer(doc, base, moved) }, coalesce);
       firePanelEvent(EVENT_HISTORY);
       return size;
     },
+    // Several texts from the corners of the frame around them all, as one: each grows as its own
+    // corner would make it, and its middle moves away from `pivot` as much; without a pivot, each
+    // stays where it is. A text in perspective, its surface. One step in the history; the size of
+    // the last text, or null.
+    scaleTexts(bases, factor, pivot, coalesce) {
+      const doc = app.doc;
+      if (!doc) return null;
+      const changed = new Map();
+      let size = null;
+      bases.forEach((base) => {
+        if (base.kind !== "text" || !doc.state.layers.some((item) => item.id === base.id)) return;
+        const [px, py] = pivot || middleOfText(base, doc);
+        const away = ([x, y]) => [px + (x - px) * factor, py + (y - py) * factor];
+        if (base.warp) {
+          const scaled = ([x, y]) => [x * factor, y * factor];
+          changed.set(base.id, Object.assign({}, base, { warp: Object.assign({}, base.warp, { corners: base.warp.corners.map(away), bendTop: scaled(base.warp.bendTop), bendBottom: scaled(base.warp.bendBottom) }) }));
+          return;
+        }
+        const from = middleOfText(base, doc);
+        const made = grownText(base, factor);
+        const now = middleOfText(made.next, doc);
+        const [x, y] = away(from);
+        changed.set(base.id, shifted(made.next, x - now[0], y - now[1], doc));
+        size = made.size;
+      });
+      if (!changed.size) return null;
+      commitState(doc, "Free Transform", { layers: doc.state.layers.map((layer) => changed.get(layer.id) || layer) }, coalesce);
+      firePanelEvent(EVENT_HISTORY);
+      return size;
+    },
     // Turns a text by `delta` radians around `pivot`, as Photoshop's transform controls do.
     // It stays a text: Photoshop gets it turned, and it can still be typed in.
     turnText(base, delta, pivot, coalesce) {
+      ops.turnTexts([base], delta, pivot, coalesce);
+    },
+    // Several texts around the same pivot, in one step of the history
+    turnTexts(bases, delta, pivot, coalesce) {
       const doc = app.doc;
-      if (!doc || !base || base.kind !== "text" || !doc.state.layers.some((item) => item.id === base.id)) return;
-      const cos = Math.cos(delta);
-      const sin = Math.sin(delta);
-      // In perspective, its surface turns: the corners go round the pivot, the bends with them
-      if (base.warp) {
-        const round = ([x, y]) => [pivot[0] + cos * (x - pivot[0]) - sin * (y - pivot[1]), pivot[1] + sin * (x - pivot[0]) + cos * (y - pivot[1])];
-        const spun = ([x, y]) => [cos * x - sin * y, sin * x + cos * y];
-        const warp = Object.assign({}, base.warp, { corners: base.warp.corners.map(round), bendTop: spun(base.warp.bendTop), bendBottom: spun(base.warp.bendBottom) });
-        commitState(doc, "Free Transform", { layers: replaceLayer(doc, base, { warp }) }, coalesce);
-        firePanelEvent(EVENT_HISTORY);
-        return;
-      }
-      const [a, b, c, d] = spinOf(base) || [1, 0, 0, 1];
-      const clean = (value) => (Math.abs(value) < 1e-9 ? 0 : Math.abs(Math.abs(value) - 1) < 1e-9 ? Math.sign(value) : value);
-      const spin = [cos * a - sin * b, sin * a + cos * b, cos * c - sin * d, sin * c + cos * d].map(clean);
-      const straight = spin[0] === 1 && spin[1] === 0 && spin[2] === 0 && spin[3] === 1;
-      // The anchor goes round the pivot: the turn is drawn around it
-      const [ax, ay] = anchorOf(base.params.layerText, doc);
-      const ux = ax - pivot[0];
-      const uy = ay - pivot[1];
-      const nx = pivot[0] + cos * ux - sin * uy;
-      const ny = pivot[1] + sin * ux + cos * uy;
-      const next = Object.assign({}, base, { rotated: !straight, spin: straight ? null : spin, raster: null });
-      commitState(doc, "Free Transform", { layers: replaceLayer(doc, base, shifted(next, nx - ax, ny - ay, doc)) }, coalesce);
+      if (!doc) return;
+      const changed = new Map();
+      bases.forEach((base) => {
+        if (base && base.kind === "text" && doc.state.layers.some((item) => item.id === base.id)) changed.set(base.id, turnedText(base, delta, pivot, doc));
+      });
+      if (!changed.size) return;
+      commitState(doc, "Free Transform", { layers: doc.state.layers.map((layer) => changed.get(layer.id) || layer) }, coalesce);
       firePanelEvent(EVENT_HISTORY);
     },
     // Type > Convert: a box becomes a point text with the lines it had, and back

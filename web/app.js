@@ -947,6 +947,7 @@
     ui.box.setAttribute("hidden", "");
     pixelControls = null;
     turnControls = null;
+    textGroup = null;
     taskBarBox = null;
     const turning = transformOf();
     if (turning) drawTransform(turning);
@@ -1019,6 +1020,23 @@
         handleBoxes.push({ x, y, kind });
       });
       pixelControls = { x0, y0, x1, y1 };
+      return;
+    }
+    // Several texts: their corners scale them together, and just outside the frame a drag turns
+    // them all, as Free Transform does in Photoshop. Without Show Transform Controls, the frame alone.
+    if (list.length > 1 && texts) {
+      if (live || (!Shell.touch && !settings.transformControls)) return;
+      textGroup = { ids: list.map((layer) => layer.id), frame: { left, top, right, bottom } };
+      if (app.tool === "move") turnControls = { center: [(x0 + x1) / 2, (y0 + y1) / 2], u: [1, 0], v: [0, 1], hw: (x1 - x0) / 2, hh: (y1 - y0) / 2, corners: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], pivot: [(left + right) / 2, (top + bottom) / 2] };
+      const HANDLE = handleSize();
+      handleArea = Math.min(x1 - x0, y1 - y0);
+      HANDLES.forEach(([kind, fx, fy]) => {
+        if (kind.length !== 2) return;
+        const x = x0 + (x1 - x0) * fx;
+        const y = y0 + (y1 - y0) * fy;
+        svgEl("rect", { class: "handle", x: Math.round(x - HANDLE / 2) + 0.5, y: Math.round(y - HANDLE / 2) + 0.5, width: HANDLE, height: HANDLE }, ui.handles);
+        handleBoxes.push({ x, y, kind });
+      });
       return;
     }
     // A text in perspective gets handles too: they grow or stretch its surface (see "surface")
@@ -1272,6 +1290,8 @@
   let pixelControls = null;
   // The same for a text, whose frame may already be turned
   let turnControls = null;
+  // Several texts: the frame around them all, in the page's pixels, and which they are
+  let textGroup = null;
   // All around the frame, a little outside it: by a side as by a corner, as in Photoshop.
   // Gives the cursor to show there, or null.
   const ROTATE_REACH = 22;
@@ -3161,6 +3181,21 @@
         return;
       }
     }
+    if (textGroup && !handleWhileTyping && (tool === "move" || (Shell.touch && tool === "wand"))) {
+      const over = hitHandle(event);
+      if (over || (tool === "move" && turnControls && !isFinger(event) && inRotateZone(event))) {
+        const wanted = new Set(textGroup.ids);
+        const layers = doc.state.layers.filter((layer) => wanted.has(layer.id));
+        const f = textGroup.frame;
+        gestureCount++;
+        const token = `gesture:${gestureCount}`;
+        gesture = Object.assign(base, over ? { kind: "scaleTexts", handle: over.kind, layers, frame: f, token } : { kind: "turnTexts", layers, pivot: [(f.left + f.right) / 2, (f.top + f.bottom) / 2], token });
+        if (layers.some((layer) => layer.raster && Fonts.isMissing(layer.params.layerText.textStyleRange[0].textStyle.fontPostScriptName))) toast(T("This text's font is missing: it will be drawn with another font."), true);
+        ui.stage.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        return;
+      }
+    }
     const handle = tool === "move" || handleWhileTyping || (Shell.touch && tool === "wand") ? hitHandle(event) : null;
     const handled = handle && (handleWhileTyping ? doc.state.layers.find((layer) => layer.id === editing.id) : activeTexts()[0]);
     if (handled) {
@@ -3398,6 +3433,24 @@
       ops.turnText(current.layer, (degrees * Math.PI) / 180 - current.from, current.pivot, current.token);
       hud(shownAngle(degrees), event);
       placeEditor();
+    } else if (current.kind === "turnTexts") {
+      // Around the middle of the frame around them all; with Shift, by steps of 15°
+      const [px, py] = current.pivot;
+      let degrees = ((Math.atan2(point[1] - py, point[0] - px) - Math.atan2(current.start[1] - py, current.start[0] - px)) * 180) / Math.PI;
+      if (event.shiftKey) degrees = Math.round(degrees / 15) * 15;
+      ops.turnTexts(current.layers, (degrees * Math.PI) / 180, current.pivot, current.token);
+      hud(shownAngle(degrees), event);
+    } else if (current.kind === "scaleTexts") {
+      // Together, around the middle of the frame; with Ctrl or Cmd, from the opposite corner.
+      // With Alt, each text grows where it is, around its own middle, and stays in its bubble.
+      const f = current.frame;
+      const fromCorner = isCommand(event);
+      const fixedX = fromCorner ? (current.handle.includes("w") ? f.right : f.left) : (f.left + f.right) / 2;
+      const fixedY = fromCorner ? (current.handle.includes("n") ? f.bottom : f.top) : (f.top + f.bottom) / 2;
+      const reach = Math.max(1, Math.hypot(current.start[0] - fixedX, current.start[1] - fixedY));
+      const factor = Math.max(0.02, Math.hypot(point[0] - fixedX, point[1] - fixedY) / reach);
+      ops.scaleTexts(current.layers, factor, event.altKey ? null : [fixedX, fixedY], current.token);
+      hud(`${Math.round(factor * 100)} %`, event);
     } else if (current.kind === "warp") {
       ops.setTextWarp(current.layer, movedSurface(current, point, event), current.token);
     } else if (current.kind === "scale") {
@@ -3564,6 +3617,9 @@
       renderOptions();
     } else if (kind === "brushAdjust") {
       ui.brushPreview.hidden = true;
+      renderOptions();
+    } else if (kind === "scale" || kind === "scaleTexts") {
+      // The size in the options bar follows the handles
       renderOptions();
     } else if (kind === "move") {
       ops.endLiveMove(!cancelled);
