@@ -557,6 +557,15 @@
 
   const dpr = () => window.devicePixelRatio || 1;
   const view = () => (app.doc ? app.doc.view : { zoom: 1, x: 0, y: 0 });
+
+  // A browser only colours a slider up to its thumb on its own in Firefox
+  const showSliderFill = (input) => {
+    const min = Number(input.min);
+    input.style.setProperty("--fill", (Number(input.value) - min) / (Number(input.max) - min));
+  };
+  document.addEventListener("input", (event) => {
+    if (event.target.type === "range") showSliderFill(event.target);
+  }, true);
   const toDoc = (event) => {
     const rect = ui.stage.getBoundingClientRect();
     const v = view();
@@ -885,6 +894,7 @@
     wrap.min = 0;
     wrap.max = 85;
     wrap.value = layer.warp.wrap || 0;
+    showSliderFill(wrap);
     wrap.addEventListener("input", () => {
       const current = warpedLayer();
       if (current) ops.setTextWarp(current, Object.assign({}, current.warp, { wrap: Number(wrap.value) }), "warp-wrap");
@@ -2353,9 +2363,11 @@
       size.min = 1;
       size.max = 400;
       size.value = app.brush.size;
+      showSliderFill(size);
       const number = numberInput(app.brush.size, 1, 2000, (value) => {
         app.brush.size = Math.max(1, value);
         size.value = app.brush.size;
+        showSliderFill(size);
         previewBrush();
       });
       size.addEventListener("input", () => {
@@ -2368,9 +2380,11 @@
       hardness.min = 0;
       hardness.max = 100;
       hardness.value = app.brush.hardness;
+      showSliderFill(hardness);
       const percent = numberInput(app.brush.hardness, 0, 100, (value) => {
         app.brush.hardness = Math.max(0, Math.min(100, value));
         hardness.value = app.brush.hardness;
+        showSliderFill(hardness);
         previewBrush();
       });
       hardness.addEventListener("input", () => {
@@ -4314,6 +4328,7 @@
     quality.min = 1;
     quality.max = 100;
     quality.value = settings.quality;
+    showSliderFill(quality);
     const shown = document.createElement("output");
     const refresh = () => {
       shown.textContent = quality.value;

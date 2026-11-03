@@ -35,7 +35,20 @@ input[type="color"] { width: 26px; height: 22px; padding: 0; background: none; b
 input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
 input[type="color"]::-webkit-color-swatch { border: 0; }
 input[type="checkbox"] { accent-color: var(--blue); margin: 0; }
-input[type="range"] { accent-color: var(--blue); width: 90px; height: 14px; }
+input[type="range"] { --thumb: 12px; --track: 3px; -webkit-appearance: none; appearance: none; width: 90px; height: 16px; margin: 0; background: none; outline: none; }
+input[type="range"]::-webkit-slider-runnable-track { height: var(--track); border-radius: var(--track); background: linear-gradient(to right, var(--blue) calc(var(--thumb) / 2 + var(--fill, 0) * (100% - var(--thumb))), var(--ui-darker) 0); box-shadow: 0 0 0 1px var(--line); }
+input[type="range"]::-moz-range-track { height: var(--track); border-radius: var(--track); background: var(--ui-darker); box-shadow: 0 0 0 1px var(--line); }
+input[type="range"]::-moz-range-progress { height: var(--track); border-radius: var(--track); background: var(--blue); }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: var(--thumb); height: var(--thumb); margin-top: calc((var(--track) - var(--thumb)) / 2); border: 0; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgb(0 0 0 / 0.5); }
+input[type="range"]::-moz-range-thumb { width: var(--thumb); height: var(--thumb); border: 0; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgb(0 0 0 / 0.5); }
+input[type="range"]:hover::-webkit-slider-thumb, input[type="range"]:active::-webkit-slider-thumb { background: #fff; }
+input[type="range"]:hover::-moz-range-thumb, input[type="range"]:active::-moz-range-thumb { background: #fff; }
+input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 2px var(--blue); }
+input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 2px var(--blue); }
+input[type="range"]:disabled::-webkit-slider-runnable-track { background: var(--ui-darker); }
+input[type="range"]:disabled::-moz-range-progress { background: none; }
+input[type="range"]:disabled::-webkit-slider-thumb { background: var(--muted); }
+input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 :focus-visible { outline: 1px solid var(--blue); outline-offset: 1px; }
 
 .app { display: grid; grid-template-rows: 30px 36px auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); width: 100%; height: 100dvh; overflow: hidden; }

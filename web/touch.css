@@ -65,7 +65,7 @@ html.touch .steps input { min-width: 0; flex: 1; text-align: center; }
 html.touch input[type="text"], html.touch input[type="number"], html.touch select { height: 40px; font-size: 16px; padding: 0 8px; }
 html.touch input[type="color"] { width: 44px; height: 40px; }
 html.touch input[type="checkbox"] { width: 22px; height: 22px; }
-html.touch input[type="range"] { height: 32px; width: 140px; }
+html.touch input[type="range"] { --thumb: 22px; --track: 4px; height: 32px; width: 140px; }
 html.touch .btn { min-height: 44px; padding: 0 18px; font-size: 15px; }
 html.touch .btn--small { min-height: 38px; padding: 0 12px; font-size: 14px; }
 html.touch .icon-btn { width: 44px; height: 40px; }
