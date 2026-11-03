@@ -216,6 +216,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Flip Horizontal": "قلب أفقي",
     "Flip Vertical": "قلب عمودي",
     "Smart Guides": "الأدلة الذكية",
+    "Snap Text": "محاذاة النص",
     "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.": "المقبض: الحجم. خارج الإطار: تدوير. داخله: نقل. Shift: شكل حر، خطوات 15°. Cmd أو Alt: من المركز. Enter: تطبيق. Esc: إلغاء.",
     "This layer has nothing to transform.": "لا يوجد في هذه الطبقة ما يمكن تحويله.",
     "The result would be too large: 30000 pixels at most.": "ستكون النتيجة كبيرة جدًا: 30000 بكسل كحد أقصى.",

@@ -216,6 +216,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Flip Horizontal": "Yatay çevir",
     "Flip Vertical": "Dikey çevir",
     "Smart Guides": "Akıllı kılavuzlar",
+    "Snap Text": "Metni yapıştır",
     "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.": "Tutamaç: boyut. Dışarı: döndür. İçeri: taşı. Shift: serbest biçim, 15° adım. Cmd veya Alt: merkezden. Enter: uygula. Esc: iptal.",
     "This layer has nothing to transform.": "Bu katmanda dönüştürülecek bir şey yok.",
     "The result would be too large: 30000 pixels at most.": "Sonuç çok büyük olur: en fazla 30000 piksel.",

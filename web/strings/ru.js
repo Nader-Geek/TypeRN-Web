@@ -216,6 +216,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Flip Horizontal": "Отразить по горизонтали",
     "Flip Vertical": "Отразить по вертикали",
     "Smart Guides": "Быстрые направляющие",
+    "Snap Text": "Привязка текста",
     "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.": "Маркер: размер. Снаружи: поворот. Внутри: перемещение. Shift: свободная форма, шаг 15°. Cmd или Alt: от центра. Enter: применить. Esc: отмена.",
     "This layer has nothing to transform.": "В этом слое нечего трансформировать.",
     "The result would be too large: 30000 pixels at most.": "Результат будет слишком большим: не более 30000 пикселей.",

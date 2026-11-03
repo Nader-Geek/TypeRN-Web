@@ -216,6 +216,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Flip Horizontal": "水平方向に反転",
     "Flip Vertical": "垂直方向に反転",
     "Smart Guides": "スマートガイド",
+    "Snap Text": "テキストをスナップ",
     "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.": "ハンドル: サイズ。外側: 回転。内側: 移動。Shift: 自由な形、15°刻み。Cmd または Alt: 中心から。Enter: 適用。Esc: キャンセル。",
     "This layer has nothing to transform.": "このレイヤーには変形するものがありません。",
     "The result would be too large: 30000 pixels at most.": "結果が大きすぎます。最大 30000 ピクセルです。",
