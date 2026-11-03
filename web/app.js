@@ -2543,6 +2543,9 @@
     Object.assign(stamp, { doc: app.doc, x, y, offset: null });
     schedule(false);
   };
+  // In whole pixels: between two of them, the browser would blend the source to place it. The
+  // pixel clicked goes where the brush starts.
+  const stampOffsetFrom = ([x, y]) => [Math.floor(stamp.x) - Math.floor(x), Math.floor(stamp.y) - Math.floor(y)];
   const stampSourceAt = () => {
     if (!hasStampSource()) return null;
     return stamp.offset && stamp.pointer ? [stamp.pointer[0] + stamp.offset[0], stamp.pointer[1] + stamp.offset[1]] : [stamp.x, stamp.y];
@@ -2553,11 +2556,12 @@
   // Inside the brush, what the stroke would paint there
   const showStampPreview = (event) => {
     const preview = $("stamp-preview");
-    const source = stampSourceAt();
-    if (!source || gesture || event.pointerType === "touch") {
+    if (!hasStampSource() || gesture || event.pointerType === "touch") {
       preview.hidden = true;
       return;
     }
+    const point = toDoc(event);
+    const offset = stamp.offset || stampOffsetFrom(point);
     const zoom = view().zoom;
     const { size, hardness } = app.brush;
     const side = Math.max(2, Math.min(800, Math.round(size * zoom)));
@@ -2568,7 +2572,9 @@
     const rect = ui.stage.getBoundingClientRect();
     const ctx = preview.getContext("2d");
     ctx.clearRect(0, 0, side, side);
-    ctx.drawImage(docCanvas, source[0] - size / 2, source[1] - size / 2, size, size, 0, 0, side, side);
+    // As the page itself shows it at this zoom
+    ctx.imageSmoothingEnabled = zoom < 2;
+    ctx.drawImage(docCanvas, point[0] + offset[0] - size / 2, point[1] + offset[1] - size / 2, size, size, 0, 0, side, side);
     const edge = `radial-gradient(circle closest-side, #000 ${hardness}%, transparent 100%)`;
     Object.assign(preview.style, { left: `${event.clientX - rect.left}px`, top: `${event.clientY - rect.top}px`, width: `${side}px`, height: `${side}px`, maskImage: edge, webkitMaskImage: edge });
     preview.hidden = false;
@@ -2839,7 +2845,7 @@
         toast(T("Alt + click first, on what you want to clone."));
         return;
       }
-      if (!stamp.aligned || !stamp.offset) stamp.offset = [stamp.x - point[0], stamp.y - point[1]];
+      if (!stamp.aligned || !stamp.offset) stamp.offset = stampOffsetFrom(point);
       stamp.pointer = point;
       hideStampPreview();
     }

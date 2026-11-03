@@ -708,6 +708,50 @@
     }
   };
 
+  // What part of a layer a piece of stroke can touch, in whole pixels
+  const strokeBox = (points, size) => {
+    const xs = points.map((p) => p[0]);
+    const ys = points.map((p) => p[1]);
+    const left = Math.floor(Math.min(...xs) - size);
+    const top = Math.floor(Math.min(...ys) - size);
+    return { left, top, width: Math.ceil(Math.max(...xs) + size - left + 2), height: Math.ceil(Math.max(...ys) + size - top + 2) };
+  };
+  // A Clone Stamp stroke over `box`: where it passed, filled with the source, pixel for pixel
+  const clonedPixels = (op, box, drawCoverage) => {
+    const shape = newCanvas(box.width, box.height);
+    const c = shape.getContext("2d");
+    c.translate(-box.left, -box.top);
+    drawCoverage(c);
+    if (op.clip) {
+      c.globalCompositeOperation = "destination-in";
+      if (op.clip.canvas) c.drawImage(op.clip.canvas, op.clip.x, op.clip.y);
+      else c.fillRect(op.clip.x, op.clip.y, op.clip.width, op.clip.height);
+    }
+    c.globalCompositeOperation = "source-in";
+    c.drawImage(op.source.canvas, op.source.x, op.source.y);
+    return shape;
+  };
+  // A stroke lays its source on the layer once. Segment by segment, each one over the last, a
+  // half-transparent source would turn opaque: every segment starts again from the layer as it
+  // was, with all the stroke so far.
+  const cloneSegment = (entry, live, points) => {
+    const { op } = live;
+    if (!live.base) {
+      live.base = newCanvas(entry.canvas.width, entry.canvas.height);
+      live.base.getContext("2d").drawImage(entry.canvas, 0, 0);
+      live.coverage = newCanvas(entry.canvas.width, entry.canvas.height);
+      const c = live.coverage.getContext("2d");
+      c.translate(-entry.cx0, -entry.cy0);
+      c.strokeStyle = "#000";
+    }
+    paintStroke(live.coverage.getContext("2d"), op, points);
+    const box = strokeBox(points, op.size);
+    const pixels = clonedPixels(op, box, (c) => c.drawImage(live.coverage, entry.cx0, entry.cy0));
+    entry.ctx.clearRect(box.left, box.top, box.width, box.height);
+    entry.ctx.drawImage(live.base, box.left - entry.cx0, box.top - entry.cy0, box.width, box.height, box.left, box.top, box.width, box.height);
+    entry.ctx.drawImage(pixels, box.left, box.top);
+  };
+
   // One painted thing on a layer, in the layer's own coordinates
   const drawOp = (ctx, op, points) => {
     ctx.save();
@@ -729,32 +773,30 @@
         c.stroke();
       }
       ctx.drawImage(shape, left, top);
+    } else if (op.t === "stroke" && op.source) {
+      const box = strokeBox(op.points, op.size);
+      const pixels = clonedPixels(op, box, (c) => {
+        c.strokeStyle = "#000";
+        op.points.forEach((point, index) => paintStroke(c, op, index ? [op.points[index - 1], point] : [point]));
+      });
+      ctx.drawImage(pixels, box.left, box.top);
     } else if (op.t === "stroke" && !points) {
       // Redrawn the way it was painted, segment by segment: its edges come out the same
       op.points.forEach((point, index) => drawOp(ctx, op, index ? [op.points[index - 1], point] : [point]));
     } else if (op.t === "stroke") {
       const list = points;
-      if (op.clip || op.source) {
-        const xs = list.map((p) => p[0]);
-        const ys = list.map((p) => p[1]);
-        const left = Math.floor(Math.min(...xs) - op.size);
-        const top = Math.floor(Math.min(...ys) - op.size);
-        const shape = newCanvas(Math.max(...xs) + op.size - left + 2, Math.max(...ys) + op.size - top + 2);
+      if (op.clip) {
+        const { left, top, width, height } = strokeBox(list, op.size);
+        const shape = newCanvas(width, height);
         const c = shape.getContext("2d");
         c.translate(-left, -top);
         c.strokeStyle = "#000";
         paintStroke(c, op, list);
-        if (op.clip) {
-          c.globalCompositeOperation = "destination-in";
-          if (op.clip.canvas) c.drawImage(op.clip.canvas, op.clip.x, op.clip.y);
-          else c.fillRect(op.clip.x, op.clip.y, op.clip.width, op.clip.height);
-        }
+        c.globalCompositeOperation = "destination-in";
+        if (op.clip.canvas) c.drawImage(op.clip.canvas, op.clip.x, op.clip.y);
+        else c.fillRect(op.clip.x, op.clip.y, op.clip.width, op.clip.height);
         c.setTransform(1, 0, 0, 1, 0, 0);
-        if (op.source) {
-          // The Clone Stamp: what the stroke covers comes from a picture of the page
-          c.globalCompositeOperation = "source-in";
-          c.drawImage(op.source.canvas, op.source.x - left, op.source.y - top);
-        } else if (!op.erase) {
+        if (!op.erase) {
           c.globalCompositeOperation = "source-in";
           c.fillStyle = colorCss(op.color);
           c.fillRect(0, 0, shape.width, shape.height);
@@ -2873,7 +2915,10 @@
       const point = [x - live.dx, y - live.dy];
       const previous = live.op.points[live.op.points.length - 1];
       live.op.points.push(point);
-      drawOp(rasterEntry(layer, doc).ctx, live.op, previous ? [previous, point] : [point]);
+      const entry = rasterEntry(layer, doc);
+      const segment = previous ? [previous, point] : [point];
+      if (live.op.source) cloneSegment(entry, live, segment);
+      else drawOp(entry.ctx, live.op, segment);
       const from = previous || point;
       const reach = (live.op.size || 1) + 2;
       emit("render", pageRect(doc, Math.min(from[0], point[0]) + live.dx - reach, Math.min(from[1], point[1]) + live.dy - reach, Math.max(from[0], point[0]) + live.dx + reach, Math.max(from[1], point[1]) + live.dy + reach));
