@@ -232,7 +232,13 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .breaks__lines { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 6px 22px; background: #fff; color: #000; cursor: text; user-select: none; -webkit-user-select: none; touch-action: none; }
 .breaks__hint { flex: none; max-height: 45%; margin: 0; padding: 5px 8px 6px; overflow: auto; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .breaks__hint kbd { padding: 0 3px; background: var(--ui-3); border-radius: 2px; color: #fff; font: 600 10px/1.3 system-ui, sans-serif; }
-.breaks__lines.is-wrapped .bl__line { white-space: pre-wrap; }
+/* the lines never wrap: one row is one line of the text, and the panel scrolls sideways.
+   Centred on the widest line, the rows keep the shape of the text. */
+.breaks__text { width: max-content; min-width: 100%; }
+.breaks__fade { position: absolute; z-index: 1; width: 24px; pointer-events: none; }
+.breaks__fade--l { background: linear-gradient(to right, #fff, rgba(255, 255, 255, 0)); }
+.breaks__fade--r { background: linear-gradient(to left, #fff, rgba(255, 255, 255, 0)); }
+.pane--breaks.is-typing .breaks__fade { display: none; }
 .bl__row { display: block; }
 .bl__line { position: relative; display: inline-block; white-space: pre; }
 .bl__c { position: relative; }

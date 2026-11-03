@@ -14,6 +14,7 @@
   const $ = (id) => document.getElementById(id);
   const root = $("breaks");
   const lines = $("breaks-lines");
+  const sheet = $("breaks-text");
   const caret = $("breaks-caret");
   const badge = $("breaks-badge");
   const count = $("breaks-count");
@@ -99,14 +100,14 @@
   // The marks hang in the sides of the lines
   const sides = () => (Shell.touch ? 76 : 44);
 
-  // All the text shows: in a narrow panel the letters get smaller, and a line that still
-  // doesn't fit wraps, with no ↵ at the end of its rows. With the pointer over the text they
-  // only get smaller: they don't run away from it with each break.
+  // In a narrow panel the letters get smaller, down to a size that still reads; a line that
+  // still doesn't fit never wraps, as a row of the panel is a line of the text: the panel
+  // scrolls sideways instead. With the pointer over the text they only get smaller: they
+  // don't run away from it with each break.
   const fitLines = () => {
     if (!model || lines.querySelector(".bl__rotated")) return;
     const FONT_SIZE = fontSize();
     const current = parseFloat(lines.style.fontSize) || FONT_SIZE;
-    lines.classList.remove("is-wrapped");
     lines.style.fontSize = `${FONT_SIZE}px`;
     let widest = 0;
     lines.querySelectorAll(".bl__line").forEach((row) => { widest = Math.max(widest, row.offsetWidth); });
@@ -115,8 +116,26 @@
     let size = widest > room ? Math.max(smallest(), Math.floor((FONT_SIZE * room) / widest)) : FONT_SIZE;
     if (root.matches(":hover") && !Shell.touch) size = Math.min(size, current);
     lines.style.fontSize = `${size}px`;
-    lines.classList.toggle("is-wrapped", (widest * size) / FONT_SIZE > room);
+    showEnds();
   };
+
+  // The sides fade where the text goes on out of sight
+  const fades = ["l", "r"].map((side) => {
+    const fade = document.createElement("div");
+    fade.className = `breaks__fade breaks__fade--${side}`;
+    fade.hidden = true;
+    root.appendChild(fade);
+    return fade;
+  });
+  function showEnds() {
+    const more = [lines.scrollLeft > 1, lines.scrollLeft < lines.scrollWidth - lines.clientWidth - 1];
+    fades.forEach((fade, index) => {
+      fade.hidden = !more[index];
+      fade.style.top = `${lines.offsetTop}px`;
+      fade.style.height = `${lines.clientHeight}px`;
+      fade.style.left = `${lines.offsetLeft + (index ? lines.clientWidth - fade.offsetWidth : 0)}px`;
+    });
+  }
 
   const render = () => {
     Array.from(lines.querySelectorAll(".bl__row, .bl__rotated")).forEach((row) => row.remove());
@@ -133,6 +152,7 @@
       $("breaks-fewer").disabled = true;
       $("breaks-more").disabled = true;
       $("breaks-balance").disabled = true;
+      showEnds();
       return;
     }
     const lt = layer.params.layerText;
@@ -149,7 +169,7 @@
       const wrap = document.createElement("div");
       wrap.className = "bl__row";
       wrap.appendChild(row);
-      lines.appendChild(wrap);
+      sheet.appendChild(wrap);
       return wrap;
     };
     startRow();
@@ -202,6 +222,7 @@
       Array.from(lines.querySelectorAll(".bl__row, .bl__rotated")).forEach((row) => row.remove());
       count.textContent = "";
       ["breaks-fewer", "breaks-more", "breaks-balance"].forEach((id) => { $(id).disabled = true; });
+      showEnds();
       return;
     }
     const text = next.params.layerText.textKey;
@@ -211,6 +232,7 @@
       layer = next;
       return;
     }
+    if (!layer || layer.id !== next.id) lines.scrollLeft = 0;
     layer = next;
     shownKey = key;
     model = PS.lineModel(layer, doc);
@@ -363,7 +385,10 @@
 
   /* -------------------------------- gestures ------------------------------- */
 
-  lines.addEventListener("pointermove", (event) => {
+  // Where the pointer last was, to follow it when the text scrolls under it
+  let pointer = null;
+
+  const track = (event) => {
     if (!layer || !model) return;
     if (drag) {
       if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) > 3) drag.moved = true;
@@ -385,7 +410,7 @@
         hover = { mark: at };
         preview(Array.from(breakSet).filter((item) => item !== at));
       }
-      return;
+      return true;
     }
     const found = pick(event);
     if (!found) {
@@ -401,9 +426,55 @@
       hover = { at: found.at };
       preview(Array.from(breakSet).concat(found.at));
     }
+  };
+
+  // Near a side, a line too long for the panel scrolls, faster the closer the pointer is to
+  // the edge; away from the sides the text stays still under the pointer. A ↵ stops it.
+  let panning = 0;
+  let panTime = 0;
+  const edge = () => (Shell.touch ? 64 : 40);
+  const panSpeed = () => {
+    if (!pointer || pointer.onMark || lines.scrollWidth <= lines.clientWidth) return 0;
+    const box = lines.getBoundingClientRect();
+    const zone = edge();
+    const left = (zone - (pointer.clientX - box.left)) / zone;
+    const right = (zone - (box.right - pointer.clientX)) / zone;
+    if (left > 0) return -(150 + 650 * Math.min(1, left));
+    if (right > 0) return 150 + 650 * Math.min(1, right);
+    return 0;
+  };
+  const pan = (time) => {
+    const speed = panSpeed();
+    const end = lines.scrollWidth - lines.clientWidth;
+    if (!speed || (speed < 0 ? lines.scrollLeft <= 0 : lines.scrollLeft >= end - 1)) {
+      panning = 0;
+      panTime = 0;
+      return;
+    }
+    if (panTime) lines.scrollLeft += (speed * Math.min(50, time - panTime)) / 1000;
+    panTime = time;
+    panning = window.requestAnimationFrame(pan);
+  };
+  const follow = (event) => {
+    pointer = { clientX: event.clientX, clientY: event.clientY, altKey: event.altKey, onMark: false };
+    pointer.onMark = track(pointer) === true;
+    if (!panning && panSpeed()) panning = window.requestAnimationFrame(pan);
+  };
+  const stopPanning = () => {
+    pointer = null;
+    if (panning) window.cancelAnimationFrame(panning);
+    panning = 0;
+    panTime = 0;
+  };
+
+  lines.addEventListener("pointermove", follow);
+  lines.addEventListener("scroll", () => {
+    showEnds();
+    if (pointer) pointer.onMark = track(pointer) === true;
   });
   lines.addEventListener("pointerleave", () => {
     if (drag) return;
+    stopPanning();
     hideCaret();
     hover = null;
     if (layer) clearPreview();
@@ -419,6 +490,7 @@
     }
   });
   lines.addEventListener("pointerup", (event) => {
+    if (Shell.touch) stopPanning();
     if (!layer || event.button !== 0 || openedMenu) return;
     if (drag) {
       const current = drag;
@@ -432,6 +504,7 @@
     if (found) commit(Array.from(breakSet).concat(found.at));
   });
   lines.addEventListener("pointercancel", () => {
+    stopPanning();
     drag = null;
     clearPreview();
   });
@@ -447,9 +520,7 @@
     if (!breakSet.has(at)) return null;
     let last = at;
     while (last + 1 < model.chars.length && model.chars[last + 1].ch !== " " && !breakSet.has(last + 1)) last++;
-    const start = first.getBoundingClientRect();
-    // A line wrapped by the panel: only its first row is its start
-    return event.clientX <= spans[last].getBoundingClientRect().right && event.clientY <= start.bottom + 2 ? at : null;
+    return event.clientX <= spans[last].getBoundingClientRect().right ? at : null;
   };
   // Right-click: the same as clicking the ↵, from the start of the next line. On a Mac,
   // Ctrl+click comes as a left click followed by this, and that click mustn't cut anything.
