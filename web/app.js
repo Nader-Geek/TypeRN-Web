@@ -2645,6 +2645,14 @@
     if (!spacing || !isMarquee(current.kind)) return;
     current.start = [current.start[0] + point[0] - current.last[0], current.start[1] + point[1] - current.last[1]];
   };
+  // On a touch screen a second finger is the Space key: it carries the shape being drawn, and
+  // the first finger's corner keeps the distance it moved
+  const carried = (current, point) => (current.carry ? [point[0] + current.carry.dx, point[1] + current.carry.dy] : point);
+  const drawMarquee = (current, event) => {
+    const [x0, y0, x1, y1] = marqueeBox(current, event);
+    setDrag(current.kind === "ellipse" ? ellipsePath(x0, y0, x1, y1) : `M${x0} ${y0}H${x1}V${y1}H${x0}Z`);
+    hud(`${Math.round(x1 - x0)} × ${Math.round(y1 - y0)} px`, event);
+  };
 
   const hitHandle = (event) => {
     const rect = ui.stage.getBoundingClientRect();
@@ -2715,6 +2723,12 @@
     if (!handleWhileTyping && !fingerWhileTyping) ui.stage.focus({ preventScroll: true });
     if (event.pointerType === "pen") penSeen = true;
     pointers.set(event.pointerId, [event.clientX, event.clientY]);
+    if (event.pointerType === "touch" && pointers.size === 2 && gesture && gesture.moved && isMarquee(gesture.kind) && !(gesture.carry && gesture.carry.id !== null)) {
+      gesture.carry = Object.assign(gesture.carry || { dx: 0, dy: 0 }, { id: event.pointerId, at: toDoc(event) });
+      ui.stage.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
     if (event.pointerType === "touch" && pointers.size >= 2) {
       if (!multi) multi = { time: performance.now(), count: 0, moved: false };
       multi.count = Math.max(multi.count, pointers.size);
@@ -2895,6 +2909,19 @@
 
   ui.stage.addEventListener("pointermove", (event) => {
     if (pointers.has(event.pointerId)) pointers.set(event.pointerId, [event.clientX, event.clientY]);
+    if (gesture && gesture.carry && gesture.carry.id === event.pointerId) {
+      const current = gesture;
+      const at = toDoc(event);
+      const dx = at[0] - current.carry.at[0];
+      const dy = at[1] - current.carry.at[1];
+      current.carry.at = at;
+      current.carry.dx += dx;
+      current.carry.dy += dy;
+      current.start = [current.start[0] + dx, current.start[1] + dy];
+      current.last = [current.last[0] + dx, current.last[1] + dy];
+      drawMarquee(current, event);
+      return;
+    }
     if (pinch && pointers.size === 2) {
       const [a, b] = Array.from(pointers.values());
       const distance = Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -2952,7 +2979,7 @@
     }
     if (Math.hypot(event.clientX - current.x, event.clientY - current.y) > current.slop) current.moved = true;
     if (!current.moved) return;
-    const point = toDoc(event);
+    const point = carried(current, toDoc(event));
     carryMarquee(current, point);
     current.last = point;
     if (current.kind === "pendingStroke" && !startStroke(current)) {
@@ -3059,14 +3086,8 @@
       ui.antsA.setAttribute("d", d);
       ui.antsB.setAttribute("d", d);
       hud(`Δ ${Math.round(dx)}, ${Math.round(dy)} px`, event);
-    } else if (current.kind === "rectangle") {
-      const [x0, y0, x1, y1] = marqueeBox(current, event);
-      setDrag(`M${x0} ${y0}H${x1}V${y1}H${x0}Z`);
-      hud(`${Math.round(x1 - x0)} × ${Math.round(y1 - y0)} px`, event);
-    } else if (current.kind === "ellipse") {
-      const [x0, y0, x1, y1] = marqueeBox(current, event);
-      setDrag(ellipsePath(x0, y0, x1, y1));
-      hud(`${Math.round(x1 - x0)} × ${Math.round(y1 - y0)} px`, event);
+    } else if (isMarquee(current.kind)) {
+      drawMarquee(current, event);
     } else if (current.kind === "lasso") {
       current.points.push(point);
       setDrag("M" + current.points.map((p) => `${p[0]} ${p[1]}`).join("L"));
@@ -3094,6 +3115,11 @@
       }
       return;
     }
+    if (gesture && gesture.carry && gesture.carry.id === event.pointerId) {
+      // The carrying finger lifts: the shape stays where it was put, and the drawing goes on
+      gesture.carry.id = null;
+      return;
+    }
     if (!gesture || event.pointerId !== gesture.id) return;
     const current = gesture;
     gesture = null;
@@ -3104,7 +3130,7 @@
     ui.stage.classList.remove("is-panning", "is-marquee");
     if (event.pointerType === "touch") ui.brushRing.setAttribute("hidden", "");
     const cancelled = event.type === "pointercancel";
-    const point = cancelled ? current.last : toDoc(event);
+    const point = cancelled ? current.last : carried(current, toDoc(event));
     const { kind, mode } = current;
     if (smartLines.length) {
       smartLines = [];
