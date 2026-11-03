@@ -4015,7 +4015,11 @@
         const layer = activeLayer();
         if (layer) ops.setLayerProps(layer.id, { locked: !layer.locked }, layer.locked ? "Unlock Layer" : "Lock Layer");
       }),
-      iconButton("folder", T("New group"), false, () => ops.newGroup(T("Group"))),
+      // As in Photoshop: several layers chosen go into the new group, otherwise it starts empty
+      iconButton("folder", T("New group"), false, () => {
+        if (activeLayers().filter((layer) => !layer.isBackground).length > 1) ops.groupLayers(T("Group"));
+        else ops.newGroup(T("Group"));
+      }),
       iconButton("plus", T("New layer"), false, () => ops.newLayer(nextLayerName())),
       iconButton("copy", T("Duplicate layer"), false, () => ops.duplicateLayers()),
       iconButton("trash", T("Delete layer"), false, () => ops.deleteLayers()),
