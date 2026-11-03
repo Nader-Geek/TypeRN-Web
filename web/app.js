@@ -3243,7 +3243,11 @@
         const additive = event.shiftKey || event.metaKey || event.ctrlKey;
         if (hit && !doc.state.activeIds.includes(hit.id)) ops.selectLayer(hit.id, additive);
         else if (hit && additive) ops.selectLayer(hit.id, true);
-        if (!hit) return;
+        // A click beside every layer drops the active ones, as the selection tools drop theirs
+        if (!hit) {
+          if (!additive) ops.clearActiveLayers();
+          return;
+        }
       }
       if (!doc.state.activeIds.length) return;
       const ids = ops.beginLiveMove(doc.state.activeIds);
