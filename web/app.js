@@ -2722,6 +2722,8 @@
     if (pointers.size === 2) {
       const [a, b] = Array.from(pointers.values());
       pinch = { distance: Math.hypot(a[0] - b[0], a[1] - b[1]), mid: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], zoom: view().zoom, from: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], gap: Math.hypot(a[0] - b[0], a[1] - b[1]) };
+      // While two fingers look at the page, the frame and its handles step aside
+      ui.stage.classList.add("is-pinching");
       if (gesture && gesture.kind === "stroke") ops.endStroke();
       if (gesture && gesture.kind === "move") ops.endLiveMove(false);
       gesture = null;
@@ -3075,6 +3077,7 @@
     pointers.delete(event.pointerId);
     if (pointers.size < 2 && pinch) {
       pinch = null;
+      ui.stage.classList.remove("is-pinching");
       schedule(false);
     }
     if (multi && !pointers.size) {
