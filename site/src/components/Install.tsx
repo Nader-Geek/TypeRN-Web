@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import CopyButton from "./CopyButton";
 import { INSTALL, LINKS } from "../data/content";
+import { openDownloads } from "./Downloads";
 
 type Os = "win" | "mac";
 
@@ -124,12 +125,17 @@ export default function Install() {
 
         <div className="webcard">
           <div>
-            <p className="dl__title">No Photoshop? Use the web version</p>
-            <p className="webcard__text">Nothing to install. The real TypeR panel in a Photoshop-like workspace, right in your browser. It opens and saves PSD files, and everything stays on your computer.</p>
+            <p className="dl__title">No Photoshop? Use TypeR Studio</p>
+            <p className="webcard__text">A free, lightweight Photoshop-like app made for lettering, with the real TypeR panel built in. It opens and saves PSD files, and everything stays on your computer. Rather not install anything? The web version runs right in your browser.</p>
           </div>
-          <a className="btn btn--line" href={LINKS.web}>
-            Online web version
-          </a>
+          <div className="webcard__cta">
+            <a className="btn btn--fill" href="#install" onClick={openDownloads}>
+              Download TypeR Studio
+            </a>
+            <a className="btn btn--line" href={LINKS.web}>
+              Online web version
+            </a>
+          </div>
         </div>
 
         <p className="install__all">

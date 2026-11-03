@@ -435,6 +435,8 @@ kbd { border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 
 .webcard { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px 40px; margin-top: 20px; padding: clamp(24px, 3vw, 36px); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .webcard > div { flex: 1 1 340px; }
 .webcard__text { margin-top: 8px; color: var(--muted); max-width: 62ch; }
+.webcard > .webcard__cta { flex: 0 1 auto; display: flex; flex-wrap: wrap; gap: 12px; }
+@media (max-width: 560px) { .webcard__cta .btn { flex: 1 1 100%; } }
 
 /* ---------- News: the home section, the feed and the posts ---------- */
 #nav-host { display: contents; }

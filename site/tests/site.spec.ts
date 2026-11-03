@@ -159,11 +159,13 @@ test("install: the command of each system, then the installers", async ({ page, 
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("get.sh | bash");
 
   await expect(install.getByRole("link", { name: "Online web version" })).toHaveAttribute("href", "/web/");
+  await install.getByRole("link", { name: "Download TypeR Studio" }).click();
+  await expect(page.getByRole("dialog", { name: "Download TypeR" })).toBeVisible();
 });
 
 test("one download, socials in the nav", async ({ page }) => {
   await page.goto("/");
-  const hrefs = await page.locator('#install a:has-text("Download")').evaluateAll((links) => links.map((a) => (a as HTMLAnchorElement).href));
+  const hrefs = await page.locator('#install .dl a:has-text("Download")').evaluateAll((links) => links.map((a) => (a as HTMLAnchorElement).href));
   expect(hrefs.length).toBeGreaterThan(0);
   for (const href of hrefs) expect(href).toBe(DOWNLOAD);
   await expect(page.locator('a[href$=".ccx"]')).toHaveCount(0);
