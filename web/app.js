@@ -61,11 +61,13 @@
     rectangle: SVG('<rect x="4" y="6" width="16" height="12" stroke-dasharray="3 2.400"/>'),
     ellipse: SVG('<ellipse cx="12" cy="12" rx="8.500" ry="6.500" stroke-dasharray="3 2.400"/>'),
     lasso: SVG('<path d="M5 11c0-3.500 3.200-6 7-6s7 2.500 7 6-3.200 5.500-7 5.500c-1 0-2-.1-2.900-.4M7.600 15c-1.600-.9-2.600-2.300-2.600-4M9 16c0 2-1.200 3.500-3 4"/>'),
+    polygon: SVG('<path d="M9 16.500 5 12l3-7 11 2.500-3 8ZM9 16.500c0 1.800-1.200 3-3 3.500"/>'),
     wand: SVG('<path d="m4 20 9-9m1.500-1.500 2-2M15 3v3m6 3h-3m.5-5.500-2 2M19 15l-1.500-1.500M12 7.500 10.500 6"/>'),
     brush: SVG('<path d="M14 5.500 18.500 10M4 20c3.500 0 5-.8 6-2.200 1-1.400.6-3-.6-3.900-1.300-1-3-.6-3.900.7C4.600 16 5 18 4 20ZM10 13.500 19.800 3.700a1.500 1.500 0 0 1 2.100 2.100L12 15.500"/>'),
     eraser: SVG('<path d="m8 20-4.300-4.300a1.500 1.500 0 0 1 0-2.100L13.600 3.700a1.500 1.500 0 0 1 2.100 0l4.600 4.600a1.500 1.500 0 0 1 0 2.100L10 20Zm0 0h12M8.500 8.800l6.700 6.700"/>'),
     crop: SVG('<path d="M7 2v15h15M2 7h15v15"/>'),
     stamp: SVG('<path d="M9.500 13.500c0-2-1.500-3-1.500-5.500a4 4 0 0 1 8 0c0 2.500-1.500 3.500-1.500 5.500M5 13.500h14V17H5zM7 20.500h10"/>'),
+    clean: SVG('<path d="M12 4c4.700 0 8 2.700 8 6s-3.300 6-8 6c-.8 0-1.600-.1-2.300-.2L5.500 19l.8-3.900C4.800 14 4 12.400 4 10c0-3.300 3.300-6 8-6Z"/><path d="m12 7 .8 2.200L15 10l-2.200.8L12 13l-.8-2.200L9 10l2.200-.8Z"/>'),
     eyedropper: SVG('<path d="M4 20c0-2 .5-3 1.500-4L14 7.500l2.500 2.500-8.500 8.500c-1 1-2 1.500-4 1.500ZM13 6.500l1.500-1.500 1-1a2.100 2.100 0 0 1 3 3l-1 1-1.500 1.500M12 5.500l6.500 6.500"/>'),
     text: SVG('<path d="M5 6V4h14v2M12 4v16M9 20h6"/>'),
     hand: SVG('<path d="M8 12V5.500a1.500 1.500 0 0 1 3 0V11m0-1V4.500a1.500 1.500 0 0 1 3 0V11m0-5a1.500 1.500 0 0 1 3 0v6m0-3a1.500 1.500 0 0 1 3 0v5.500a6.500 6.500 0 0 1-6.500 6.500H12a6 6 0 0 1-5-2.700L3.800 14a1.500 1.500 0 0 1 2.500-1.600L8 14.500"/>'),
@@ -78,6 +80,7 @@
     trash: SVG('<path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/>'),
     copy: SVG('<rect x="8" y="8" width="12" height="12"/><path d="M4 16V4h12"/>'),
     lock: SVG('<rect x="5" y="11" width="14" height="9"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>'),
+    textSize: SVG('<path d="M3 7V5h10v2M8 5v14M6 19h4M14 12v-1.500h7V12M17.500 10.500V19M16 19h3"/>'),
     alignLeft: SVG('<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>'),
     alignCenter: SVG('<path d="M4 6h16M7 10h10M4 14h16M7 18h10"/>'),
     alignRight: SVG('<path d="M4 6h16M10 10h10M4 14h16M10 18h10"/>'),
@@ -113,6 +116,7 @@
     shrink: SVG('<rect x="4" y="4" width="16" height="16" stroke-dasharray="2 2"/><path d="M9 5v4H5M15 5v4h4M19 15h-4v4M5 15h4v4"/>'),
     fill: SVG('<path d="m5 12 7-7 7 7-7 7ZM20 17c.8 1 1 1.700 1 2.300a1.500 1.500 0 0 1-3 0c0-.6.200-1.300 2-2.300ZM5 12h14"/>'),
     paste: SVG('<path d="M12 4v10M8 10l4 4 4-4M4 20h16"/>'),
+    tap: SVG('<path d="M10 21.500 6.800 17.700a1.500 1.500 0 0 1 2.300-1.900l1.400 1.400V10a1.500 1.500 0 0 1 3 0v4.500H17a2.500 2.500 0 0 1 2.500 2.500v4.500M12 2.500v2.200M7.500 4.300l1.300 1.300M16.500 4.300l-1.300 1.300"/>'),
     heart: SVG('<path d="M12 20s-8-5-8-11a4.500 4.500 0 0 1 8-2.800A4.500 4.500 0 0 1 20 9c0 6-8 11-8 11Z"/>'),
   };
 
@@ -553,6 +557,8 @@
   const docCanvas = document.createElement("canvas");
   let checker = null;
   let stageW = 0;
+  // Where the selected text is on screen, for the contextual task bar (drawOverlay sets it)
+  let taskBarBox = null;
   let stageH = 0;
 
   const dpr = () => window.devicePixelRatio || 1;
@@ -699,6 +705,7 @@
     }
     blit();
     drawOverlay();
+    placeTaskBar();
   };
   const schedule = (compose, rect) => {
     if (compose) {
@@ -752,6 +759,8 @@
 
   // Fingers get bigger handles, and reach them from further away
   const handleSize = () => (Shell.touch ? 13 : 7);
+  // How far a text's frame stands off its letters, on the screen
+  const TEXT_PAD = () => (Shell.touch ? 7 : 5);
   // Corners: the size of the text. Sides: the text box.
   const HANDLES = [["nw", 0, 0], ["n", 0.5, 0], ["ne", 1, 0], ["e", 1, 0.5], ["se", 1, 1], ["s", 0.5, 1], ["sw", 0, 1], ["w", 0, 0.5]];
   const HANDLE_CURSOR = { nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize", sw: "nesw-resize", n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize" };
@@ -772,7 +781,26 @@
     const layer = doc.state.layers.find((item) => item.id === warping);
     return layer && layer.warp ? layer : null;
   };
-  const drawSurface = ({ warp }) => {
+  // Around a surface, a drag turns it: the zone lies along its top edge, around all of it
+  const surfaceTurnControls = (layer) => {
+    const { at } = PS.surfaceOf(layer.warp);
+    const angle = PS.turnOf(layer);
+    const u = [Math.cos(angle), Math.sin(angle)];
+    const v = [-u[1], u[0]];
+    const points = [];
+    for (let i = 0; i <= 24; i++) points.push(at(i / 24, 0), at(i / 24, 1), at(0, i / 24), at(1, i / 24));
+    const along = (p, axis) => p[0] * axis[0] + p[1] * axis[1];
+    const us = points.map((p) => along(p, u));
+    const vs = points.map((p) => along(p, v));
+    const [u0, u1, v0, v1] = [Math.min(...us), Math.max(...us), Math.min(...vs), Math.max(...vs)];
+    const pivot = [u[0] * (u0 + u1) / 2 + v[0] * (v0 + v1) / 2, u[1] * (u0 + u1) / 2 + v[1] * (v0 + v1) / 2];
+    const zoom = view().zoom;
+    const pad = TEXT_PAD();
+    return { center: toScreen(pivot[0], pivot[1]), u, v, hw: ((u1 - u0) / 2) * zoom + pad, hh: ((v1 - v0) / 2) * zoom + pad, pivot };
+  };
+  const drawSurface = (layer) => {
+    const { warp } = layer;
+    if (!Shell.touch) turnControls = surfaceTurnControls(layer);
     const { at } = PS.surfaceOf(warp);
     const line = (points) => points.map((point, index) => {
       const [x, y] = toScreen(point[0], point[1]);
@@ -918,6 +946,8 @@
     handleBoxes = [];
     ui.box.setAttribute("hidden", "");
     pixelControls = null;
+    turnControls = null;
+    taskBarBox = null;
     const turning = transformOf();
     if (turning) drawTransform(turning);
     drawSmartLines();
@@ -960,13 +990,22 @@
     });
     if (!isFinite(left)) return;
     const shift = live ? [live.dx, live.dy] : [0, 0];
-    const [x0, y0] = toScreen(left + shift[0], top + shift[1]);
-    const [x1, y1] = toScreen(right + shift[0], bottom + shift[1]);
+    // A text's frame stands a little off its letters: its handles stay clear of them, and the
+    // text can be seen whole to centre it in its bubble
+    const texts = list.every((layer) => layer.kind === "text");
+    const pad = texts ? TEXT_PAD() : 0;
+    const [ax, ay] = toScreen(left + shift[0], top + shift[1]);
+    const [bx, by] = toScreen(right + shift[0], bottom + shift[1]);
+    const x0 = ax - pad;
+    const y0 = ay - pad;
+    const x1 = bx + pad;
+    const y1 = by + pad;
     ui.box.setAttribute("x", Math.round(x0) + 0.5);
     ui.box.setAttribute("y", Math.round(y0) + 0.5);
     ui.box.setAttribute("width", Math.max(1, Math.round(x1 - x0)));
     ui.box.setAttribute("height", Math.max(1, Math.round(y1 - y0)));
     ui.box.removeAttribute("hidden");
+    if (texts) taskBarBox = { x0, y0, x1, y1 };
     // The move tool's way into Free Transform, for pixel layers
     if (settings.transformControls && !Shell.touch && !typing && list.every((layer) => layer.kind === "raster" && !layer.locked && !layer.adjustment)) {
       const SIZE = handleSize();
@@ -982,19 +1021,38 @@
       pixelControls = { x0, y0, x1, y1 };
       return;
     }
-    // A rotated text from a PSD only moves: its handles would be those of a straight text.
-    // A text in perspective gets them too: they grow or stretch its surface (see "surface").
-    if (list.length !== 1 || list[0].kind !== "text" || list[0].rotated) return;
-    const HANDLE = handleSize();
-    const roomy = x1 - x0 > (Shell.touch ? 64 : 26) && y1 - y0 > (Shell.touch ? 64 : 26);
-    handleArea = Math.min(x1 - x0, y1 - y0);
-    HANDLES.forEach(([kind, fx, fy]) => {
-      if (!roomy && kind.length === 1) return;
-      const x = x0 + (x1 - x0) * fx;
-      const y = y0 + (y1 - y0) * fy;
-      svgEl("rect", { class: "handle", x: Math.round(x - HANDLE / 2) + 0.5, y: Math.round(y - HANDLE / 2) + 0.5, width: HANDLE, height: HANDLE }, ui.handles);
-      handleBoxes.push({ x, y, kind });
-    });
+    // A text in perspective gets handles too: they grow or stretch its surface (see "surface")
+    if (list.length !== 1 || list[0].kind !== "text") return;
+    // Show Transform Controls off: the move tool leaves a text its frame, without handles to
+    // scale or turn it. Typing in it still shows them, as in Photoshop.
+    const bare = !typing && !Shell.touch && !settings.transformControls;
+    // Just outside a corner, as in Photoshop, a drag turns the text
+    const turnable = app.tool === "move" && !typing && !bare;
+    if (list[0].rotated) {
+      drawTurnedText(list[0], shift, live, turnable, bare);
+      return;
+    }
+    // While it moves, only its frame: nothing in the way of the bubble it's being centred in
+    if (live) return;
+    if (turnable) {
+      // Turned around the middle of its frame, which then stays where it is. In perspective,
+      // around the middle of the surface's box.
+      const f = PS.frameOf(list[0], doc);
+      const [cx, cy] = list[0].warp ? [f.left + f.width / 2, f.top + f.height / 2] : PS.turnedFrame(list[0], doc).center;
+      turnControls = { center: [(x0 + x1) / 2, (y0 + y1) / 2], u: [1, 0], v: [0, 1], hw: (x1 - x0) / 2, hh: (y1 - y0) / 2, corners: [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], pivot: [cx + shift[0], cy + shift[1]] };
+    }
+    if (!bare) {
+      const HANDLE = handleSize();
+      const roomy = x1 - x0 > (Shell.touch ? 64 : 26) && y1 - y0 > (Shell.touch ? 64 : 26);
+      handleArea = Math.min(x1 - x0, y1 - y0);
+      HANDLES.forEach(([kind, fx, fy]) => {
+        if (!roomy && kind.length === 1) return;
+        const x = x0 + (x1 - x0) * fx;
+        const y = y0 + (y1 - y0) * fy;
+        svgEl("rect", { class: "handle", x: Math.round(x - HANDLE / 2) + 0.5, y: Math.round(y - HANDLE / 2) + 0.5, width: HANDLE, height: HANDLE }, ui.handles);
+        handleBoxes.push({ x, y, kind });
+      });
+    }
     // Text that doesn't fit: Photoshop's little red plus, on the bottom right corner
     if (PS.layoutLayer(list[0], doc).overflow) {
       const mx = Math.round(x1) + 0.5;
@@ -1002,6 +1060,55 @@
       svgEl("rect", { class: "handle handle--over", x: mx - 5, y: my - 5, width: 10, height: 10 }, ui.handles);
       svgEl("path", { class: "handle__plus", d: `M${mx - 3} ${my}H${mx + 3}M${mx} ${my - 3}V${my + 3}` }, ui.handles);
     }
+  };
+
+  // A turned text: its frame turns with it, and only its corners scale it, around its middle
+  const TURNED_CORNERS = ["nw", "ne", "se", "sw"];
+  const drawTurnedText = (layer, shift, live, turnable, bare) => {
+    const t = PS.turnedFrame(layer, app.doc);
+    const points = t.corners.map(([x, y]) => toScreen(x + shift[0], y + shift[1]));
+    const unit = ([x, y], fallback) => {
+      const length = Math.hypot(x, y);
+      return length > 1e-6 ? [x / length, y / length] : fallback;
+    };
+    const u = unit([points[1][0] - points[0][0], points[1][1] - points[0][1]], [Math.cos(t.angle), Math.sin(t.angle)]);
+    const v = unit([points[3][0] - points[0][0], points[3][1] - points[0][1]], [-Math.sin(t.angle), Math.cos(t.angle)]);
+    const pad = TEXT_PAD();
+    const SIGNS = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+    const corners = points.map(([x, y], index) => {
+      const [su, sv] = SIGNS[index];
+      return [x + pad * (su * u[0] + sv * v[0]), y + pad * (su * u[1] + sv * v[1])];
+    });
+    ui.box.setAttribute("hidden", "");
+    svgEl("path", { class: "transform-frame", d: `M${corners.map(([x, y]) => `${x} ${y}`).join("L")}Z` }, ui.handles);
+    if (live) return;
+    const [mx, my] = toScreen(t.center[0] + shift[0], t.center[1] + shift[1]);
+    const hw = Math.hypot(corners[1][0] - corners[0][0], corners[1][1] - corners[0][1]) / 2;
+    const hh = Math.hypot(corners[3][0] - corners[0][0], corners[3][1] - corners[0][1]) / 2;
+    if (turnable) turnControls = { center: [mx, my], u, v, hw, hh, corners, pivot: [t.center[0] + shift[0], t.center[1] + shift[1]] };
+    const HANDLE = handleSize();
+    const degrees = (Math.atan2(u[1], u[0]) * 180) / Math.PI;
+    handleArea = Math.min(hw, hh) * 2;
+    if (!bare) corners.forEach(([x, y], index) => {
+      svgEl("rect", { class: "handle handle--turned", x: x - HANDLE / 2, y: y - HANDLE / 2, width: HANDLE, height: HANDLE, transform: `rotate(${degrees} ${x} ${y})` }, ui.handles);
+      handleBoxes.push({ x, y, kind: TURNED_CORNERS[index], angle: t.angle });
+    });
+    if (PS.layoutLayer(layer, app.doc).overflow) {
+      const [ox, oy] = corners[2];
+      svgEl("rect", { class: "handle handle--over handle--turned", x: ox - 5, y: oy - 5, width: 10, height: 10, transform: `rotate(${degrees} ${ox} ${oy})` }, ui.handles);
+      svgEl("path", { class: "handle__plus", d: `M${ox - 3} ${oy}H${ox + 3}M${ox} ${oy - 3}V${oy + 3}`, transform: `rotate(${degrees} ${ox} ${oy})` }, ui.handles);
+    }
+  };
+  // The arrows of a handle point out of the frame, as turned as it is
+  const handleCursor = (over) => {
+    if (!over.angle) return HANDLE_CURSOR[over.kind] || "grab";
+    const [fx, fy] = HANDLE_SIDES[over.kind];
+    const x = Math.sign(fx);
+    const y = Math.sign(fy);
+    const cos = Math.cos(over.angle);
+    const sin = Math.sin(over.angle);
+    const degrees = (Math.atan2(x * sin + y * cos, x * cos - y * sin) * 180) / Math.PI;
+    return RESIZE_CURSORS[Math.round((((degrees % 180) + 180) % 180) / 45) % 4];
   };
 
   /* ---- smart guides ---- */
@@ -1089,7 +1196,32 @@
   // Nothing changes until it is applied: the layers are only drawn through a matrix.
   // Any change to the document from elsewhere ends it.
   let transform = null;
-  const ROTATE_CURSOR = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath stroke='%23fff' stroke-width='4' d='M6 8a8 8 0 0 1 12 0M6 8V4M6 8h4M18 16a8 8 0 0 1-12 0M18 16v4M18 16h-4'/%3E%3Cpath stroke='%23000' stroke-width='1.500' d='M6 8a8 8 0 0 1 12 0M6 8V4M6 8h4M18 16a8 8 0 0 1-12 0M18 16v4M18 16h-4'/%3E%3C/svg%3E") 12 12, alias`;
+  // Photoshop's: a bent arrow with a head at each end, bowed out toward where the pointer is
+  // around the frame. Drawn for the top (0°), turned by eighths of a turn for the others.
+  const ROTATE_ARROW = "M6.300 12.800Q12 4.500 17.700 12.800";
+  const ROTATE_HEADS = "M3.500 15.800 4.300 10.800 8.300 13.900ZM20.500 15.800 19.700 10.800 15.700 13.900Z";
+  const rotateCursors = new Map();
+  const rotateCursor = (degrees) => {
+    const turn = (((Math.round(degrees / 45) * 45) % 360) + 360) % 360;
+    if (!rotateCursors.has(turn)) {
+      const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'><g transform='rotate(${turn} 12 12)'><path stroke='#fff' stroke-width='4' d='${ROTATE_ARROW}'/><path stroke='#fff' stroke-width='3' fill='#fff' d='${ROTATE_HEADS}'/><path stroke='#000' stroke-width='1.5' d='${ROTATE_ARROW}'/><path stroke='#000' stroke-width='1' fill='#000' d='${ROTATE_HEADS}'/></g></svg>`;
+      rotateCursors.set(turn, `url("data:image/svg+xml,${encodeURIComponent(svg)}") 12 12, alias`);
+    }
+    return rotateCursors.get(turn);
+  };
+  // Where a point is around a frame (centre, axes u and v, half sizes), in eighths of a turn:
+  // 0 above it, 45 at its top right, 90 on its right... with the frame's own turn added
+  const ROUND_FRAME = { "0,-1": 0, "1,-1": 45, "1,0": 90, "1,1": 135, "0,1": 180, "-1,1": 225, "-1,0": 270, "-1,-1": 315 };
+  const sideOfFrame = (pu, pv, hw, hh, u) => {
+    const key = `${pu > hw ? 1 : pu < -hw ? -1 : 0},${pv > hh ? 1 : pv < -hh ? -1 : 0}`;
+    const base = key in ROUND_FRAME ? ROUND_FRAME[key] : (Math.atan2(pu, -pv) * 180) / Math.PI;
+    return base + (Math.atan2(u[1], u[0]) * 180) / Math.PI;
+  };
+  // Angles to the tenth, between -180° and 180°
+  const shownAngle = (degrees) => {
+    const rounded = Math.round(((((degrees + 180) % 360) + 360) % 360 - 180) * 10) / 10;
+    return `${rounded || 0}°`;
+  };
   const RESIZE_CURSORS = ["ew-resize", "nwse-resize", "ns-resize", "nesw-resize"];
   const HANDLE_SIDES = { nw: [-0.5, -0.5], n: [0, -0.5], ne: [0.5, -0.5], e: [0.5, 0], se: [0.5, 0.5], s: [0, 0.5], sw: [-0.5, 0.5], w: [-0.5, 0] };
   const endTransform = () => {
@@ -1138,16 +1270,25 @@
   const canTransform = () => ops.transformableIds().length > 0;
   // Just outside a corner of the move tool's controls is where a drag turns the layer
   let pixelControls = null;
+  // The same for a text, whose frame may already be turned
+  let turnControls = null;
+  // All around the frame, a little outside it: by a side as by a corner, as in Photoshop.
+  // Gives the cursor to show there, or null.
   const ROTATE_REACH = 22;
-  const inRotateZone = (event) => {
-    if (!pixelControls) return false;
+  const rotateZoneCursor = (event) => {
+    const controls = pixelControls ? { center: [(pixelControls.x0 + pixelControls.x1) / 2, (pixelControls.y0 + pixelControls.y1) / 2], u: [1, 0], v: [0, 1], hw: (pixelControls.x1 - pixelControls.x0) / 2, hh: (pixelControls.y1 - pixelControls.y0) / 2 } : turnControls;
+    if (!controls) return null;
     const rect = ui.stage.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    const { x0, y0, x1, y1 } = pixelControls;
-    if (x >= x0 && x <= x1 && y >= y0 && y <= y1) return false;
-    return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].some(([cx, cy]) => Math.hypot(x - cx, y - cy) <= ROTATE_REACH);
+    const dx = event.clientX - rect.left - controls.center[0];
+    const dy = event.clientY - rect.top - controls.center[1];
+    const { u, v, hw, hh } = controls;
+    const pu = dx * u[0] + dy * u[1];
+    const pv = dx * v[0] + dy * v[1];
+    const out = Math.hypot(Math.max(0, Math.abs(pu) - hw), Math.max(0, Math.abs(pv) - hh));
+    if (!out || out > ROTATE_REACH) return null;
+    return rotateCursor(sideOfFrame(pu, pv, hw, hh, u));
   };
+  const inRotateZone = (event) => Boolean(rotateZoneCursor(event));
   const beginTransform = () => {
     if (transformOf()) return true;
     if (warpedLayer()) leaveSurface();
@@ -1245,7 +1386,13 @@
       const degrees = (Math.atan2(x * sin + y * cos, x * cos - y * sin) * 180) / Math.PI;
       return RESIZE_CURSORS[Math.round((((degrees % 180) + 180) % 180) / 45) % 4];
     }
-    return inTransform(t, toDoc(event)) ? "move" : ROTATE_CURSOR;
+    if (inTransform(t, toDoc(event))) return "move";
+    const [x, y] = toDoc(event);
+    const cos = Math.cos(t.angle);
+    const sin = Math.sin(t.angle);
+    const dx = x - t.cx;
+    const dy = y - t.cy;
+    return rotateCursor(sideOfFrame(dx * cos + dy * sin, -dx * sin + dy * cos, Math.abs(t.base.width * t.sx) / 2, Math.abs(t.base.height * t.sy) / 2, [cos, sin]));
   };
   // Scaling keeps the opposite handle where it is, or the middle with Ctrl, Cmd or Alt, which
   // leaves the smart guides on: here, Ctrl has a job of its own. Every handle keeps
@@ -1282,8 +1429,7 @@
       let degrees = ((from.angle + now - before) * 180) / Math.PI;
       if (event.shiftKey) degrees = Math.round(degrees / 15) * 15;
       t.angle = (degrees * Math.PI) / 180;
-      const shown = ((Math.round(degrees * 10) / 10 + 180) % 360 + 360) % 360 - 180;
-      hud(`${shown}°`, event);
+      hud(shownAngle(degrees), event);
     } else {
       const [hx, hy] = HANDLE_SIDES[mode];
       const cos = Math.cos(from.angle);
@@ -1351,7 +1497,8 @@
       t.keep = on;
       document.activeElement.blur();
     }));
-    field(T("Angle"), (t.angle * 180) / Math.PI, (now, value) => { now.angle = (value * Math.PI) / 180; });
+    const degrees = (t.angle * 180) / Math.PI;
+    bar.appendChild(scrubbed(T("Angle"), numberInput(Number.parseFloat(shownAngle(degrees)), undefined, undefined, live((now, value) => { now.angle = (value * Math.PI) / 180; }))));
     const press = (text, title, className, action) => {
       const button = document.createElement("button");
       button.type = "button";
@@ -1554,12 +1701,14 @@
     ["rectangle", "Rectangular Marquee", "M"],
     ["ellipse", "Elliptical Marquee", "Shift+M"],
     ["lasso", "Lasso", "L"],
+    ["polygon", "Polygonal Lasso", "Shift+L"],
     ["wand", "Magic Wand", "W"],
     ["crop", "Crop", "C"],
     null,
     ["brush", "Brush", "B"],
     ["eraser", "Eraser", "E"],
     ["stamp", "Clone Stamp", "S"],
+    ["clean", "Bubble Cleaner", "J"],
     ["eyedropper", "Eyedropper", "I"],
     ["text", "Type", "T"],
     null,
@@ -1572,15 +1721,25 @@
     rectangle: "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.",
     ellipse: "Drag. Shift while dragging: a circle. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.",
     lasso: "Draw around an area. Shift before: add, Alt before: subtract.",
+    polygon: "Click to place each corner. Shift: 45° steps. Alt held: draw freehand. Close: click the first corner, double-click or Enter. Backspace: remove the last corner. Esc: cancel. Shift before: add, Alt before: subtract.",
     wand: "Click a bubble: TypeR pastes the next line in it. Shift: add, Alt: subtract.",
     crop: "Drag the edges, or draw a new frame. Shift: keep the proportions. Alt: from the centre. Enter: crop. Esc: cancel.",
     brush: "Paints on the active pixel layer. [ ]: size. Alt: eyedropper. Alt + right-drag: size / hardness.",
     eraser: "Erases on the active pixel layer. [ ]: size. Alt + right-drag: size / hardness.",
     stamp: "Alt + click: where to clone from. Then paint. [ and ] change the size. Alt + right-drag: size / hardness.",
+    clean: "Click a bubble: its text goes, painted over in the bubble's own colours, whatever they are. Drag a box: only inside it, for text on a plain background.",
     eyedropper: "Click to pick the foreground colour. Alt: the background colour.",
     text: "Click a text to edit it, click elsewhere to add one, drag to draw a text box. Esc or Cmd+Enter to finish.",
     hand: "Drag to pan. Space works with every tool.",
     zoom: "Click to zoom in, Alt to zoom out.",
+  };
+
+  // The Polygonal Lasso's outline being drawn, kept from one click to the next
+  let polygon = null;
+  const cancelPolygon = () => {
+    if (!polygon) return;
+    polygon = null;
+    setDrag("");
   };
 
   const setTool = (tool) => {
@@ -1588,6 +1747,7 @@
     // A frame worked on is cropped on the way out. One that only opened on a selection isn't.
     commitTransform();
     hideStampPreview();
+    cancelPolygon();
     if (app.tool === "crop" && tool !== "crop") {
       if (crop && crop.edited) commitCrop();
       crop = null;
@@ -1692,7 +1852,7 @@
 
   /* ---------------------------- the options bar --------------------------- */
 
-  const SELECTION_TOOLS = new Set(["rectangle", "ellipse", "lasso", "wand"]);
+  const SELECTION_TOOLS = new Set(["rectangle", "ellipse", "lasso", "polygon", "wand"]);
 
   const labelled = (text, control) => {
     const label = document.createElement("label");
@@ -1795,10 +1955,15 @@
     if (min !== undefined) input.min = min;
     if (max !== undefined) input.max = max;
     if (step) input.step = step;
-    input.addEventListener("change", () => onChange(Number(input.value)));
+    // What is typed past min or max shows the limit, as Photoshop does: 150 in Opacity reads 100
+    const bounded = () => {
+      if (input.value !== "") input.value = withinLimits(input, Number(input.value));
+      return Number(input.value);
+    };
+    input.addEventListener("change", () => onChange(bounded()));
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
-        onChange(Number(input.value));
+        onChange(bounded());
         input.blur();
       }
       if (event.key === "ArrowUp" || event.key === "ArrowDown") {
@@ -1806,7 +1971,7 @@
         const delta = (event.key === "ArrowUp" ? 1 : -1) * (event.shiftKey ? 10 : 1);
         const next = Number(input.value) + delta;
         input.value = Math.round(next * 100) / 100;
-        onChange(Number(input.value));
+        onChange(bounded());
       }
     });
     return input;
@@ -2071,7 +2236,7 @@
   };
 
   const STORE_SETTINGS = "typer.web.settings";
-  const settings = { wheel: "pan", smartGuides: true, snapText: false, transformControls: true, spellcheck: true };
+  const settings = { wheel: "pan", smartGuides: true, snapText: false, transformControls: true, spellcheck: true, taskBar: true };
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORE_SETTINGS)) || {};
     // On a Mac a mouse can't be told from a trackpad, so "auto" isn't offered there
@@ -2083,6 +2248,7 @@
     if (saved.snapText === true) settings.snapText = true;
     if (saved.spellcheck === false) settings.spellcheck = false;
     if (saved.transformControls === false) settings.transformControls = false;
+    if (saved.taskBar === false) settings.taskBar = false;
   } catch (error) {
     console.warn("TypeR web: could not read the settings", error);
   }
@@ -2090,7 +2256,7 @@
     const d = app.textDefaults;
     try {
       // A language nobody chose keeps following the interface
-      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, ligature: d.ligature, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
+      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, taskBar: settings.taskBar ? undefined : false, ligature: d.ligature, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
     } catch (error) {
       console.warn("TypeR web: could not keep the settings", error);
     }
@@ -2290,7 +2456,88 @@
     fullScreen.title = title;
     fullScreen.setAttribute("aria-label", title);
     fullScreen.setAttribute("aria-pressed", String(on));
+    // In full screen, Escape cancels Free Transform, a crop or a menu, as in Photoshop:
+    // the browser then leaves full screen only when it's held. Chromium alone does this;
+    // Safari and Firefox keep leaving on the first press.
+    const keyboard = navigator.keyboard;
+    if (!keyboard || !keyboard.lock) return;
+    if (on) keyboard.lock(["Escape"]).catch((error) => console.warn("TypeR web: Escape stays the browser's", error));
+    else keyboard.unlock();
   });
+
+
+  /* ---------------------------- contextual task bar ---------------------------- */
+
+  // As in Photoshop, the main controls of the selected text float just under it: font, size,
+  // colour, alignment. Fewer than Photoshop's, and one click hides it (Window > Contextual
+  // Task Bar brings it back). It follows the text, and steps aside during a drag.
+  const taskBar = $("ctxbar");
+  let taskBarKey = "";
+  const setTaskBar = (on) => {
+    settings.taskBar = on;
+    keepSettings();
+    taskBarKey = "";
+    schedule(false);
+    if (!on) toast(fill(T("Contextual task bar hidden. {menu} shows it again."), { menu: `${T("Window")} > ${T("Contextual Task Bar")}` }));
+  };
+  const buildTaskBar = () => {
+    const c = textControls(taskBar, true);
+    const sizeIcon = scrubbed("", c.size);
+    sizeIcon.firstChild.classList.add("ctxbar__size");
+    sizeIcon.firstChild.innerHTML = ICON.textSize;
+    sizeIcon.firstChild.setAttribute("aria-label", T("Size"));
+    const separator = () => {
+      const line = document.createElement("span");
+      line.className = "ctxbar__sep";
+      return line;
+    };
+    // Its own alignments: the bar keeps to the three that a typesetter uses all day
+    const paragraph = c.layer.params.layerText.paragraphStyleRange[0].paragraphStyle;
+    const aligns = document.createElement("span");
+    aligns.className = "obar__group";
+    [["left", "alignLeft", "Align left"], ["center", "alignCenter", "Centre"], ["right", "alignRight", "Align right"]].forEach(([value, icon, title]) => {
+      aligns.appendChild(iconButton(icon, T(title), (paragraph.alignment || "center") === value, () => applyTextPatch(null, { alignment: value })));
+    });
+    const hide = iconButton("close", T("Hide the contextual task bar"), false, () => setTaskBar(false));
+    hide.classList.add("ctxbar__hide");
+    taskBar.textContent = "";
+    taskBar.setAttribute("aria-label", T("Contextual Task Bar"));
+    taskBar.append(c.family, sizeIcon, c.color, separator(), aligns, separator(), hide);
+  };
+  const placeTaskBar = () => {
+    const box = taskBarBox;
+    const texts = box ? activeTexts() : [];
+    const moving = (gesture && gesture.moved) || (app.doc && app.doc.live);
+    if (!settings.taskBar || Shell.touch || !texts.length || moving) {
+      taskBar.hidden = true;
+      return;
+    }
+    const layer = texts[0];
+    const key = JSON.stringify([texts.map((item) => item.id), styleShown(layer), layer.params.layerText.paragraphStyleRange[0].paragraphStyle.alignment, Fonts.generation]);
+    const busy = scrubbing || (taskBar.contains(document.activeElement) && document.activeElement.tagName === "INPUT");
+    if (key !== taskBarKey && !busy) {
+      taskBarKey = key;
+      buildTaskBar();
+    }
+    taskBar.hidden = false;
+    // Under the text, or over it near the bottom, or inside the page's view as a last resort
+    const width = taskBar.offsetWidth;
+    const height = taskBar.offsetHeight;
+    const GAP = 12;
+    let top = box.y1 + GAP;
+    if (top + height > stageH - 8) top = box.y0 - GAP - height >= 8 ? box.y0 - GAP - height : stageH - height - 8;
+    const left = Math.max(8, Math.min(stageW - width - 8, (box.x0 + box.x1) / 2 - width / 2));
+    taskBar.style.left = `${Math.round(left)}px`;
+    taskBar.style.top = `${Math.round(Math.max(8, top))}px`;
+  };
+  // Pressing it leaves the text being typed as it is; the page under it doesn't see the click
+  taskBar.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+    if (!ui.editor.hidden && event.target.closest("button")) event.preventDefault();
+  });
+  taskBar.addEventListener("dblclick", (event) => event.stopPropagation());
+  taskBar.addEventListener("wheel", (event) => event.stopPropagation());
+  taskBar.addEventListener("contextmenu", (event) => event.stopPropagation());
 
   const renderOptions = () => {
     const bar = ui.options;
@@ -2330,6 +2577,10 @@
       bar.appendChild(scrubbed(T("Tolerance"), numberInput(app.tolerance, 0, 255, (value) => { app.tolerance = Math.max(0, Math.min(255, value)); })));
       bar.appendChild(checkbox(T("Contiguous"), app.contiguous !== false, (on) => { app.contiguous = on; }));
       bar.appendChild(checkbox(T("Sample all layers"), app.sampleAll, (on) => { app.sampleAll = on; }));
+    }
+    if (tool === "clean") {
+      bar.appendChild(scrubbed(T("Tolerance"), numberInput(app.cleanTolerance, 0, 255, (value) => { app.cleanTolerance = Math.max(0, Math.min(255, value)); })));
+      bar.appendChild(scrubbed(T("Margin"), numberInput(app.cleanMargin, 0, 20, (value) => { app.cleanMargin = Math.max(0, Math.min(20, value)); })));
     }
     if (tool === "move") {
       bar.appendChild(checkbox(T("Auto-select"), app.autoSelect, (on) => { app.autoSelect = on; }));
@@ -2452,7 +2703,7 @@
   // and fingers pan.
   let multi = null;
   let penSeen = false;
-  const DRAWN_TOOLS = new Set(["brush", "eraser", "rectangle", "ellipse", "lasso"]);
+  const DRAWN_TOOLS = new Set(["brush", "eraser", "rectangle", "ellipse", "lasso", "polygon"]);
   const isFinger = (event) => Shell.touch && event.pointerType !== "mouse";
 
   const selectionMode = (event) => {
@@ -2641,6 +2892,23 @@
 
   const isMarquee = (kind) => kind === "rectangle" || kind === "ellipse";
 
+  // The Bubble Cleaner, once the button is up: the bubble under a click, or what a box holds
+  const CLEAN_REFUSALS = {
+    open: "This area is open or too large for a bubble. Drag a box around the text instead.",
+    background: "Click the bubble itself, next to its text.",
+    nothing: "There is no text to clean here.",
+    plain: "This box has no plain background to clean.",
+  };
+  const cleanAt = (current, point, event) => {
+    let where = { x: point[0], y: point[1] };
+    if (current.moved) {
+      const [x0, y0, x1, y1] = marqueeBox(Object.assign({}, current, { last: point }), event);
+      where = { box: { left: x0, top: y0, right: x1, bottom: y1 } };
+    }
+    const result = ops.cleanBubble(where);
+    if (result.error && CLEAN_REFUSALS[result.error]) toast(T(CLEAN_REFUSALS[result.error]));
+  };
+
   // Space during a marquee carries it: both corners follow the pointer, the shape stays
   const carryMarquee = (current, point) => {
     if (!spacing || !isMarquee(current.kind)) return;
@@ -2684,6 +2952,69 @@
     schedule(true);
     current.kind = "stroke";
     return true;
+  };
+
+  // The polygonal lasso outlives a gesture: each click is a corner, and the outline closes on
+  // the first corner, on a double-click or with Enter, as in Photoshop.
+  const polygonReach = () => (Shell.touch ? 14 : 7) / view().zoom;
+  // With Shift, the side being drawn turns by steps of 45°
+  const polygonAim = (point, event) => {
+    if (!polygon || !event.shiftKey || polygon.freehand) return point;
+    const [x0, y0] = polygon.points[polygon.points.length - 1];
+    const dx = point[0] - x0;
+    const dy = point[1] - y0;
+    const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+    const length = Math.hypot(dx, dy) * Math.cos(Math.atan2(dy, dx) - angle);
+    return [x0 + length * Math.cos(angle), y0 + length * Math.sin(angle)];
+  };
+  const nearFirstCorner = (point) => polygon && polygon.points.length >= 3 && Math.hypot(point[0] - polygon.points[0][0], point[1] - polygon.points[0][1]) <= polygonReach();
+  const showPolygon = (pointer) => {
+    if (!polygon) return;
+    const all = pointer ? polygon.points.concat([pointer]) : polygon.points;
+    let d = "M" + all.map((p) => `${p[0]} ${p[1]}`).join("L");
+    // A ring around the first corner says a click there closes the outline
+    if (pointer && nearFirstCorner(pointer)) {
+      const r = polygonReach() * 0.7;
+      const [x, y] = polygon.points[0];
+      d += `M${x - r} ${y}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
+    }
+    setDrag(d);
+    polygon.pointer = pointer || null;
+  };
+  const closePolygon = () => {
+    if (!polygon) return;
+    const { points, mode, doc } = polygon;
+    polygon = null;
+    setDrag("");
+    if (doc !== app.doc) return;
+    // A double-click leaves two corners on the same spot
+    const corners = points.filter((p, i) => !i || Math.hypot(p[0] - points[i - 1][0], p[1] - points[i - 1][1]) > 0.5);
+    if (corners.length >= 3) ops.lasso(corners, mode, "Polygonal Lasso");
+    else if (mode === "new") ops.deselect();
+  };
+  const polygonClick = (event, base, point) => {
+    const now = performance.now();
+    const screen = [event.clientX, event.clientY];
+    if (!polygon) {
+      polygon = { points: [point], mode: selectionMode(event), time: now, screen, doc: app.doc };
+    } else {
+      const last = polygon.screen;
+      const twice = now - polygon.time < 450 && Math.hypot(screen[0] - last[0], screen[1] - last[1]) <= base.slop * 2;
+      if (twice || nearFirstCorner(point)) {
+        closePolygon();
+        return null;
+      }
+      polygon.points.push(polygonAim(point, event));
+      polygon.time = now;
+      polygon.screen = screen;
+      // Cmd or Ctrl + click: this corner is the last
+      if (isCommand(event)) {
+        closePolygon();
+        return null;
+      }
+    }
+    showPolygon(null);
+    return Object.assign(base, { kind: "polygonCorner" });
   };
 
   // What one finger means. With the wand, the tool a phone opens with, nothing needs a change
@@ -2807,6 +3138,13 @@
       pickAt(point, gesture.background);
       return;
     }
+    if (tool === "clean") {
+      // A click cleans the bubble, a drag a box
+      gesture = Object.assign(base, { kind: "clean" });
+      ui.stage.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      return;
+    }
     if (tool === "crop") {
       const c = cropOf();
       const over = hitHandle(event);
@@ -2832,6 +3170,17 @@
       ui.stage.setPointerCapture(event.pointerId);
       event.preventDefault();
       return;
+    }
+    if (tool === "move" && turnControls && !isFinger(event) && inRotateZone(event)) {
+      const layer = activeTexts()[0];
+      if (layer) {
+        gestureCount++;
+        gesture = Object.assign(base, { kind: "turn", layer, pivot: turnControls.pivot, from: PS.turnOf(layer), token: `gesture:${gestureCount}` });
+        if (Fonts.isMissing(layer.params.layerText.textStyleRange[0].textStyle.fontPostScriptName) && layer.raster) toast(T("This text's font is missing: it will be drawn with another font."), true);
+        ui.stage.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        return;
+      }
     }
     if (isFinger(event)) {
       const made = fingerGesture(event, base, tool, point);
@@ -2896,11 +3245,26 @@
       return;
     }
     // Selection tools. Inside a selection, with no modifier, a drag moves its outline.
+    if (tool === "polygon" && polygon) {
+      const made = polygonClick(event, base, point);
+      if (made) {
+        gesture = made;
+        ui.stage.setPointerCapture(event.pointerId);
+      }
+      event.preventDefault();
+      return;
+    }
     const mode = selectionMode(event);
     const plain = !event.shiftKey && !event.altKey && mode === "new";
     if (plain && doc.state.selection && ops.selectionContains(point[0], point[1])) {
       gesture = Object.assign(base, { kind: "moveSelection", mode, tool });
       ui.stage.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (tool === "polygon") {
+      gesture = polygonClick(event, base, point);
+      ui.stage.setPointerCapture(event.pointerId);
+      event.preventDefault();
       return;
     }
     gesture = Object.assign(base, { kind: tool, mode, points: [point] });
@@ -2951,7 +3315,7 @@
     }
     if ((tool === "move" || !ui.editor.hidden) && !gesture && app.doc) {
       const over = hitHandle(event);
-      ui.stage.style.cursor = over ? HANDLE_CURSOR[over.kind] || "grab" : inRotateZone(event) ? ROTATE_CURSOR : "";
+      ui.stage.style.cursor = over ? handleCursor(over) : rotateZoneCursor(event) || "";
     }
     const turning = transformOf();
     if (turning && !gesture) ui.stage.style.cursor = transformCursor(turning, event);
@@ -2960,10 +3324,12 @@
       const c = cropOf();
       ui.stage.style.cursor = over ? HANDLE_CURSOR[over.kind] : c.touched && inCrop(c, toDoc(event)) ? "move" : "";
     }
+    if (polygon && tool === "polygon" && !gesture && !pinch) showPolygon(polygonAim(toDoc(event), event));
     if (!gesture || event.pointerId !== gesture.id) {
       if (SELECTION_TOOLS.has(tool) && app.doc && !event.shiftKey && !event.altKey && app.selectionMode === "new") {
         const [x, y] = toDoc(event);
-        ui.stage.classList.toggle("is-over-selection", ops.selectionContains(x, y));
+        // An outline being drawn takes every click: none moves the selection
+        ui.stage.classList.toggle("is-over-selection", !polygon && ops.selectionContains(x, y));
       }
       return;
     }
@@ -3022,16 +3388,28 @@
       }
       ops.updateLiveMove(dx, dy);
       hud(`Δ ${Math.round(dx)}, ${Math.round(dy)} px`, event);
+    } else if (current.kind === "turn") {
+      // Around the middle of the text; with Shift, by steps of 15°
+      const [px, py] = current.pivot;
+      const before = Math.atan2(current.start[1] - py, current.start[0] - px);
+      const now = Math.atan2(point[1] - py, point[0] - px);
+      let degrees = ((current.from + now - before) * 180) / Math.PI;
+      if (event.shiftKey) degrees = Math.round(degrees / 15) * 15;
+      ops.turnText(current.layer, (degrees * Math.PI) / 180 - current.from, current.pivot, current.token);
+      hud(shownAngle(degrees), event);
+      placeEditor();
     } else if (current.kind === "warp") {
       ops.setTextWarp(current.layer, movedSurface(current, point, event), current.token);
     } else if (current.kind === "scale") {
       // The text grows from the edge it's aligned on, halfway up; centred, from its centre.
       // With Ctrl or Cmd, from the opposite corner as in Photoshop.
       const f = current.frame;
-      const fromCorner = isCommand(event);
+      // A turned text, from its middle: its frame's sides aren't the page's
+      const turned = Boolean(current.layer.rotated);
+      const fromCorner = isCommand(event) && !turned;
       const oppositeX = current.handle.includes("w") ? 1 : 0;
       const alignment = current.layer.params.layerText.paragraphStyleRange[0].paragraphStyle.alignment;
-      const ax = fromCorner ? oppositeX : alignment === "left" ? 0 : alignment === "right" ? 1 : 0.5;
+      const ax = turned ? 0.5 : fromCorner ? oppositeX : alignment === "left" ? 0 : alignment === "right" ? 1 : 0.5;
       const ay = !fromCorner ? 0.5 : current.handle.includes("n") ? 1 : 0;
       // Measured from the far side, so that moving away from the text always makes it bigger,
       // even with a handle on the very edge that stays in place
@@ -3096,7 +3474,7 @@
       const shown = PS.frameOf(app.doc.state.layers.find((layer) => layer.id === current.layer.id), doc);
       hud(`${Math.round(shown.width)} × ${Math.round(shown.height)} px`, event);
       placeEditor();
-    } else if (current.kind === "textBox") {
+    } else if (current.kind === "textBox" || current.kind === "clean") {
       const [x0, y0, x1, y1] = marqueeBox(current, event);
       setDrag(`M${x0} ${y0}H${x1}V${y1}H${x0}Z`);
       hud(`${Math.round(x1 - x0)} × ${Math.round(y1 - y0)} px`, event);
@@ -3118,6 +3496,16 @@
     } else if (current.kind === "lasso") {
       current.points.push(point);
       setDrag("M" + current.points.map((p) => `${p[0]} ${p[1]}`).join("L"));
+    } else if (current.kind === "polygonCorner" && polygon) {
+      // Alt held while the button is down draws freehand, as the Lasso would
+      if (event.altKey) {
+        polygon.points.push(point);
+        polygon.freehand = true;
+        showPolygon(null);
+      } else {
+        polygon.freehand = false;
+        showPolygon(polygonAim(point, event));
+      }
     }
   });
 
@@ -3191,6 +3579,8 @@
       else if (current.tapText) ops.selectLayer(current.tapText.id);
       else if (current.tapWand === "new" && ops.selectionContains(point[0], point[1])) ops.deselect();
       else if (current.tapWand) ops.wandAt(point[0], point[1], current.tapWand);
+    } else if (kind === "clean") {
+      cleanAt(current, point, event);
     } else if (kind === "textBox") {
       const doc = app.doc;
       if (current.moved) {
@@ -3203,7 +3593,11 @@
       beginEdit(ops.newText(point[0], point[1] + app.textDefaults.size * 0.35 * (doc.resolution / 72)), true);
     } else if (kind === "moveSelection") {
       if (current.moved) ops.nudgeSelection(Math.round(point[0] - current.start[0]), Math.round(point[1] - current.start[1]));
-      else ops.deselect();
+      else if (current.tool === "polygon") {
+        // A click there is the first corner of a new outline
+        polygon = { points: [current.start], mode, time: performance.now(), screen: [current.x, current.y], doc: app.doc };
+        showPolygon(null);
+      } else ops.deselect();
     } else if (kind === "wand") {
       if (!current.moved) ops.wandAt(point[0], point[1], mode);
     } else if (kind === "rectangle" || kind === "ellipse") {
@@ -3215,6 +3609,9 @@
     } else if (kind === "lasso") {
       if (current.moved) ops.lasso(current.points, mode);
       else if (mode === "new") ops.deselect();
+    } else if (kind === "polygonCorner" && polygon) {
+      polygon.freehand = false;
+      showPolygon(polygonAim(point, event));
     }
   };
   ui.stage.addEventListener("pointerup", finishGesture);
@@ -3234,7 +3631,7 @@
     const point = toDoc(event);
     const hit = ops.hitLayer(point[0], point[1]);
     if (hit && !app.doc.state.activeIds.includes(hit.id)) ops.selectLayer(hit.id);
-    openContextMenu(event.clientX, event.clientY, ["Deselect", "Reselect", "Inverse", null, "Cut", "Copy", "Fill with Foreground Colour", "Fill with Background Colour", null, "Free Transform", null, "Duplicate Layer", "Group Layers", "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", "Merge Down", "Merge Visible"]);
+    openContextMenu(event.clientX, event.clientY, ["Deselect", "Reselect", "Inverse", null, "Cut", "Copy", "Fill with Foreground Colour", "Fill with Background Colour", "Content-Aware Fill…", null, "Free Transform", null, "Duplicate Layer", "Group Layers", "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", "Merge Down", "Merge Visible"]);
   });
   ui.stage.addEventListener("dblclick", (event) => {
     const turning = transformOf();
@@ -3591,6 +3988,84 @@
 
   let layersKey = "";
   let dragRow = null;
+
+  // A stroke down the eyes, as in Photoshop: the first eye shows or hides its layer, and every row
+  // the pointer then crosses takes the same state, in one step of history. Rows are found by height
+  // only, so the stroke holds when the pointer drifts off the column, and past the list's top or
+  // bottom it scrolls. Mouse and pen only: on a touch screen, a finger there scrolls the list.
+  let eyeStroke = null;
+  let eyeStrokes = 0;
+  const setEyeOf = (key) => {
+    const doc = app.doc;
+    const layer = doc && doc.state.layers.find((item) => String(item.id) === key);
+    if (!layer || (layer.visible !== false) === eyeStroke.visible) return;
+    ops.setLayerProps(layer.id, { visible: eyeStroke.visible }, eyeStroke.visible ? "Show Layer" : "Hide Layer", eyeStroke.coalesce);
+  };
+  const strokeEyesTo = (clientY) => {
+    if (!eyeStroke || !app.doc || app.doc.id !== eyeStroke.docId) return;
+    const box = ui.layers.getBoundingClientRect();
+    const y = Math.max(box.top, Math.min(box.bottom - 1, clientY));
+    const rows = Array.from(ui.layers.querySelectorAll(".layer"));
+    const at = rows.findIndex((row) => {
+      const rect = row.getBoundingClientRect();
+      return y >= rect.top && y < rect.bottom;
+    });
+    if (at < 0) return;
+    // A quick stroke skips rows between two pointer events: they change too
+    let from = rows.findIndex((row) => row.dataset.layerId === eyeStroke.last);
+    if (from < 0) from = at;
+    const keys = [];
+    for (let index = from; ; index += at > from ? 1 : -1) {
+      keys.push(rows[index].dataset.layerId);
+      if (index === at) break;
+    }
+    eyeStroke.last = rows[at].dataset.layerId;
+    keys.forEach(setEyeOf);
+  };
+  const scrollEyeStroke = () => {
+    if (!eyeStroke) return;
+    const box = ui.layers.getBoundingClientRect();
+    const edge = 12;
+    const past = eyeStroke.y < box.top + edge ? eyeStroke.y - box.top - edge : eyeStroke.y > box.bottom - edge ? eyeStroke.y - box.bottom + edge : 0;
+    if (past) {
+      ui.layers.scrollTop += Math.sign(past) * Math.min(20, Math.max(2, Math.abs(past) / 2));
+      strokeEyesTo(eyeStroke.y);
+    }
+    eyeStroke.frame = requestAnimationFrame(scrollEyeStroke);
+  };
+  const moveEyeStroke = (event) => {
+    if (!eyeStroke || event.pointerId !== eyeStroke.pointerId) return;
+    eyeStroke.y = event.clientY;
+    strokeEyesTo(event.clientY);
+  };
+  const endEyeStroke = (event) => {
+    if (!eyeStroke || (event && event.pointerId !== undefined && event.pointerId !== eyeStroke.pointerId)) return;
+    cancelAnimationFrame(eyeStroke.frame);
+    eyeStroke = null;
+    window.removeEventListener("pointermove", moveEyeStroke);
+    window.removeEventListener("pointerup", endEyeStroke);
+    window.removeEventListener("pointercancel", endEyeStroke);
+    window.removeEventListener("blur", endEyeStroke);
+    // The click that ends the stroke would select a row: the rows were drawn again under it
+    const swallow = (click) => {
+      click.stopPropagation();
+      click.preventDefault();
+    };
+    window.addEventListener("click", swallow, true);
+    setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+  };
+  const beginEyeStroke = (layer, event) => {
+    const doc = app.doc;
+    if (!doc) return;
+    endEyeStroke();
+    eyeStroke = { docId: doc.id, pointerId: event.pointerId, visible: layer.visible === false, coalesce: `gesture:eyes:${++eyeStrokes}`, last: String(layer.id), y: event.clientY, frame: 0 };
+    window.addEventListener("pointermove", moveEyeStroke);
+    window.addEventListener("pointerup", endEyeStroke);
+    window.addEventListener("pointercancel", endEyeStroke);
+    window.addEventListener("blur", endEyeStroke);
+    setEyeOf(String(layer.id));
+    eyeStroke.frame = requestAnimationFrame(scrollEyeStroke);
+  };
   const depthOf = (layer, byId) => {
     let depth = 0;
     for (let id = layer.group; id && byId.get(id); id = byId.get(id).group) depth++;
@@ -3627,6 +4102,7 @@
       row.className = "layer" + (doc.state.activeIds.includes(layer.id) ? " is-on" : "") + (layer.visible === false ? " is-hidden" : "");
       row.draggable = true;
       row.id = `layer-row-${layer.id}`;
+      row.dataset.layerId = String(layer.id);
       row.setAttribute("role", "option");
       row.setAttribute("aria-selected", String(doc.state.activeIds.includes(layer.id)));
       const eye = document.createElement("button");
@@ -3636,6 +4112,13 @@
       eye.innerHTML = ICON.eye;
       eye.setAttribute("aria-pressed", String(layer.visible !== false));
       eye.setAttribute("aria-label", `${T("Show or hide")}: ${layer.name}`);
+      eye.addEventListener("pointerdown", (event) => {
+        if (event.pointerType === "touch" || event.button !== 0) return;
+        // No text selection, no drag of the row: the stroke takes the pointer
+        event.preventDefault();
+        event.stopPropagation();
+        beginEyeStroke(layer, event);
+      });
       eye.addEventListener("click", (event) => {
         event.stopPropagation();
         ops.toggleLayer(layer.id);
@@ -3728,6 +4211,10 @@
         renameRow(layer, name);
       });
       row.addEventListener("dragstart", (event) => {
+        if (eyeStroke) {
+          event.preventDefault();
+          return;
+        }
         dragRow = layer.id;
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", layer.name);
@@ -3811,6 +4298,79 @@
 
   /* ------------------------------- character ------------------------------ */
 
+  // Leading as Photoshop sets it: Auto, a number typed, or one from the list. The arrows on
+  // Auto go to the nearest number above or below what Auto gives.
+  const LEADING_PRESETS = [6, 8, 9, 10, 11, 12, 14, 16, 18, 24, 30, 36, 48, 60, 72, 150, 300];
+  const leadingField = (layer, style) => {
+    const manual = style.autoLeading === false && style.leading > 0;
+    const shown = (value) => String(Math.round(value * 100) / 100);
+    const autoValue = () => {
+      const paragraph = layer.params.layerText.paragraphStyleRange[0].paragraphStyle || {};
+      return (style.impliedFontSize || style.size || 12) * (paragraph.autoLeadingPercentage || 1.2);
+    };
+    const box = document.createElement("span");
+    box.className = "combo";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.title = T("Leading");
+    input.setAttribute("aria-label", T("Leading"));
+    input.value = manual ? shown(style.leading) : T("Auto");
+    let last = input.value;
+    const apply = (value) => {
+      if (value === "auto") {
+        input.value = T("Auto");
+        applyTextPatch({ autoLeading: true }, null, "leading");
+      } else {
+        input.value = shown(value);
+        applyTextPatch({ autoLeading: false, leading: value }, null, "leading");
+      }
+      last = input.value;
+    };
+    const read = () => {
+      const text = input.value.trim();
+      if (!text || /^auto$/i.test(text) || text.toLowerCase() === T("Auto").toLowerCase()) return "auto";
+      const value = parseFloat(text.replace(",", "."));
+      return value > 0 ? Math.min(5000, value) : null;
+    };
+    input.addEventListener("change", () => {
+      const value = read();
+      if (value === null) input.value = last;
+      else if (input.value !== last) apply(value);
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") input.blur();
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      event.preventDefault();
+      const up = event.key === "ArrowUp";
+      const value = read();
+      if (value === null) return;
+      if (value === "auto") {
+        const auto = autoValue();
+        apply(Math.max(1, up ? Math.ceil(auto - 0.005) : Math.floor(auto + 0.005)));
+        return;
+      }
+      apply(Math.max(0.1, Math.round((value + (up ? 1 : -1) * (event.shiftKey ? 10 : 1)) * 100) / 100));
+    });
+    const list = document.createElement("select");
+    list.title = T("Leading");
+    list.setAttribute("aria-label", T("Leading"));
+    const option = (value, text) => {
+      const item = document.createElement("option");
+      item.value = value;
+      item.textContent = text;
+      list.appendChild(item);
+    };
+    option("auto", T("Auto"));
+    list.appendChild(document.createElement("hr"));
+    LEADING_PRESETS.forEach((value) => option(String(value), String(value)));
+    if (!manual) list.value = "auto";
+    else if (LEADING_PRESETS.includes(Math.round(style.leading * 100) / 100)) list.value = String(Math.round(style.leading * 100) / 100);
+    else list.selectedIndex = -1;
+    list.addEventListener("change", () => apply(list.value === "auto" ? "auto" : Number(list.value)));
+    box.append(input, list);
+    return box;
+  };
+
   let characterKey = "";
   const renderCharacter = () => {
     const host = ui.character;
@@ -3853,16 +4413,7 @@
       }
     }
     host.append(scrubbed(T("Size"), c.size, withSteps(c.size)));
-    const leading = document.createElement("input");
-    leading.type = "text";
-    leading.title = T("Leading");
-    leading.value = style.autoLeading === false && style.leading ? Math.round(style.leading * 10) / 10 : T("Auto");
-    leading.addEventListener("change", () => {
-      const value = Number(leading.value);
-      if (value > 0) applyTextPatch({ autoLeading: false, leading: value }, null, "leading");
-      else applyTextPatch({ autoLeading: true }, null, "leading");
-    });
-    host.append(labelled(T("Leading"), leading));
+    host.append(labelled(T("Leading"), leadingField(layer, style)));
     const aaRow = labelled("aa", c.antiAlias);
     aaRow.classList.add("wide");
     host.append(aaRow);
@@ -3906,8 +4457,41 @@
       color.setAttribute("aria-label", T("Stroke colour"));
       color.addEventListener("input", () => ops.setTextStroke([layer.id], Object.assign({}, stroke, { color: fromHex(color.value) }), "stroke"));
       strokeRow.appendChild(color);
+      // A stroke around the stroke, black around a light one, white around a dark one
+      if (!stroke.outer) {
+        const light = stroke.color.r * 0.299 + stroke.color.g * 0.587 + stroke.color.b * 0.114 > 127;
+        const add = iconButton("plus", T("Add a stroke around the stroke"), false, () => {
+          ops.setTextStroke([layer.id], Object.assign({}, stroke, { outer: { size: 3, color: light ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 } } }));
+        });
+        add.classList.add("character__end");
+        strokeRow.appendChild(add);
+      }
     }
     host.appendChild(strokeRow);
+    if (stroke && stroke.outer) {
+      const outer = stroke.outer;
+      const outerRow = document.createElement("div");
+      outerRow.className = "character__row wide character__sub";
+      const label = document.createElement("span");
+      label.textContent = T("Around");
+      label.className = "character__label";
+      outerRow.appendChild(label);
+      outerRow.appendChild(numberInput(outer.size, 1, 100, (value) => ops.setTextStroke([layer.id], Object.assign({}, stroke, { outer: Object.assign({}, outer, { size: value }) }), "stroke")));
+      const outerColor = document.createElement("input");
+      outerColor.type = "color";
+      outerColor.value = toHex(outer.color);
+      outerColor.setAttribute("aria-label", T("Colour of the stroke around the stroke"));
+      outerColor.addEventListener("input", () => ops.setTextStroke([layer.id], Object.assign({}, stroke, { outer: Object.assign({}, outer, { color: fromHex(outerColor.value) }) }), "stroke"));
+      outerRow.appendChild(outerColor);
+      const remove = iconButton("trash", T("Remove the stroke around the stroke"), false, () => {
+        const next = Object.assign({}, stroke);
+        delete next.outer;
+        ops.setTextStroke([layer.id], next);
+      });
+      remove.classList.add("character__end");
+      outerRow.appendChild(remove);
+      host.appendChild(outerRow);
+    }
     const height = numberInput(style.verticalScale === undefined ? 100 : style.verticalScale, 10, 500, (value) => applyTextPatch({ verticalScale: value }, null, "scale"));
     host.append(scrubbed(T("Height %"), height, withSteps(height)));
     const baseline = numberInput(style.impliedBaselineShift !== undefined ? style.impliedBaselineShift : style.baselineShift || 0, -1000, 1000, (value) => applyTextPatch({ baselineShift: value }, null, "baseline"));
@@ -3948,19 +4532,80 @@
 
   /* --------------------------- tabs and status bar -------------------------- */
 
-  const tabLabel = (doc) => `${doc.name} @ ${Math.round(doc.view.zoom * 100)}%${PS.isDirty(doc) ? " *" : ""}`;
+  // The zoom stays in the status bar: in the tab it only took room from the other pages
+  const tabLabel = (doc) => `${doc.name}${PS.isDirty(doc) ? " *" : ""}`;
+  const tabBar = $("tabbar");
+  const tabThumb = $("tabs-thumb");
+  const tabsMore = $("tabs-more");
+  tabsMore.innerHTML = SVG('<path d="m6 7 5 5-5 5M13 7l5 5-5 5"/>');
+  tabsMore.title = T("Open Documents");
+  tabsMore.setAttribute("aria-label", T("Open Documents"));
+  tabsMore.setAttribute("aria-expanded", "false");
+  // Only once the pages don't fit: the strip scrolls, the hidden side fades out, a thin bar
+  // shows where the view is, and » lists them all
+  const syncTabBar = () => {
+    const over = ui.tabs.scrollWidth > tabBar.clientWidth + 1;
+    tabBar.classList.toggle("is-overflow", over);
+    tabsMore.hidden = !over;
+    const { scrollLeft, scrollWidth, clientWidth } = ui.tabs;
+    const hidden = scrollWidth - clientWidth;
+    tabBar.classList.toggle("is-clip-start", over && scrollLeft > 1);
+    tabBar.classList.toggle("is-clip-end", over && scrollLeft < hidden - 1);
+    if (!over || hidden <= 0) return;
+    const width = Math.max(24, (clientWidth * clientWidth) / scrollWidth);
+    tabThumb.style.width = `${width}px`;
+    tabThumb.style.transform = `translateX(${(Math.min(scrollLeft, hidden) / hidden) * (clientWidth - width)}px)`;
+  };
+  // Too many pages for the room: the widest tabs are capped first, so a short name like 08.psd
+  // stays whole while a long one is cut. The page on screen keeps at least 140 px of its name.
+  const TAB_MIN = 72;
+  const TAB_ON_MIN = 140;
+  // The largest width the tabs can have for these to fit the room, or 0 if they fit as they are
+  const tabCap = (widths, room) => {
+    const sorted = widths.slice().sort((a, b) => a - b);
+    if (sorted.reduce((sum, width) => sum + width, 0) <= room) return 0;
+    for (let at = 0; at < sorted.length; at++) {
+      const share = room / (sorted.length - at);
+      if (sorted[at] > share) return Math.max(TAB_MIN, Math.floor(share));
+      room -= sorted[at];
+    }
+    return TAB_MIN;
+  };
+  const fitTabs = () => {
+    ui.tabs.style.removeProperty("--tab-cap");
+    ui.tabs.style.removeProperty("--tab-on-cap");
+    const all = Array.from(ui.tabs.children);
+    const current = ui.tabs.querySelector(".tab.is-on");
+    const widthOf = (tab) => tab.getBoundingClientRect().width;
+    const room = tabBar.clientWidth - 1;
+    let cap = tabCap(all.map(widthOf), room);
+    if (!cap) return;
+    const onWidth = current ? Math.min(widthOf(current), TAB_ON_MIN) : 0;
+    if (current && cap < onWidth) {
+      cap = tabCap(all.filter((tab) => tab !== current).map(widthOf), room - onWidth) || TAB_MIN;
+      ui.tabs.style.setProperty("--tab-on-cap", `${Math.ceil(onWidth)}px`);
+    }
+    ui.tabs.style.setProperty("--tab-cap", `${cap}px`);
+  };
+  // The page on screen comes into view, with a bit of its neighbour showing that more follow
+  const revealTab = () => {
+    const tab = ui.tabs.querySelector(".tab.is-on");
+    if (!tab) return;
+    const room = ui.tabs.clientWidth;
+    const margin = Math.min(48, Math.max(0, (room - tab.offsetWidth) / 2));
+    const from = ui.tabs.scrollLeft;
+    let left = from;
+    if (tab.offsetLeft - margin < from) left = tab.offsetLeft - margin;
+    else if (tab.offsetLeft + tab.offsetWidth + margin > from + room) left = tab.offsetLeft + tab.offsetWidth + margin - room;
+    if (left !== from) ui.tabs.scrollTo({ left: Math.max(0, left), behavior: "smooth" });
+  };
   const renderTabs = () => {
     // A touch screen has its pages elsewhere (touch.js)
     if (Shell.touch) return;
     const key = JSON.stringify([app.docs.map((doc) => [doc.id, doc.name, PS.isDirty(doc)]), app.doc ? app.doc.id : 0]);
-    if (ui.tabs.dataset.key === key) {
-      // Only the page on screen can have changed its zoom: no need to redo every tab
-      const label = ui.tabs.querySelector(".tab.is-on span");
-      const text = app.doc ? tabLabel(app.doc) : "";
-      if (label && label.textContent !== text) label.textContent = text;
-      return;
-    }
+    if (ui.tabs.dataset.key === key) return;
     ui.tabs.dataset.key = key;
+    const scroll = ui.tabs.scrollLeft;
     ui.tabs.textContent = "";
     app.docs.forEach((doc) => {
       const tab = document.createElement("div");
@@ -3985,14 +4630,99 @@
       });
       ui.tabs.appendChild(tab);
     });
-    const current = ui.tabs.querySelector(".tab.is-on");
-    if (current) current.scrollIntoView({ block: "nearest", inline: "nearest" });
+    fitTabs();
+    ui.tabs.scrollLeft = scroll;
+    syncTabBar();
+    revealTab();
   };
   ui.tabs.addEventListener("wheel", (event) => {
     if (ui.tabs.scrollWidth <= ui.tabs.clientWidth) return;
     event.preventDefault();
-    ui.tabs.scrollLeft += event.deltaY || event.deltaX;
+    const step = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? ui.tabs.clientWidth : 1;
+    ui.tabs.scrollLeft += (Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY) * step;
   }, { passive: false });
+  ui.tabs.addEventListener("scroll", syncTabBar, { passive: true });
+  new ResizeObserver(() => {
+    fitTabs();
+    syncTabBar();
+  }).observe(tabBar);
+
+  // The thin bar under the tabs, shown on hover, can be dragged like a scroll bar
+  tabThumb.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const fromX = event.clientX;
+    const fromScroll = ui.tabs.scrollLeft;
+    const ratio = (ui.tabs.scrollWidth - ui.tabs.clientWidth) / Math.max(1, ui.tabs.clientWidth - tabThumb.offsetWidth);
+    const move = (moved) => {
+      ui.tabs.scrollLeft = fromScroll + (moved.clientX - fromX) * ratio;
+    };
+    const done = () => {
+      tabThumb.classList.remove("is-dragging");
+      tabThumb.removeEventListener("pointermove", move);
+      tabThumb.removeEventListener("pointerup", done);
+      tabThumb.removeEventListener("pointercancel", done);
+    };
+    tabThumb.setPointerCapture(event.pointerId);
+    tabThumb.classList.add("is-dragging");
+    tabThumb.addEventListener("pointermove", move);
+    tabThumb.addEventListener("pointerup", done);
+    tabThumb.addEventListener("pointercancel", done);
+  });
+
+  // », as in Photoshop: every open page in a list, the one on screen ticked
+  const tabsMenuOpen = () => Boolean(contextMenu && contextMenu.classList.contains("tabs-menu"));
+  const openTabsMenu = (byKeyboard) => {
+    closeContextMenu();
+    closeMenus();
+    const list = document.createElement("div");
+    list.className = "menu__list menu__list--context tabs-menu";
+    list.setAttribute("role", "menu");
+    list.setAttribute("aria-label", T("Open Documents"));
+    app.docs.forEach((doc) => {
+      const on = doc === app.doc;
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "menu__item" + (on ? " is-on" : "");
+      row.setAttribute("role", "menuitemradio");
+      row.setAttribute("aria-checked", String(on));
+      row.title = doc.name;
+      const check = document.createElement("span");
+      check.className = "tabs-menu__check";
+      if (on) check.innerHTML = SVG('<path d="m5 12.500 4.500 4.500L19 7.500"/>');
+      const name = document.createElement("span");
+      name.textContent = doc.name + (PS.isDirty(doc) ? " *" : "");
+      row.append(check, name);
+      row.addEventListener("click", () => {
+        closeContextMenu();
+        if (doc !== app.doc) switchDoc(doc);
+      });
+      list.appendChild(row);
+    });
+    document.body.appendChild(list);
+    contextMenu = list;
+    tabsMore.setAttribute("aria-expanded", "true");
+    const box = tabsMore.getBoundingClientRect();
+    list.style.maxHeight = `${Math.max(120, window.innerHeight - box.bottom - 10)}px`;
+    list.style.left = `${Math.max(8, Math.min(box.right - list.offsetWidth, window.innerWidth - list.offsetWidth - 8))}px`;
+    list.style.top = `${box.bottom + 2}px`;
+    const current = list.querySelector(".is-on");
+    if (current) {
+      current.scrollIntoView({ block: "nearest" });
+      if (byKeyboard) current.focus();
+    }
+  };
+  let tabsMenuWasOpen = false;
+  tabsMore.addEventListener("pointerdown", () => {
+    tabsMenuWasOpen = tabsMenuOpen();
+  });
+  tabsMore.addEventListener("click", (event) => {
+    // A second press closes it: the pointer has already closed it by then
+    const wasOpen = tabsMenuWasOpen || (event.detail === 0 && tabsMenuOpen());
+    tabsMenuWasOpen = false;
+    if (wasOpen) closeContextMenu();
+    else openTabsMenu(event.detail === 0);
+  });
 
   const renderStatus = () => {
     const doc = app.doc;
@@ -5015,6 +5745,38 @@
     if (!ops.fillSelection(color)) toast(T("Select a pixel layer first."));
   };
 
+  // Edit > Content-Aware Fill…: asks how, then paints the selection over with what surrounds
+  // it. The choices made last are offered again.
+  const fillPrefs = { area: "around", output: "current", mirror: false, adapt: true };
+  let filling = false;
+  const contentAwareFill = async () => {
+    if (filling || !hasSelection()) return;
+    const values = await dialog({
+      title: T("Content-Aware Fill"),
+      body: T("Fills the selection with what surrounds it, read from the pixel layers and never from the text."),
+      ok: T("Fill"),
+      fields: [
+        { id: "area", label: T("Sampling area"), options: [["around", T("Around the selection")], ["page", T("Whole page")]], value: fillPrefs.area },
+        { id: "output", label: T("Output to"), options: [["current", T("Current layer")], ["new", T("New layer")]], value: fillPrefs.output },
+        { id: "mirror", label: T("Mirror"), type: "checkbox", checked: fillPrefs.mirror },
+        { id: "adapt", label: T("Colour adaptation"), type: "checkbox", checked: fillPrefs.adapt },
+      ],
+    });
+    if (!values) return;
+    Object.assign(fillPrefs, { area: values.area, output: values.output, mirror: values.mirror, adapt: values.adapt });
+    filling = true;
+    working(T("Content-Aware Fill…"));
+    try {
+      const outcome = await ops.contentAwareFill({ area: values.area, output: values.output, mirror: values.mirror, adapt: values.adapt, name: nextLayerName() }, (fraction) => working(`${T("Content-Aware Fill…")} ${Math.round(fraction * 100)}%`));
+      if (outcome === "none") toast(T("Nothing to fill from."));
+    } catch (error) {
+      toast(T("The fill didn't go through."), true);
+    } finally {
+      working(null);
+      filling = false;
+    }
+  };
+
   const insideSelection = (selection, source, x, y) => {
     const b = selection.bounds;
     const canvas = document.createElement("canvas");
@@ -5030,16 +5792,20 @@
     ctx.drawImage(source, x - b.left, y - b.top);
     return canvas;
   };
-  const toClipboard = async (canvas) => {
+  // Where the pixels were taken: pasted back in the same document, they land there
+  let copiedFrom = null;
+  const toClipboard = async (canvas, left, top) => {
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
     await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    copiedFrom = { doc: app.doc, left: left || 0, top: top || 0, width: canvas.width, height: canvas.height };
   };
 
   const copySelection = async () => {
     const doc = app.doc;
     if (!doc || !navigator.clipboard || !window.ClipboardItem) return;
     const whole = flattened(doc, null);
-    await toClipboard(doc.state.selection ? insideSelection(doc.state.selection, whole, 0, 0) : whole);
+    const selection = doc.state.selection;
+    await toClipboard(selection ? insideSelection(selection, whole, 0, 0) : whole, selection && selection.bounds.left, selection && selection.bounds.top);
     toast(T("Copied."));
   };
 
@@ -5054,7 +5820,7 @@
     }
     const visual = PS.visualOf(layer, doc);
     try {
-      if (visual && navigator.clipboard && window.ClipboardItem) await toClipboard(insideSelection(doc.state.selection, visual.canvas, visual.x, visual.y));
+      if (visual && navigator.clipboard && window.ClipboardItem) await toClipboard(insideSelection(doc.state.selection, visual.canvas, visual.x, visual.y), doc.state.selection.bounds.left, doc.state.selection.bounds.top);
     } catch (error) {
       console.warn("TypeR web: could not write to the clipboard", error);
       toast(T("The browser refused the clipboard: nothing was cut."), true);
@@ -5175,13 +5941,18 @@
       const picture = new Image();
       picture.onload = () => {
         const doc = app.doc;
+        URL.revokeObjectURL(url);
+        if (!doc) return;
         const bitmap = PS.newCanvas(picture.naturalWidth, picture.naturalHeight);
         bitmap.getContext("2d").drawImage(picture, 0, 0);
-        const layer = ops.newLayer(T("Pasted layer"));
-        const left = Math.round((doc.width - bitmap.width) / 2);
-        const top = Math.round((doc.height - bitmap.height) / 2);
-        ops.setLayerProps(layer.id, { bitmap, left, top }, "Paste");
-        URL.revokeObjectURL(url);
+        const back = copiedFrom && copiedFrom.doc === doc && copiedFrom.width === bitmap.width && copiedFrom.height === bitmap.height;
+        const left = back ? copiedFrom.left : Math.round((doc.width - bitmap.width) / 2);
+        const top = back ? copiedFrom.top : Math.round((doc.height - bitmap.height) / 2);
+        if (!ui.editor.hidden) endEdit();
+        cancelTransform();
+        ops.newLayer(T("Pasted layer"), undefined, { bitmap, left, top }, true);
+        // The pasted layer comes with its handles, ready to be placed
+        if (!Shell.touch) beginTransform();
       };
       picture.src = url;
       return;
@@ -5310,6 +6081,316 @@
     ops.resizeImage(side(Number(values.width)), side(Number(values.height)), Math.max(1, Number(values.resolution) || doc.resolution));
   };
 
+  /* ---- Image > Levels: Photoshop's, easier to read ---- */
+  const LEVELS_COLOURS = { rgb: "#d4d4d4", r: "#e5534b", g: "#4cc06a", b: "#4f8df5" };
+  const GAMMA_MIN = 0.1;
+  const GAMMA_MAX = 9.99;
+  const plainLevels = () => ({ inBlack: 0, gamma: 1, inWhite: 255, outBlack: 0, outWhite: 255 });
+  const isPlainLevels = (s) => s.inBlack === 0 && s.gamma === 1 && s.inWhite === 255 && s.outBlack === 0 && s.outWhite === 255;
+  const levelsCurve = (s) => {
+    const table = new Uint8Array(256);
+    const span = Math.max(1, s.inWhite - s.inBlack);
+    for (let v = 0; v < 256; v++) {
+      const n = Math.min(1, Math.max(0, (v - s.inBlack) / span)) ** (1 / s.gamma);
+      table[v] = Math.round(s.outBlack + (s.outWhite - s.outBlack) * n);
+    }
+    return table;
+  };
+  // Each channel's own levels, then those of all three, as in Photoshop
+  const levelsTables = (channels) => {
+    const all = levelsCurve(channels.rgb);
+    return ["r", "g", "b"].map((key) => levelsCurve(channels[key]).map((v) => all[v]));
+  };
+  // Auto: the darkest and lightest 0.1% become black and white, alike on the three channels so
+  // that colours keep their hue. A scan's grey paper turns white, its grey blacks black.
+  const autoLevels = (histogram) => {
+    let total = 0;
+    histogram.forEach((count) => { total += count; });
+    if (!total) return null;
+    const clip = total * 0.001;
+    let low = 0;
+    let sum = histogram[0];
+    while (low < 253 && sum <= clip) sum += histogram[++low];
+    let high = 255;
+    sum = histogram[255];
+    while (high > low + 2 && sum <= clip) sum += histogram[--high];
+    return { inBlack: low, inWhite: Math.max(high, low + 2) };
+  };
+
+  const showLevels = async () => {
+    settleForResize();
+    const begun = ops.levelsBegin();
+    if (begun.error) {
+      const why = {
+        none: T("Select a pixel layer first."),
+        locked: T("This layer is locked."),
+        empty: T("This layer has no pixels."),
+        outside: T("The selection is outside this layer."),
+      };
+      toast(why[begun.error]);
+      return;
+    }
+    const { histograms } = begun;
+    const channels = { rgb: plainLevels(), r: plainLevels(), g: plainLevels(), b: plainLevels() };
+    let channel = "rgb";
+    let previewOn = true;
+    const make = (tag, className, parent, text) => {
+      const el = document.createElement(tag);
+      if (className) el.className = className;
+      if (text !== undefined) el.textContent = text;
+      if (parent) parent.appendChild(el);
+      return el;
+    };
+    const current = () => channels[channel];
+    const plain = () => Object.values(channels).every(isPlainLevels);
+
+    const body = make("div", "levels");
+    const top = make("div", "levels__top", body);
+    const seg = make("div", "levels__seg", top);
+    const tabs = [["rgb", "RGB", T("All channels")], ["r", "R", T("Red")], ["g", "G", T("Green")], ["b", "B", T("Blue")]].map(([key, label, title]) => {
+      const button = make("button", "", seg, label);
+      button.type = "button";
+      button.title = title;
+      button.setAttribute("aria-label", title);
+      button.addEventListener("click", () => {
+        channel = key;
+        show();
+      });
+      return { key, button };
+    });
+    const auto = make("button", "btn", top, T("Auto"));
+    auto.type = "button";
+    auto.title = T("The darkest pixels become black, the lightest white.");
+    const reset = make("button", "btn", top, T("Reset"));
+    reset.type = "button";
+
+    // Input: the histogram, and the three points under it
+    make("div", "levels__label", body, T("Input Levels"));
+    const input = make("div", "levels__scale", body);
+    const graph = make("canvas", "levels__graph", input);
+    graph.width = 512;
+    graph.height = 200;
+    const inTrack = make("div", "levels__track", input);
+    const inRow = make("div", "levels__values", body);
+    // Output: what black and white become
+    make("div", "levels__label", body, T("Output Levels"));
+    const output = make("div", "levels__scale", body);
+    make("div", "levels__ramp", output);
+    const outTrack = make("div", "levels__track", output);
+    const outRow = make("div", "levels__values", body);
+
+    const foot = make("div", "levels__foot", body);
+    make("span", "levels__where", foot, begun.selection ? fill(T("Selection on {layer}"), { layer: begun.name }) : fill(T("Layer: {layer}"), { layer: begun.name }));
+    const previewRow = make("label", "levels__preview", foot);
+    const previewBox = make("input", "", previewRow);
+    previewBox.type = "checkbox";
+    previewBox.checked = true;
+    make("span", "", previewRow, T("Preview"));
+    previewBox.addEventListener("change", () => {
+      previewOn = previewBox.checked;
+      queue();
+    });
+
+    // Where the grey point is, and the gamma a place gives
+    const greyAt = (s) => s.inBlack + (s.inWhite - s.inBlack) * 0.5 ** s.gamma;
+    const gammaAt = (s, x) => {
+      const t = Math.min(0.5 ** GAMMA_MIN, Math.max(0.5 ** GAMMA_MAX, (x - s.inBlack) / Math.max(1, s.inWhite - s.inBlack)));
+      return Math.round((Math.log(t) / Math.log(0.5)) * 100) / 100;
+    };
+    const clampGamma = (value) => Math.min(GAMMA_MAX, Math.max(GAMMA_MIN, Math.round(value * 100) / 100));
+    const byte = (value) => Math.min(255, Math.max(0, Math.round(value)));
+    const POINTS = {
+      inBlack: (s, v) => { s.inBlack = Math.min(byte(v), s.inWhite - 2); },
+      inWhite: (s, v) => { s.inWhite = Math.max(byte(v), s.inBlack + 2); },
+      gamma: (s, v) => { s.gamma = clampGamma(v); },
+      outBlack: (s, v) => { s.outBlack = byte(v); },
+      outWhite: (s, v) => { s.outWhite = byte(v); },
+    };
+    const set = (key, value) => {
+      if (!Number.isFinite(value)) return;
+      POINTS[key](current(), value);
+      show();
+    };
+
+    // A point drags along its line, and the line itself moves the nearest point
+    const valueAt = (track, clientX) => {
+      const rect = track.getBoundingClientRect();
+      return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * 255;
+    };
+    const drag = (knob, event) => {
+      event.preventDefault();
+      knob.el.focus();
+      const track = knob.el.parentNode;
+      const move = (e) => knob.drag(valueAt(track, e.clientX));
+      // A point taken by the hand stays where it is until it moves
+      if (event.target !== knob.el) move(event);
+      track.setPointerCapture(event.pointerId);
+      const stop = () => {
+        track.removeEventListener("pointermove", move);
+        track.removeEventListener("pointerup", stop);
+        track.removeEventListener("pointercancel", stop);
+      };
+      track.addEventListener("pointermove", move);
+      track.addEventListener("pointerup", stop);
+      track.addEventListener("pointercancel", stop);
+    };
+    const knobs = (track, list) => {
+      const made = list.map((knob) => {
+        const el = make("div", `levels__knob levels__knob--${knob.tone}`, track);
+        el.tabIndex = 0;
+        el.title = knob.label;
+        el.setAttribute("role", "slider");
+        el.setAttribute("aria-label", knob.label);
+        el.addEventListener("dblclick", () => set(knob.key, plainLevels()[knob.key]));
+        el.addEventListener("keydown", (event) => {
+          const dir = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1 }[event.key];
+          if (!dir) return;
+          event.preventDefault();
+          knob.step(dir * (event.shiftKey ? 10 : 1));
+        });
+        return Object.assign({ el }, knob);
+      });
+      track.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        const x = valueAt(track, event.clientX);
+        const hit = made.find((knob) => knob.el === event.target) || made.reduce((best, knob) => (Math.abs(knob.at() - x) < Math.abs(best.at() - x) ? knob : best));
+        drag(hit, event);
+      });
+      return made;
+    };
+    const inKnobs = knobs(inTrack, [
+      { key: "inBlack", tone: "black", label: T("Shadows"), at: () => current().inBlack, drag: (v) => set("inBlack", v), step: (n) => set("inBlack", current().inBlack + n) },
+      { key: "gamma", tone: "grey", label: T("Midtones"), at: () => greyAt(current()), drag: (v) => set("gamma", gammaAt(current(), v)), step: (n) => set("gamma", current().gamma - n / 100) },
+      { key: "inWhite", tone: "white", label: T("Highlights"), at: () => current().inWhite, drag: (v) => set("inWhite", v), step: (n) => set("inWhite", current().inWhite + n) },
+    ]);
+    const outKnobs = knobs(outTrack, [
+      { key: "outBlack", tone: "black", label: T("Output black"), at: () => current().outBlack, drag: (v) => set("outBlack", v), step: (n) => set("outBlack", current().outBlack + n) },
+      { key: "outWhite", tone: "white", label: T("Output white"), at: () => current().outWhite, drag: (v) => set("outWhite", v), step: (n) => set("outWhite", current().outWhite + n) },
+    ]);
+
+    // The same values as numbers, to type
+    const field = (row, key, label, min, max, step) => {
+      const el = make("input", "", row);
+      el.type = "number";
+      el.min = min;
+      el.max = max;
+      el.step = step;
+      el.title = label;
+      el.setAttribute("aria-label", label);
+      el.addEventListener("input", () => { if (el.value !== "") set(key, Number(el.value)); });
+      el.addEventListener("change", () => show(true));
+      return { el, key };
+    };
+    const fields = [
+      field(inRow, "inBlack", T("Shadows"), 0, 253, 1),
+      field(inRow, "gamma", T("Midtones"), GAMMA_MIN, GAMMA_MAX, 0.01),
+      field(inRow, "inWhite", T("Highlights"), 2, 255, 1),
+      field(outRow, "outBlack", T("Output black"), 0, 255, 1),
+      field(outRow, "outWhite", T("Output white"), 0, 255, 1),
+    ];
+
+    const drawGraph = () => {
+      const histogram = histograms[channel];
+      const ctx = graph.getContext("2d");
+      const { width, height } = graph;
+      ctx.clearRect(0, 0, width, height);
+      // Square roots, and a scale set without the pure blacks and whites: a page of white paper
+      // still shows its greys
+      let max = 0;
+      for (let v = 1; v < 255; v++) max = Math.max(max, histogram[v]);
+      if (!max) max = Math.max(histogram[0], histogram[255]);
+      const top = Math.sqrt(max) * 1.05 || 1;
+      const bar = width / 256;
+      ctx.fillStyle = LEVELS_COLOURS[channel];
+      for (let v = 0; v < 256; v++) {
+        const h = Math.min(1, Math.sqrt(histogram[v]) / top) * height;
+        if (h > 0) ctx.fillRect(v * bar, height - h, bar + 0.5, h);
+      }
+      // What turns black or white entirely is shaded
+      const s = current();
+      ctx.fillStyle = "rgba(20, 18, 18, 0.62)";
+      ctx.fillRect(0, 0, s.inBlack * bar, height);
+      ctx.fillRect((s.inWhite + 1) * bar, 0, width - (s.inWhite + 1) * bar, height);
+    };
+
+    let shown = "";
+    let frame = 0;
+    const queue = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const changed = previewOn && !plain();
+        const key = changed ? JSON.stringify(channels) : "";
+        if (key === shown) return;
+        shown = key;
+        ops.levelsPreview(changed ? levelsTables(channels) : null);
+      });
+    };
+    function show(retype) {
+      const s = current();
+      tabs.forEach(({ key, button }) => {
+        button.classList.toggle("is-on", key === channel);
+        button.classList.toggle("is-changed", key !== channel && !isPlainLevels(channels[key]));
+        button.setAttribute("aria-pressed", String(key === channel));
+      });
+      reset.disabled = plain();
+      [...inKnobs, ...outKnobs].forEach((knob) => {
+        const at = knob.at();
+        knob.el.style.left = `${(at / 255) * 100}%`;
+        knob.el.setAttribute("aria-valuenow", knob.key === "gamma" ? s.gamma.toFixed(2) : String(at));
+      });
+      fields.forEach(({ el, key }) => {
+        if (document.activeElement === el && !retype) return;
+        el.value = key === "gamma" ? s.gamma.toFixed(2) : String(s[key]);
+      });
+      drawGraph();
+      queue();
+    }
+
+    auto.addEventListener("click", () => {
+      const found = autoLevels(histograms.rgb);
+      if (!found) return;
+      channels.rgb = Object.assign(plainLevels(), found);
+      ["r", "g", "b"].forEach((key) => { channels[key] = plainLevels(); });
+      channel = "rgb";
+      show(true);
+    });
+    reset.addEventListener("click", () => {
+      Object.keys(channels).forEach((key) => { channels[key] = plainLevels(); });
+      show(true);
+    });
+
+    show(true);
+    const pending = dialog({
+      title: T("Levels"),
+      body,
+      ready: () => ui.modal.classList.add("modal--levels"),
+    });
+    // The page has to be seen: the window moves by its title
+    const modal = ui.modal;
+    const head = modal.querySelector(".modal__head");
+    head.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      const [x0, y0] = (modal.style.translate || "0px 0px").split(" ").map((value) => parseFloat(value) || 0);
+      const { clientX, clientY } = event;
+      head.setPointerCapture(event.pointerId);
+      const move = (e) => { modal.style.translate = `${x0 + e.clientX - clientX}px ${y0 + e.clientY - clientY}px`; };
+      const stop = () => {
+        head.removeEventListener("pointermove", move);
+        head.removeEventListener("pointerup", stop);
+        head.removeEventListener("pointercancel", stop);
+      };
+      head.addEventListener("pointermove", move);
+      head.addEventListener("pointerup", stop);
+      head.addEventListener("pointercancel", stop);
+    });
+    const answer = await pending;
+    modal.style.translate = "";
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+    ops.levelsEnd(answer && !plain() ? levelsTables(channels) : null);
+  };
+
   const isParagraph = (layer) => {
     const shape = layer.params.layerText.textShape && layer.params.layerText.textShape[0];
     return Boolean(shape && shape.textType === "box" && shape.box);
@@ -5382,6 +6463,55 @@
     return dialog({ title: T("Download"), body, ok: T("Close"), cancel: false });
   };
 
+  // Edit > Auto-Align Layers, with Photoshop's projections. The last one chosen is kept.
+  const ALIGN_STORE = "typer.web.autoAlign";
+  const PROJECTIONS = [
+    ["auto", "Auto", "Moves, turns, resizes or puts in perspective, whichever fits the pages best."],
+    ["perspective", "Perspective", "Puts each layer in perspective onto the reference: for a photographed page."],
+    ["collage", "Collage", "Moves, turns and resizes, without distorting."],
+    ["reposition", "Reposition", "Only moves, by whole pixels: the pixels stay exactly as they are."],
+  ];
+  const canAutoAlign = () => ops.alignableIds().length > 1;
+  const autoAlignLayers = async () => {
+    settleForResize();
+    let kept = "auto";
+    try {
+      kept = window.localStorage.getItem(ALIGN_STORE) || "auto";
+    } catch (error) {
+      // Private browsing: Auto, as in Photoshop
+    }
+    if (!PROJECTIONS.some(([id]) => id === kept)) kept = "auto";
+    const values = await dialog({
+      title: T("Auto-Align Layers"),
+      body: T("The locked layer, or the Background, stays in place and the others go onto it. Without one, the layer that shares the most with the others stays."),
+      fields: [{ id: "projection", label: T("Projection"), options: PROJECTIONS.map(([id, label]) => [id, T(label)]), value: kept, hint: (value) => T((PROJECTIONS.find(([id]) => id === value) || PROJECTIONS[0])[2]) }],
+      ok: "OK",
+    });
+    if (!values) return;
+    try {
+      window.localStorage.setItem(ALIGN_STORE, values.projection);
+    } catch (error) {
+      // Not kept: Auto next time
+    }
+    const busy = (percent) => working(fill(T("Aligning the layers… {percent}%"), { percent }));
+    busy(0);
+    let result;
+    try {
+      result = await ops.autoAlignLayers(values.projection, busy);
+    } catch (error) {
+      console.warn("TypeR web: Auto-Align Layers failed", error);
+      working(null);
+      toast(T("The layers could not be aligned."));
+      return;
+    }
+    working(null);
+    if (!result) toast(T("The page changed during the alignment: nothing was moved."));
+    else if (!result.moved && result.failed) toast(T("These layers have too little in common to be aligned."), true);
+    else if (!result.moved) toast(T("The layers are already aligned."));
+    else if (result.failed) toast(fill(T("Layers aligned: {count}. With too little in common, {failed} stayed in place."), { count: result.moved, failed: result.failed }), true);
+    else toast(fill(T("Layers aligned: {count}."), { count: result.moved }));
+  };
+
   // The app has all the keys a browser tab keeps for itself, so Photoshop's work as they are
   const DESKTOP = Boolean(window.TypeRDesktop);
   const MENUS = [
@@ -5415,6 +6545,7 @@
       { label: "Copy", keys: "Cmd+C", enabled: hasDoc, browserWhenOff: true, action: copySelection },
       { label: "Fill with Foreground Colour", keys: "Alt+Backspace", enabled: hasSelection, action: () => fillSelectionCheck(toRgb(app.fg)) },
       { label: "Fill with Background Colour", keys: "Cmd+Backspace", enabled: hasSelection, action: () => fillSelectionCheck(toRgb(app.bg)) },
+      { label: "Content-Aware Fill…", keys: "Shift+Backspace", enabled: hasSelection, action: contentAwareFill },
       { label: "Clear", keys: "Backspace", enabled: () => hasSelection() || hasLayer(), action: () => clearOrDelete() },
       null,
       // A browser tab keeps Ctrl+T for itself: Photoshop's shortcut only arrives in the installed app or full screen
@@ -5424,11 +6555,14 @@
       { label: "Rotate 90° Counterclockwise", keepsTransform: true, enabled: canTransform, action: () => transformStep(turnBy(-90)) },
       { label: "Flip Horizontal", keepsTransform: true, enabled: canTransform, action: () => transformStep(flipH) },
       { label: "Flip Vertical", keepsTransform: true, enabled: canTransform, action: () => transformStep(flipV) },
+      { label: "Auto-Align Layers…", enabled: canAutoAlign, action: autoAlignLayers },
       null,
       { label: "Check Spelling", check: () => settings.spellcheck, action: () => { settings.spellcheck = !settings.spellcheck; ui.editor.spellcheck = settings.spellcheck; keepSettings(); } },
       { label: "Settings…", keys: "Cmd+K", action: () => showSettings() },
     ]],
     ["Image", [
+      { label: "Levels…", keys: "Cmd+L", enabled: hasDoc, action: showLevels },
+      null,
       { label: "Canvas Size…", keys: "Alt+Cmd+C", enabled: hasDoc, action: askCanvasSize },
       { label: "Image Size…", keys: "Alt+Cmd+I", enabled: hasDoc, action: askImageSize },
     ]],
@@ -5488,6 +6622,7 @@
       { label: "Character", check: () => Workspace().isVisible("character"), action: () => Workspace().toggle("character") },
       { label: "History", check: () => Workspace().isVisible("history"), action: () => Workspace().toggle("history") },
       { label: "Line Breaks", keys: "Shift+L", check: () => Workspace().isVisible("breaks"), action: () => Workspace().toggle("breaks") },
+      ...(Shell.touch ? [] : [{ label: "Contextual Task Bar", check: () => settings.taskBar, action: () => setTaskBar(!settings.taskBar) }]),
       null,
       { label: "Reset Workspace", action: () => Workspace().reset() },
       ...(DESKTOP ? [] : [{ label: "Touch Interface", action: () => Shell.prefer("touch") }]),
@@ -5518,10 +6653,13 @@
   /* ---- the shortcuts: every tool, every menu command, a few more ---- */
 
   // Rectangle and Ellipse share M and Shift+M, as in Photoshop, until they get keys of their own
+  // and Lasso and Polygonal Lasso share L and Shift+L
+  const TOOL_PAIRS = [["rectangle", "ellipse", "M"], ["lasso", "polygon", "L"]];
   const pickTool = (id) => {
-    const cycling = TOOLS.some((entry) => entry && entry[0] === "ellipse" && entry[2] === "Shift+M") && TOOLS.some((entry) => entry && entry[0] === "rectangle" && entry[2] === "M");
-    if (cycling && id === "rectangle") setTool(app.tool === "ellipse" ? "ellipse" : "rectangle");
-    else if (cycling && id === "ellipse") setTool(app.tool === "rectangle" ? "ellipse" : "rectangle");
+    const keyOf = (tool) => (TOOLS.find((entry) => entry && entry[0] === tool) || [])[2];
+    const pair = TOOL_PAIRS.find(([first, second, key]) => (id === first || id === second) && keyOf(first) === key && keyOf(second) === `Shift+${key}`);
+    if (pair && id === pair[0]) setTool(app.tool === pair[1] ? pair[1] : pair[0]);
+    else if (pair) setTool(app.tool === pair[0] ? pair[1] : pair[0]);
     else setTool(id);
   };
   const scaleBrush = (factor) => {
@@ -5966,6 +7104,7 @@
   const closeContextMenu = () => {
     if (contextMenu) contextMenu.remove();
     contextMenu = null;
+    tabsMore.setAttribute("aria-expanded", "false");
   };
   const openContextMenu = (x, y, wanted) => {
     closeContextMenu();
@@ -6100,6 +7239,21 @@
     const key = event.key.toLowerCase();
     // TypeR's cleaning layers shortcut: Windows browsers would open their history
     if (key === "h" && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) event.preventDefault();
+    if (polygon && !fromPanel && !openMenu && !isField(event.target)) {
+      if (event.key === "Enter" || event.key === "Escape") {
+        event.preventDefault();
+        if (event.key === "Enter") closePolygon();
+        else cancelPolygon();
+        return;
+      }
+      if (event.key === "Backspace" || event.key === "Delete") {
+        event.preventDefault();
+        polygon.points.pop();
+        if (!polygon.points.length) cancelPolygon();
+        else showPolygon(polygon.pointer && polygonAim(polygon.pointer, event));
+        return;
+      }
+    }
     const turning = !fromPanel && !isField(event.target) && transformOf();
     if (turning) {
       if (event.key === "Enter" || event.key === "Escape" || (key === "z" && command)) {

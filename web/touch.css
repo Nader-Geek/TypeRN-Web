@@ -52,7 +52,7 @@ html.touch, html.touch body { position: fixed; inset: 0; overscroll-behavior: no
 html.touch body { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 html.touch input, html.touch textarea { user-select: text; -webkit-user-select: text; }
 html.touch .app { display: block; position: fixed; inset: 0; height: auto; }
-html.touch .mbar, html.touch .fontbar, html.touch .tabs, html.touch .status, html.touch .dock__head, html.touch .ws-grip { display: none !important; }
+html.touch .mbar, html.touch .fontbar, html.touch .tabbar, html.touch .status, html.touch .dock__head, html.touch .ws-grip { display: none !important; }
 
 /* what only exists here */
 html.touch .t-only { display: revert !important; }
@@ -236,6 +236,8 @@ html.touch .character { gap: 10px 12px; padding: 12px; grid-template-columns: 1f
 html.touch .character label { flex-wrap: nowrap; gap: 8px; }
 html.touch .character label > span:first-child { flex: 0 0 74px; }
 html.touch .character .font-field { width: 100%; height: 44px; font-size: 17px; }
+html.touch .combo > select { width: 36px; padding: 0; }
+html.touch .combo::after { right: 14px; }
 html.touch .character__row { gap: 8px; flex-wrap: wrap; }
 html.touch .character__row .icon-btn { font-size: 16px; }
 
