@@ -982,8 +982,9 @@
       pixelControls = { x0, y0, x1, y1 };
       return;
     }
-    // A rotated text from a PSD only moves: its handles would be those of a straight text
-    if (list.length !== 1 || list[0].kind !== "text" || list[0].rotated || list[0].warp) return;
+    // A rotated text from a PSD only moves: its handles would be those of a straight text.
+    // A text in perspective gets them too: they grow or stretch its surface (see "surface").
+    if (list.length !== 1 || list[0].kind !== "text" || list[0].rotated) return;
     const HANDLE = handleSize();
     const roomy = x1 - x0 > (Shell.touch ? 64 : 26) && y1 - y0 > (Shell.touch ? 64 : 26);
     handleArea = Math.min(x1 - x0, y1 - y0);
@@ -2826,7 +2827,7 @@
     const handled = handle && (handleWhileTyping ? doc.state.layers.find((layer) => layer.id === editing.id) : activeTexts()[0]);
     if (handled) {
       gestureCount++;
-      gesture = Object.assign(base, { kind: handle.kind.startsWith("warp") ? "warp" : handle.kind.length === 2 ? "scale" : "side", handle: handle.kind, layer: handled, frame: PS.frameOf(handled, doc), token: `gesture:${gestureCount}` });
+      gesture = Object.assign(base, { kind: handle.kind.startsWith("warp") ? "warp" : handled.warp ? "surface" : handle.kind.length === 2 ? "scale" : "side", handle: handle.kind, layer: handled, frame: PS.frameOf(handled, doc), token: `gesture:${gestureCount}` });
       if (Fonts.isMissing(handled.params.layerText.textStyleRange[0].textStyle.fontPostScriptName) && handled.raster) toast(T("This text's font is missing: it will be drawn with another font."), true);
       ui.stage.setPointerCapture(event.pointerId);
       event.preventDefault();
@@ -3041,6 +3042,32 @@
       const size = ops.scaleTextFrom(current.layer, factor, ax, ay, current.token);
       hud(`${size} ${T("px")}`, event);
       placeEditor();
+    } else if (current.kind === "surface") {
+      // A text in perspective grows or stretches as a picture would: its surface, from the
+      // opposite side, or from the middle with Alt. A corner keeps the shape unless Shift is held.
+      const f = current.frame;
+      const hx = current.handle.includes("e") ? 1 : current.handle.includes("w") ? -1 : 0;
+      const hy = current.handle.includes("s") ? 1 : current.handle.includes("n") ? -1 : 0;
+      const fromMiddle = event.altKey;
+      const reach = fromMiddle ? 2 : 1;
+      const ax = fromMiddle || !hx ? f.xMid : hx > 0 ? f.left : f.right;
+      const ay = fromMiddle || !hy ? f.yMid : hy > 0 ? f.top : f.bottom;
+      let sx = hx ? Math.max(4 / f.width, (f.width + hx * reach * (point[0] - current.start[0])) / f.width) : 1;
+      let sy = hy ? Math.max(4 / f.height, (f.height + hy * reach * (point[1] - current.start[1])) / f.height) : 1;
+      if (hx && hy && !event.shiftKey) {
+        // As far from the fixed point as the pointer went, the way a text's corners size it
+        const both = Math.hypot(point[0] - ax, point[1] - ay) / Math.max(1, Math.hypot(current.start[0] - ax, current.start[1] - ay));
+        sx = Math.max(both, 4 / f.width, 4 / f.height);
+        sy = sx;
+      }
+      const { warp } = current.layer;
+      const scaled = ([x, y]) => [x * sx, y * sy];
+      ops.setTextWarp(current.layer, Object.assign({}, warp, {
+        corners: warp.corners.map(([x, y]) => [ax + (x - ax) * sx, ay + (y - ay) * sy]),
+        bendTop: scaled(warp.bendTop),
+        bendBottom: scaled(warp.bendBottom),
+      }), current.token);
+      hud(`${Math.round(f.width * sx)} × ${Math.round(f.height * sy)} px`, event);
     } else if (current.kind === "side") {
       // Left and right: the width, the height following the text unless it was set.
       // Top and bottom: a fixed height. With Alt, both sides move.
