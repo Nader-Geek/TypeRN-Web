@@ -4349,7 +4349,18 @@
     }
   };
 
+  // Batch Save: Photoshop's Image Processor, made simpler. The open pages or a folder of them,
+  // in JPEG, PNG and PSD at once. Each format gets its own folder, as in Photoshop, next to the
+  // images or in another folder; a browser that can't write to a folder downloads them.
   const BATCH_STORE = "typer.web.batchSave";
+  const BATCH_FORMATS = [
+    { id: "jpeg", label: "JPEG", folder: "JPEG", extension: ".jpg", type: "image/jpeg", fits: true },
+    { id: "png", label: "PNG", folder: "PNG", extension: ".png", type: "image/png", fits: true },
+    { id: "psd", label: "PSD", folder: "PSD" },
+  ];
+  const FORMAT_FOLDERS = new Set(BATCH_FORMATS.map((format) => format.folder));
+  const canPickFolder = () => typeof window.showDirectoryPicker === "function";
+
   const batchSettings = () => {
     let saved = {};
     try {
@@ -4357,157 +4368,411 @@
     } catch (error) {
       console.warn("TypeR web: could not read the batch save settings", error);
     }
-    return { format: ["psd", "jpeg", "both"].includes(saved.format) ? saved.format : "both", quality: Math.max(1, Math.min(100, Math.round(Number(saved.quality)) || 92)) };
+    // What Save All Open Documents kept: one choice of PSD, JPEG or both
+    const formats = saved.formats || { jpeg: saved.format !== "psd", png: false, psd: saved.format !== "jpeg" };
+    const side = (value) => (Number(value) > 0 ? String(Math.round(Number(value))) : "");
+    const fit = (id) => {
+      const kept = (saved.fit && saved.fit[id]) || {};
+      return { on: Boolean(kept.on), width: side(kept.width), height: side(kept.height) };
+    };
+    return {
+      source: saved.source === "folder" ? "folder" : "open",
+      subfolders: Boolean(saved.subfolders),
+      target: saved.target === "other" ? "other" : "same",
+      keepTree: saved.keepTree !== false,
+      formats: { jpeg: Boolean(formats.jpeg), png: Boolean(formats.png), psd: Boolean(formats.psd) },
+      quality: Math.max(1, Math.min(100, Math.round(Number(saved.quality)) || 92)),
+      fit: { jpeg: fit("jpeg"), png: fit("png") },
+    };
   };
 
-  const askBatchSave = async (count, toFolder) => {
+  // The images of a folder, in the subfolders too when asked. The format folders a batch made
+  // there before are left out.
+  const imagesOfFolder = async (folder, deep, path = []) => {
+    const found = [];
+    for await (const handle of folder.values()) {
+      if (handle.kind === "file" && OPENABLE.test(handle.name)) found.push({ handle, name: handle.name, path });
+      else if (handle.kind === "directory" && deep && !(path.length === 0 && FORMAT_FOLDERS.has(handle.name.toUpperCase()))) found.push(...(await imagesOfFolder(handle, deep, [...path, handle.name])));
+    }
+    return found;
+  };
+  const inReadingOrder = (items) => items.sort((a, b) => NATURAL_ORDER.compare([...a.path, a.name].join("/"), [...b.path, b.name].join("/")));
+
+  // Fit inside a width and a height, either one left empty for no limit. Halved step by step
+  // first: a page made much smaller at once loses its thin lines.
+  const fittedCanvas = (canvas, fit) => {
+    const width = Number(fit.width) || 0;
+    const height = Number(fit.height) || 0;
+    if (!fit.on || (!width && !height)) return canvas;
+    const scale = Math.min(width ? width / canvas.width : Infinity, height ? height / canvas.height : Infinity);
+    const goal = [Math.max(1, Math.round(canvas.width * scale)), Math.max(1, Math.round(canvas.height * scale))];
+    if (goal[0] === canvas.width && goal[1] === canvas.height) return canvas;
+    let from = canvas;
+    const draw = (w, h) => {
+      const next = document.createElement("canvas");
+      next.width = w;
+      next.height = h;
+      const ctx = next.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(from, 0, 0, w, h);
+      from = next;
+    };
+    while (from.width / 2 > goal[0] && from.height / 2 > goal[1]) draw(Math.round(from.width / 2), Math.round(from.height / 2));
+    draw(goal[0], goal[1]);
+    return from;
+  };
+
+  const askBatchSave = () => new Promise((resolve) => {
     const settings = batchSettings();
-    const body = document.createElement("div");
-    body.className = "batch";
-    const about = document.createElement("p");
-    about.textContent = `${fill(T("Open documents: {count}"), { count })}. ${T(toFolder ? "You'll choose the folder next." : "The files will go to your downloads.")}`;
-    const formatRow = document.createElement("label");
-    const formatName = document.createElement("span");
-    formatName.textContent = T("Format");
-    const format = document.createElement("select");
-    [["psd", "PSD"], ["jpeg", "JPEG"], ["both", "PSD + JPEG"]].forEach(([value, text]) => {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = text;
-      format.appendChild(option);
-    });
-    format.value = settings.format;
-    formatRow.append(formatName, format);
-    const qualityRow = document.createElement("label");
-    const qualityName = document.createElement("span");
-    qualityName.textContent = T("JPEG quality");
-    const slider = document.createElement("span");
-    slider.className = "batch__slider";
-    const quality = document.createElement("input");
-    quality.type = "range";
-    quality.min = 1;
-    quality.max = 100;
-    quality.value = settings.quality;
-    showSliderFill(quality);
-    const shown = document.createElement("output");
-    const refresh = () => {
-      shown.textContent = quality.value;
-      quality.disabled = format.value === "psd";
-      qualityRow.classList.toggle("is-off", quality.disabled);
+    const toFolder = canPickFolder();
+    const state = { sourceFolder: null, sourceName: "", items: null, scanning: false, targetFolder: null };
+    if (!app.docs.length) settings.source = "folder";
+    const make = (tag, className, parent, text) => {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      if (parent) parent.appendChild(node);
+      return node;
     };
-    quality.addEventListener("input", refresh);
-    format.addEventListener("change", refresh);
-    refresh();
-    slider.append(quality, shown);
-    qualityRow.append(qualityName, slider);
-    body.append(about, formatRow, qualityRow);
-    if (!(await dialog({ title: T("Save All Open Documents"), body, ok: T("Save") }))) return null;
-    const answer = { format: format.value, quality: Number(quality.value) };
-    try {
-      window.localStorage.setItem(BATCH_STORE, JSON.stringify(answer));
-    } catch (error) {
-      console.warn("TypeR web: could not keep the batch save settings", error);
-    }
-    return answer;
-  };
-
-  // Two pages can end up with one file name: 01.psd and 01.png, or two 01.psd from two folders
-  const batchFiles = (docs, format) => {
-    const taken = new Set();
-    const unique = (base, extension) => {
-      let name = base + extension;
-      for (let copy = 2; taken.has(name.toLowerCase()); copy++) name = `${base} (${copy})${extension}`;
-      taken.add(name.toLowerCase());
-      return name;
+    const body = make("div", "bsave");
+    const step = (number, title) => {
+      const box = make("section", "bsave__step", body);
+      const head = make("div", "bsave__head", box);
+      make("span", "bsave__num", head, number);
+      make("h3", "", head, title);
+      return make("div", "bsave__content", box);
     };
-    return docs.map((doc) => {
-      const base = doc.name.replace(/\.[^.]+$/, "");
-      return {
-        doc,
-        psd: format === "jpeg" ? null : unique(base, photoshopExtension(doc)),
-        jpeg: format === "psd" ? null : unique(base, ".jpg"),
-      };
-    });
-  };
+    const segmented = (parent, options, get, set) => {
+      const row = make("div", "bsave__seg", parent);
+      const buttons = options.map(([value, label]) => {
+        const button = make("button", "", row, label);
+        button.type = "button";
+        button.addEventListener("click", () => {
+          set(value);
+          render();
+        });
+        return { value, button };
+      });
+      return () => buttons.forEach(({ value, button }) => {
+        button.classList.toggle("is-on", get() === value);
+        button.setAttribute("aria-pressed", String(get() === value));
+      });
+    };
+    const check = (parent, label, get, set) => {
+      const row = make("label", "bsave__check", parent);
+      const input = make("input", "", row);
+      input.type = "checkbox";
+      make("span", "", row, label);
+      input.addEventListener("change", () => {
+        set(input.checked);
+        render();
+      });
+      return { row, input, sync: () => { input.checked = get(); } };
+    };
+    const folderRow = (parent, choose) => {
+      const row = make("div", "bsave__folder", parent);
+      const button = make("button", "btn btn--small", row, T("Choose a folder…"));
+      button.type = "button";
+      button.addEventListener("click", choose);
+      const said = make("span", "bsave__said", row);
+      return { row, said };
+    };
 
-  const confirmReplace = async (folder, files) => {
-    const names = files.flatMap((file) => [file.psd, file.jpeg]).filter(Boolean);
-    const existing = [];
-    for (const name of names) {
-      if (await folder.getFileHandle(name).catch(() => null)) existing.push(name);
-    }
-    if (!existing.length) return true;
-    const body = document.createElement("div");
-    body.className = "batch";
-    const about = document.createElement("p");
-    about.textContent = T("Already in this folder, and will be replaced:");
-    const list = document.createElement("ul");
-    existing.forEach((name) => {
-      const item = document.createElement("li");
-      item.textContent = name;
-      list.appendChild(item);
-    });
-    body.append(about, list);
-    return Boolean(await dialog({ title: T("Save All Open Documents"), body, ok: T("Replace") }));
-  };
-
-  // Every open page, in one folder when the browser can write to one, else through the downloads.
-  // A page that fails doesn't stop the others.
-  const batchSave = async () => {
-    if (!app.docs.length) return;
-    if (!ui.editor.hidden) endEdit();
-    const toFolder = typeof window.showDirectoryPicker === "function";
-    const choice = await askBatchSave(app.docs.length, toFolder);
-    if (!choice) return;
-    const docs = app.docs.slice();
-    const files = batchFiles(docs, choice.format);
-    let folder = null;
-    if (toFolder) {
+    // 1. The images
+    const one = step("1", T("Images"));
+    const syncSource = segmented(one, [["open", fill(T("Open documents ({count})"), { count: app.docs.length })], ["folder", T("A folder")]], () => settings.source, (value) => { settings.source = value; });
+    const openButton = one.querySelector(".bsave__seg button");
+    openButton.disabled = !app.docs.length;
+    const scan = async () => {
+      if (!state.sourceFolder) return;
+      state.scanning = true;
+      render();
       try {
-        folder = await window.showDirectoryPicker({ id: "typer-batch-save", mode: "readwrite" });
-        if (!(await confirmReplace(folder, files))) return;
+        state.items = inReadingOrder(await imagesOfFolder(state.sourceFolder, settings.subfolders));
+      } catch (error) {
+        state.items = [];
+        toast(fill(T("{name} can't be read: {error}"), { name: state.sourceName, error: error.message || error }), true);
+      }
+      state.scanning = false;
+      render();
+    };
+    // Without a folder picker, the browser hands over the files of a folder, and its name
+    let pickedFiles = null;
+    const source = folderRow(one, async () => {
+      if (!toFolder) {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.webkitdirectory = true;
+        input.addEventListener("change", () => {
+          const files = Array.from(input.files).filter((file) => OPENABLE.test(file.name));
+          pickedFiles = files.map((file) => {
+            const parts = (file.webkitRelativePath || file.name).split("/");
+            return { file, name: file.name, path: parts.slice(1, -1) };
+          });
+          state.sourceName = (input.files[0] && (input.files[0].webkitRelativePath || "").split("/")[0]) || "";
+          state.items = inReadingOrder(pickedFiles.filter((item) => settings.subfolders || !item.path.length));
+          render();
+        });
+        input.click();
+        return;
+      }
+      try {
+        state.sourceFolder = await window.showDirectoryPicker({ id: "typer-batch-source", mode: "readwrite" });
+        state.sourceName = state.sourceFolder.name;
+        await scan();
+      } catch (error) {
+        if (error.name !== "AbortError") toast(fill(T("{name} can't be read: {error}"), { name: T("Choose a folder…"), error: error.message || error }), true);
+      }
+    });
+    const subfolders = check(one, T("Include subfolders"), () => settings.subfolders, (on) => {
+      settings.subfolders = on;
+      if (state.sourceFolder) scan();
+      else if (pickedFiles) state.items = inReadingOrder(pickedFiles.filter((item) => on || !item.path.length));
+    });
+
+    // 2. Where they go
+    const two = step("2", T("Save to"));
+    const syncTarget = toFolder ? segmented(two, [["same", T("Next to the images")], ["other", T("Another folder")]], () => (settings.source === "folder" ? settings.target : "other"), (value) => { settings.target = value; }) : () => {};
+    const target = toFolder ? folderRow(two, async () => {
+      try {
+        state.targetFolder = await window.showDirectoryPicker({ id: "typer-batch-save", mode: "readwrite" });
+        render();
       } catch (error) {
         if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      }
+    }) : null;
+    if (!toFolder) make("p", "bsave__note", two, T("The files will go to your downloads."));
+    const keepTree = check(two, T("Keep the subfolders"), () => settings.keepTree, (on) => { settings.keepTree = on; });
+    const where = make("p", "bsave__note", two);
+
+    // 3. The formats
+    const three = step("3", T("Formats"));
+    const formatRows = BATCH_FORMATS.map((format) => {
+      const card = make("div", "bsave__format", three);
+      const main = check(card, format.label, () => settings.formats[format.id], (on) => { settings.formats[format.id] = on; });
+      main.row.classList.add("bsave__name");
+      const options = make("div", "bsave__options", card);
+      if (format.id === "jpeg") {
+        const row = make("label", "bsave__quality", options);
+        make("span", "", row, T("Quality"));
+        const slider = make("input", "", row);
+        slider.type = "range";
+        slider.min = 1;
+        slider.max = 100;
+        slider.value = settings.quality;
+        showSliderFill(slider);
+        const shown = make("output", "", row, String(settings.quality));
+        slider.addEventListener("input", () => {
+          settings.quality = Number(slider.value);
+          shown.textContent = slider.value;
+        });
+      }
+      if (format.fits) {
+        const fit = settings.fit[format.id];
+        const resize = check(options, T("Resize to fit"), () => fit.on, (on) => { fit.on = on; });
+        const sides = make("span", "bsave__sides", resize.row);
+        const side = (key, label) => {
+          const input = make("input", "", sides);
+          input.type = "number";
+          input.min = 1;
+          input.placeholder = label;
+          input.title = label;
+          input.value = fit[key];
+          input.addEventListener("input", () => {
+            fit[key] = input.value;
+            if (input.value && !fit.on) {
+              fit.on = true;
+              render();
+            }
+          });
+          return input;
+        };
+        side("width", T("Width"));
+        make("span", "", sides, "×");
+        side("height", T("Height"));
+        make("span", "", sides, T("px"));
+        return { format, card, sync: () => { main.sync(); resize.sync(); } };
+      }
+      return { format, card, sync: main.sync };
+    });
+
+    let okButton = null;
+    const sameFolder = () => settings.source === "folder" && settings.target === "same" && toFolder;
+    const ready = () => {
+      const images = settings.source === "open" ? app.docs.length > 0 : Boolean(state.items && state.items.length) && !state.scanning;
+      const place = !toFolder || (sameFolder() ? Boolean(state.sourceFolder) : Boolean(state.targetFolder));
+      return images && place && BATCH_FORMATS.some((format) => settings.formats[format.id]);
+    };
+    function render() {
+      syncSource();
+      syncTarget();
+      const fromFolder = settings.source === "folder";
+      source.row.hidden = !fromFolder;
+      subfolders.row.hidden = !fromFolder;
+      subfolders.sync();
+      source.said.classList.toggle("is-empty", !state.sourceName);
+      if (state.scanning) source.said.textContent = T("Looking for images…");
+      else if (!state.sourceName) source.said.textContent = T("No folder chosen yet.");
+      else if (state.items && !state.items.length) source.said.textContent = `${state.sourceName} · ${T("There is no PSD, PNG, JPEG or WebP in this folder.")}`;
+      else source.said.textContent = `${state.sourceName} · ${fill(T("{count} images"), { count: state.items ? state.items.length : 0 })}`;
+      // Next to the images: only a folder has a place of its own
+      if (toFolder) {
+        const segment = two.querySelector(".bsave__seg");
+        segment.querySelector("button").disabled = !fromFolder || (!state.sourceFolder && Boolean(pickedFiles));
+        target.row.hidden = sameFolder();
+        target.said.classList.toggle("is-empty", !state.targetFolder);
+        target.said.textContent = state.targetFolder ? state.targetFolder.name : T("No folder chosen yet.");
+      }
+      keepTree.row.hidden = !(fromFolder && settings.subfolders && toFolder);
+      keepTree.sync();
+      const chosen = BATCH_FORMATS.filter((format) => settings.formats[format.id]);
+      where.hidden = !toFolder || !chosen.length;
+      where.textContent = fill(T("Each format goes in its own folder: {folders}"), { folders: chosen.map((format) => `${format.folder}/`).join(", ") });
+      formatRows.forEach(({ format, card, sync }) => {
+        sync();
+        card.classList.toggle("is-on", settings.formats[format.id]);
+      });
+      if (okButton) okButton.disabled = !ready();
+    }
+
+    dialog({ title: T("Batch Save"), body, ok: T("Save") }).then((answer) => {
+      if (!answer) {
+        resolve(null);
         return;
+      }
+      if (!ready()) {
+        toast(T(BATCH_FORMATS.some((format) => settings.formats[format.id]) ? "Choose the images and where to save them first." : "Choose at least one format."));
+        resolve(null);
+        return;
+      }
+      try {
+        window.localStorage.setItem(BATCH_STORE, JSON.stringify(settings));
+      } catch (error) {
+        console.warn("TypeR web: could not keep the batch save settings", error);
+      }
+      const fromFolder = settings.source === "folder";
+      resolve({
+        settings,
+        items: fromFolder ? state.items : app.docs.map((doc) => ({ doc, name: doc.name, path: [] })),
+        root: !toFolder ? null : sameFolder() ? state.sourceFolder : state.targetFolder,
+        keepTree: fromFolder && settings.subfolders && settings.keepTree,
+      });
+    });
+    ui.modal.classList.add("modal--batch");
+    okButton = ui.modal.querySelector(".modal__foot .btn--main");
+    render();
+  });
+
+  // Every image in every format chosen. One that fails doesn't stop the others.
+  const batchSave = async () => {
+    if (!ui.editor.hidden) endEdit();
+    const choice = await askBatchSave();
+    if (!choice) return;
+    const { settings, items, root, keepTree } = choice;
+    const formats = BATCH_FORMATS.filter((format) => settings.formats[format.id]);
+    // Two images can end up with one file name: two 01.psd from two folders, put together
+    const taken = new Set();
+    const unique = (dir, base, extension) => {
+      const at = dir.join("/").toLowerCase();
+      let name = base + extension;
+      for (let copy = 2; taken.has(`${at}/${name.toLowerCase()}`); copy++) name = `${base} (${copy})${extension}`;
+      taken.add(`${at}/${name.toLowerCase()}`);
+      return name;
+    };
+    const plan = items.map((item) => {
+      const base = item.name.replace(/\.[^.]+$/, "");
+      const tree = keepTree ? item.path : [];
+      return {
+        item,
+        outputs: formats.map((format) => {
+          const extension = format.id !== "psd" ? format.extension : item.doc ? photoshopExtension(item.doc) : /\.psb$/i.test(item.name) ? ".psb" : ".psd";
+          const dir = root ? [format.folder, ...tree] : [];
+          return { format, dir, name: unique(dir, base, extension) };
+        }),
+      };
+    });
+    const folders = new Map();
+    const folderOf = async (dir, create) => {
+      const key = dir.join("/");
+      if (folders.has(key)) return folders.get(key);
+      let folder = root;
+      for (const part of dir) folder = await folder.getDirectoryHandle(part, { create });
+      folders.set(key, folder);
+      return folder;
+    };
+    if (root) {
+      const existing = [];
+      for (const { outputs } of plan) {
+        for (const output of outputs) {
+          const folder = await folderOf(output.dir, false).catch(() => null);
+          if (folder && (await folder.getFileHandle(output.name).catch(() => null))) existing.push([...output.dir, output.name].join("/"));
+        }
+      }
+      folders.clear();
+      if (existing.length) {
+        const body = document.createElement("div");
+        body.className = "batch";
+        const about = document.createElement("p");
+        about.textContent = T("Already in this folder, and will be replaced:");
+        const list = document.createElement("ul");
+        existing.forEach((name) => {
+          const row = document.createElement("li");
+          row.textContent = name;
+          list.appendChild(row);
+        });
+        body.append(about, list);
+        if (!(await dialog({ title: T("Batch Save"), body, ok: T("Replace") }))) return;
       }
     }
     const entries = [];
     // Written as soon as made: a chapter of PSDs doesn't fit in memory all at once
-    const keep = async (blob, name) => {
-      if (folder) {
-        const handle = await folder.getFileHandle(name, { create: true });
+    const keep = async (blob, output) => {
+      if (root) {
+        const handle = await (await folderOf(output.dir, true)).getFileHandle(output.name, { create: true });
         await writeTo(handle, blob);
         return handle;
       }
-      if (Shell.touch) entries.push({ blob, name });
+      if (Shell.touch) entries.push({ blob, name: output.name });
       else {
-        download(blob, name);
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        download(blob, output.name);
+        await new Promise((done) => setTimeout(done, 300));
       }
       return null;
     };
     let saved = 0;
     const failed = [];
     const written = [];
-    for (const [index, file] of files.entries()) {
-      working(fill(T("Saving {current}/{total}: {name}…"), { current: index + 1, total: files.length, name: file.doc.name }));
+    for (const [index, { item, outputs }] of plan.entries()) {
+      working(fill(T("Saving {current}/{total}: {name}…"), { current: index + 1, total: plan.length, name: item.name }));
       await nextPaint();
+      let doc = item.doc;
+      let file = null;
       try {
-        if (file.psd) {
-          const savedId = file.doc.history[file.doc.historyIndex].id;
-          const handle = await keep(new Blob([await window.TypeRPSD.write(file.doc, file.psd)], { type: "image/vnd.adobe.photoshop" }), file.psd);
-          written.push({ file, handle, savedId, onDisk: handle ? await handle.getFile() : null });
+        if (!doc) {
+          file = item.file || (await item.handle.getFile());
+          doc = await ops.readDetached(file, item.name);
         }
-        if (file.jpeg) {
-          const canvas = flattened(file.doc, "#fff");
-          const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", choice.quality / 100));
-          if (!blob) throw new Error("the browser could not make the JPEG");
-          await keep(blob, file.jpeg);
+        for (const output of outputs) {
+          const { format } = output;
+          if (format.id === "psd") {
+            const savedId = item.doc ? doc.history[doc.historyIndex].id : null;
+            // A PSD from the folder goes as it is: nothing in it has changed
+            const blob = file && /\.ps[db]$/i.test(item.name) ? file : new Blob([await window.TypeRPSD.write(doc, output.name)], { type: "image/vnd.adobe.photoshop" });
+            const handle = await keep(blob, output);
+            if (item.doc) written.push({ doc, name: output.name, handle, savedId, onDisk: handle ? await handle.getFile() : null });
+            continue;
+          }
+          const canvas = fittedCanvas(flattened(doc, format.id === "jpeg" ? "#fff" : null), settings.fit[format.id]);
+          const blob = await new Promise((done) => canvas.toBlob(done, format.type, settings.quality / 100));
+          if (!blob) throw new Error(`the browser could not make the ${format.label}`);
+          await keep(blob, output);
         }
         saved++;
       } catch (error) {
         console.error(error);
-        failed.push(file.doc.name);
+        failed.push(item.name);
+      } finally {
+        if (doc && !item.doc) ops.dropDetached(doc);
       }
     }
     working(null);
@@ -4519,15 +4784,17 @@
         return;
       }
     }
-    // Only now: a page cancelled in the share sheet still has unsaved changes
-    written.forEach(({ file, handle, savedId, onDisk }) => {
-      if (handle) file.doc.handle = handle;
-      file.doc.name = file.psd;
-      if (onDisk) ops.fileWritten(file.doc, onDisk);
-      ops.markSaved(file.doc, savedId);
+    // An open page saved as a PSD is now that file, as with Save As. Only now: a page cancelled
+    // in the share sheet still has unsaved changes.
+    written.forEach(({ doc, name, handle, savedId, onDisk }) => {
+      if (!app.docs.includes(doc)) return;
+      if (handle) doc.handle = handle;
+      doc.name = name;
+      if (onDisk) ops.fileWritten(doc, onDisk);
+      ops.markSaved(doc, savedId);
     });
     if (failed.length) toast(fill(T("Saved: {saved}. Could not save: {names}"), { saved, names: failed.join(", ") }), true);
-    else toast(fill(T("Documents saved: {count}."), { count: saved }));
+    else toast(fill(T("Images saved: {count}."), { count: saved }));
   };
 
   const closeDoc = async (doc = app.doc) => {
@@ -5131,7 +5398,7 @@
       { label: "Save As…", keys: "Shift+Cmd+S", enabled: hasDoc, action: () => saveAs() },
       { label: "Export as PNG…", enabled: hasDoc, action: () => exportImage("image/png") },
       { label: "Export as JPEG…", enabled: hasDoc, action: () => exportImage("image/jpeg") },
-      { label: "Save All Open Documents…", enabled: hasDoc, action: batchSave },
+      { label: "Batch Save…", action: batchSave },
       null,
       { label: "Import Styles and Fonts (.zip, .json)…", action: () => $("file-kit").click() },
       // The app sees the computer's fonts from the start: there's nothing to ask for

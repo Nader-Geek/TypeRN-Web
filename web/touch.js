@@ -714,7 +714,7 @@
         el("p", "tview__label", { textContent: fill(T("All {count} pages"), { count: app.docs.length }) }),
         row("PNG", after(() => App.exportAllPages("image/png"))),
         row("JPEG", after(() => App.exportAllPages("image/jpeg"))),
-        row(T("Save All Open Documents…"), after(() => App.batchSave())),
+        row(T("Batch Save…"), after(() => App.batchSave())),
       );
     }
   };

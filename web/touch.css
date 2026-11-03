@@ -326,6 +326,9 @@ html.touch .modal { max-height: calc(100dvh - var(--kb) - 24px); margin-bottom: 
 html.touch .modal__head { font-size: 16px; padding: 14px; }
 html.touch .modal__body { font-size: 15px; }
 html.touch .modal__body label input, html.touch .modal__body label select { height: 44px; }
+html.touch .modal__body .bsave__check input[type="checkbox"] { width: 20px; height: 20px; }
+html.touch .modal__body .bsave__sides input { width: 76px; height: 38px; }
+html.touch .bsave__seg button { min-height: 38px; font-size: 14px; }
 html.touch .modal__foot { padding: 12px 14px; }
 html.touch .modal__foot .btn { flex: 1; }
 html.touch .fontlist .tab__close, html.touch .fontlist li { min-height: 40px; }

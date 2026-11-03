@@ -3311,6 +3311,36 @@
         URL.revokeObjectURL(url);
       }
     },
+    // A file read for Batch Save: a document that no tab shows, let go with dropDetached()
+    async readDetached(file, name) {
+      if (/\.ps[db]$/i.test(name)) {
+        const head = new DataView(await file.slice(0, 26).arrayBuffer());
+        if (head.byteLength >= 26 && head.getUint32(0) === 0x38425053) refuseIfTooLarge(head.getUint32(18), head.getUint32(14));
+        const read = await window.TypeRPSD.read(await file.arrayBuffer(), name, file);
+        return createDoc(Object.assign(read, { name, path: "batch://" + newId() }));
+      }
+      const url = URL.createObjectURL(file);
+      try {
+        const image = await new Promise((resolve, reject) => {
+          const picture = new Image();
+          picture.onload = () => resolve(picture);
+          picture.onerror = () => reject(new Error("Could not read " + name));
+          picture.src = url;
+        });
+        const width = image.naturalWidth;
+        const height = image.naturalHeight;
+        refuseIfTooLarge(width, height);
+        const bitmap = newCanvas(width, height);
+        bitmap.getContext("2d").drawImage(image, 0, 0);
+        const layer = newRaster((app.names && app.names.background) || "Background", { bitmap, isBackground: true });
+        return createDoc({ name, path: "batch://" + newId(), width, height, layers: [layer] });
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    },
+    dropDetached(doc) {
+      forgetDocPixels(doc);
+    },
     // The file on disk is now the document's: opening it again finds the document, and
     // the next save can tell whether someone else changed it
     fileWritten(doc, file) {
