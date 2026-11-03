@@ -130,6 +130,14 @@
         if (typingNow()) Desktop.textEdit(command);
       });
     }
+    // The computer's fonts are there from the start (main.js grants them). One installed while
+    // the app is open shows up when the app is back in front.
+    let fontsAsked = 0;
+    window.addEventListener("focus", () => {
+      if (Date.now() - fontsAsked < 5000) return;
+      fontsAsked = Date.now();
+      window.TypeRFonts.useInstalled().catch(() => {});
+    });
     // An update applies to the next launch, or right now if there's no page to disturb
     Desktop.onUpdateReady(() => {
       const start = document.getElementById("start");

@@ -5134,7 +5134,8 @@
       { label: "Save All Open Documents…", enabled: hasDoc, action: batchSave },
       null,
       { label: "Import Styles and Fonts (.zip, .json)…", action: () => $("file-kit").click() },
-      { label: "Use Installed Fonts…", action: useInstalledFonts },
+      // The app sees the computer's fonts from the start: there's nothing to ask for
+      ...(DESKTOP ? [] : [{ label: "Use Installed Fonts…", action: useInstalledFonts }]),
       { label: "Load Font Files…", action: chooseFonts },
       { label: "Loaded Fonts…", action: () => manageFonts() },
       { label: "Replace Missing Fonts…", enabled: () => missingFonts().length > 0, action: replaceMissingFonts },
