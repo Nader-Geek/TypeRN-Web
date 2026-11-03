@@ -1,4 +1,5 @@
 import { LINKS } from "../data/content";
+import { openDownloads } from "./Downloads";
 
 export default function Hero() {
   return (
@@ -24,7 +25,7 @@ export default function Hero() {
             TypeR is the ultimate Photoshop extension for manga and comics typesetters. Version 3 rethinks everything to speed up and optimize your workflow. And now, it works without Photoshop too.
           </p>
           <div className="hero__cta">
-            <a className="btn btn--fill" href="#install">
+            <a className="btn btn--fill" href="#install" onClick={openDownloads}>
               Download TypeR 3.0
             </a>
             <a className="btn btn--line" href={LINKS.web}>

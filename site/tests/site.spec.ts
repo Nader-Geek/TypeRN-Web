@@ -168,12 +168,29 @@ test("one download, socials in the nav", async ({ page }) => {
   for (const href of hrefs) expect(href).toBe(DOWNLOAD);
   await expect(page.locator('a[href$=".ccx"]')).toHaveCount(0);
 
+  const downloads = page.getByRole("dialog", { name: "Download TypeR" });
   for (const button of [page.locator(".nav__cta"), page.locator(".hero__cta").getByRole("link", { name: "Download" })]) {
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await button.click();
+    await expect(downloads).toBeVisible();
+    await expect(downloads).toContainText("free, lightweight Photoshop-like app made for lettering");
+    await expect(downloads.getByRole("link", { name: "the ZIP" })).toHaveAttribute("href", DOWNLOAD);
+    const studio = "https://github.com/ScanR/TypeR-Web/releases/latest/download/";
+    await expect(downloads.getByRole("link", { name: "Mac (Apple chip)" })).toHaveAttribute("href", studio + "TypeR-Studio-arm64.dmg");
+    await expect(downloads.getByRole("link", { name: "Mac (Intel)" })).toHaveAttribute("href", studio + "TypeR-Studio-x64.dmg");
+    await expect(downloads.getByRole("link", { name: "Windows" })).toHaveAttribute("href", studio + "TypeR-Studio-Setup.exe");
+    await downloads.getByRole("link", { name: "Install the extension" }).click();
+    await expect(downloads).toBeHidden();
     await expect(page).toHaveURL(/#install$/);
     await expect(page.locator("#install-title")).toBeInViewport();
   }
+
+  await page.locator(".nav__cta").click();
+  await page.keyboard.press("Escape");
+  await expect(downloads).toBeHidden();
+  await page.locator(".nav__cta").click();
+  await downloads.getByRole("button", { name: "Close" }).click();
+  await expect(downloads).toBeHidden();
 
   const nav = page.locator("#nav .nav__right");
   for (const label of ["GitHub", "Support TypeR on Ko-fi", "Discord"]) {
@@ -282,6 +299,7 @@ test.describe("news", () => {
   test("a section link from a post lands on its section", async ({ page }) => {
     await page.goto(POST);
     await page.locator(".nav__cta").click();
+    await page.getByRole("dialog", { name: "Download TypeR" }).getByRole("link", { name: "Install the extension" }).click();
     await expect(page).toHaveURL(/\/#install$/);
     await expect(page.locator("#install-title")).toBeInViewport();
   });

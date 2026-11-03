@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { NAV, SOCIALS } from "../data/content";
+import Downloads, { openDownloads } from "./Downloads";
 
 function BrandMark() {
   return (
@@ -61,7 +62,14 @@ export default function Nav({ base = "", current }: { base?: string; current?: s
 
         <div className="nav__right">
           <Socials className="socials--nav" />
-          <a className="btn btn--fill btn--sm nav__cta" href={resolve("#install")} onClick={() => setOpen(false)}>
+          <a
+            className="btn btn--fill btn--sm nav__cta"
+            href={resolve("#install")}
+            onClick={(e) => {
+              setOpen(false);
+              openDownloads(e);
+            }}
+          >
             Download
           </a>
         </div>
@@ -78,6 +86,7 @@ export default function Nav({ base = "", current }: { base?: string; current?: s
           <span />
         </button>
       </div>
+      <Downloads base={base} />
     </header>
   );
 }

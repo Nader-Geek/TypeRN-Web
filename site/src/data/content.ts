@@ -6,6 +6,10 @@ export const LINKS = {
   releasesLatest: "https://github.com/ScanR/TypeR/releases/latest",
   // One download for both editions: the archive's installer asks UXP or Legacy.
   download: "https://github.com/ScanR/TypeR/releases/latest/download/TypeR.zip",
+  // TypeR Studio, the desktop app: each one always leads to the latest release
+  studioMacArm: "https://github.com/ScanR/TypeR-Web/releases/latest/download/TypeR-Studio-arm64.dmg",
+  studioMacIntel: "https://github.com/ScanR/TypeR-Web/releases/latest/download/TypeR-Studio-x64.dmg",
+  studioWindows: "https://github.com/ScanR/TypeR-Web/releases/latest/download/TypeR-Studio-Setup.exe",
   web: "/web/",
   news: "/news/",
   news3: "/news/typer-3-0-0/",
