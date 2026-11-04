@@ -238,6 +238,38 @@
     }
     return glyphsSeen.get(key);
   };
+  // How high a letter rises above the baseline, as a share of the size. Read on the letter
+  // drawn at 1024 px, which the browser draws from its outline the same on every system:
+  // what it measures instead comes out up to 1.5% higher on Windows, rounded up to pixels.
+  const INK_SIZE = 1024;
+  const inkTops = new Map();
+  const inkTopOf = (textStyle, ch) => {
+    const key = Fonts.generation + "|" + cssFont(textStyle, INK_SIZE) + "|" + ch;
+    if (!inkTops.has(key)) {
+      setRunFont(measureCtx, textStyle, INK_SIZE);
+      const m = measureCtx.measureText(ch);
+      const left = Math.ceil(m.actualBoundingBoxLeft) + 8;
+      const baseline = Math.ceil(m.actualBoundingBoxAscent) + 8;
+      const canvas = newCanvas(left + Math.ceil(m.actualBoundingBoxRight) + 8, baseline + 8);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      setRunFont(ctx, textStyle, INK_SIZE);
+      ctx.textBaseline = "alphabetic";
+      ctx.fillText(ch, left, baseline);
+      const px = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let top = baseline;
+      for (let y = 0, found = false; y < baseline && !found; y++) {
+        let most = 0;
+        for (let i = y * canvas.width * 4 + 3; i < (y + 1) * canvas.width * 4; i += 4) most = Math.max(most, px[i]);
+        // The first row with ink, less what that row's edge leaves uncovered
+        if (most) {
+          top = y + 1 - most / 255;
+          found = true;
+        }
+      }
+      inkTops.set(key, (baseline - top) / INK_SIZE);
+    }
+    return inkTops.get(key);
+  };
 
   // Where each line goes and the box of its ink, measured once per text and style.
   // Everything here is relative to the layer's anchor: moving a layer costs nothing.
@@ -267,7 +299,7 @@
     const firstStyle = firstRuns ? firstRuns[0].style : (lt.textStyleRange && lt.textStyleRange[0] && lt.textStyleRange[0].textStyle) || {};
     const firstSize = sizePxOf(firstStyle, resolution);
     // Vertical scale stretches the letters, not this
-    const ascent = ownGlyph(firstStyle, "d") ? (setRunFont(measureCtx, firstStyle, firstSize), measureCtx.measureText("d").actualBoundingBoxAscent) : 0;
+    const ascent = ownGlyph(firstStyle, "d") ? inkTopOf(firstStyle, "d") * firstSize : 0;
     // A font of capitals only has no "d" of its own: 0.75 is what Photoshop comes close to
     const firstOffset = ascent > 0 ? ascent : firstSize * 0.75;
     let baseline = 0;
@@ -281,8 +313,10 @@
     lines.forEach((runs, index) => {
       const m = measureRuns(runs, resolution);
       let lead = 0;
+      let largest = 0;
       runs.forEach((run) => {
         const size = sizePxOf(run.style, resolution);
+        largest = Math.max(largest, size);
         lead = Math.max(lead, run.style.autoLeading === false && run.style.leading > 0 ? (run.style.leading * resolution) / 72 : size * (paragraph.autoLeadingPercentage || 1.2));
       });
       if (!runs.length) {
@@ -292,8 +326,10 @@
       if (index > 0) baseline += lead;
       else if (frame) baseline = firstOffset;
       contentBottom = baseline + Math.max(m.fontDescent, lead * 0.2);
-      // As in Photoshop, a line that doesn't fit in a fixed box isn't drawn
-      if (frame && !frame.autoHeight && index > 0 && baseline + m.descent > frame.height) {
+      // As in Photoshop, a line that doesn't fit in a fixed box isn't drawn. It wants 0.075 of
+      // its size below the baseline, whatever its letters: on real PSDs it hid the lines with
+      // 0.069 or less, and kept the ones with 0.082 or more
+      if (frame && !frame.autoHeight && index > 0 && baseline + Math.max(m.descent, largest * 0.075) > frame.height) {
         overflow = true;
         return;
       }
@@ -508,7 +544,7 @@
 
   const drawLines = (ctx, lines, stroke, layer) => {
     const paragraph = layer.params.layerText.paragraphStyleRange && layer.params.layerText.paragraphStyleRange[0];
-    const bolder = EMBOLDEN[layer.params.layerText.antiAlias] || 0;
+    const bolder = EMBOLDEN;
     const direction = paragraph && paragraph.paragraphStyle && paragraph.paragraphStyle.directionType;
     ctx.save();
     ctx.textBaseline = "alphabetic";
@@ -1108,7 +1144,7 @@
   };
 
   // Photoshop's anti-aliasing methods, as curves on the coverage the browser draws.
-  // Strong and Smooth were fitted on real PSDs (49 and 7 text layers); Sharp and Crisp
+  // Strong and Smooth were fitted on real PSDs (54 and 3 text layers); Sharp and Crisp
   // raise the contrast of the same edge, None keeps it on or off.
   const edgeCurve = (a, c) => Math.max(0, Math.min(1, (a - 0.6) * c + 0.5));
   const ANTI_ALIAS = {
@@ -1120,9 +1156,9 @@
     antiAliasPlatformGray: (a) => a ** 1.8,
     antiAliasPlatformLCD: (a) => a ** 1.8,
   };
-  // Strong makes the letters heavier, as Photoshop says. A curve alone left them 13% lighter
-  // than Photoshop's on those PSDs, and grey: 0.3 px around each letter brings them level
-  const EMBOLDEN = { antiAliasStrong: 0.3 };
+  // The letters drawn from their outlines come out lighter and greyer than Photoshop's: 0.2 px
+  // around each one brings them level, in every mode (54 Strong layers, 3 Smooth, 1 Sharp)
+  const EMBOLDEN = 0.2;
   const antiAliasTables = new Map();
   const antiAliasTable = (mode) => {
     const name = ANTI_ALIAS[mode] ? mode : "antiAliasSmooth";
@@ -1140,6 +1176,51 @@
     const px = image.data;
     for (let i = 3; i < px.length; i += 4) px[i] = table[px[i]];
     ctx.putImageData(image, 0, 0);
+  };
+
+  // Below 256 px the browser asks the system for each letter, and Windows draws them heavier
+  // than the Mac. Above, it draws them from their outlines itself, the same everywhere: the
+  // text is drawn that large, then brought back down. By a power of two it comes down
+  // exactly, through the halved copies the browser keeps of a picture it shrinks.
+  const OUTLINE_SIZE = 260;
+  const outlineScale = (lines, matrixScale) => {
+    let smallest = Infinity;
+    lines.forEach((line) => line.m.placed.forEach((item) => { smallest = Math.min(smallest, item.size * Math.min(item.scaleX, item.scaleY)); }));
+    smallest *= matrixScale;
+    if (!(smallest > 0 && smallest < Infinity)) return 1;
+    let k = 1;
+    while (k < 64 && smallest * k < OUTLINE_SIZE) k *= 2;
+    return k;
+  };
+  // Draws on the canvas what draw() traces, with `transform` from the text to the canvas,
+  // tile by tile to keep the large copy within a few dozen megabytes
+  const TILE_PIXELS = 16 * 1024 * 1024;
+  const drawFromOutlines = (canvas, ctx, transform, k, draw) => {
+    const [a, b, c, d, e, f] = transform;
+    if (k === 1) {
+      ctx.setTransform(a, b, c, d, e, f);
+      draw(ctx);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      return;
+    }
+    const tileW = Math.min(canvas.width, Math.floor(16384 / k));
+    const tileH = Math.max(1, Math.min(canvas.height, Math.floor(TILE_PIXELS / (tileW * k * k))));
+    const tile = newCanvas(tileW * k, tileH * k);
+    const g = tile.getContext("2d", { willReadFrequently: true });
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "medium";
+    for (let y0 = 0; y0 < canvas.height; y0 += tileH) {
+      for (let x0 = 0; x0 < canvas.width; x0 += tileW) {
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.clearRect(0, 0, tile.width, tile.height);
+        g.setTransform(a * k, b * k, c * k, d * k, (e - x0) * k, (f - y0) * k);
+        draw(g);
+        ctx.drawImage(tile, x0, y0, tileW, tileH);
+      }
+    }
+    ctx.restore();
   };
 
   const textBitmaps = new WeakMap();
@@ -1329,9 +1410,8 @@
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
         const x = Math.floor(minX);
         const y = Math.floor(minY);
-        ctx.setTransform(spin[0], spin[1], spin[2], spin[3], -x, -y);
-        drawLines(ctx, relative.lines, stroke, layer);
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        const k = outlineScale(relative.lines, Math.min(Math.hypot(spin[0], spin[1]), Math.hypot(spin[2], spin[3])));
+        drawFromOutlines(canvas, ctx, [spin[0], spin[1], spin[2], spin[3], -x, -y], k, (g) => drawLines(g, relative.lines, stroke, layer));
         applyAntiAlias(canvas, ctx, antiAlias);
         entry = { canvas, x, y };
       } else {
@@ -1341,8 +1421,7 @@
         const y = Math.floor(b.top - pad);
         const canvas = newCanvas(Math.ceil(b.right + pad) - x, Math.ceil(b.bottom + pad) - y);
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        ctx.translate(-x, -y);
-        drawLines(ctx, relative.lines, stroke, layer);
+        drawFromOutlines(canvas, ctx, [1, 0, 0, 1, -x, -y], outlineScale(relative.lines, 1), (g) => drawLines(g, relative.lines, stroke, layer));
         applyAntiAlias(canvas, ctx, antiAlias);
         entry = { canvas, x, y };
       }
