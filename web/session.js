@@ -255,7 +255,7 @@
   };
 
   PS.on((type) => {
-    if (type === "render" || type === "history" || type === "document" || type === "saved" || type === "selection") schedule();
+    if (type === "render" || type === "history" || type === "document" || type === "saved" || type === "selection" || type === "tabs") schedule();
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") flush();

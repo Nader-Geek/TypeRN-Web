@@ -4895,9 +4895,77 @@
     else if (tab.offsetLeft + tab.offsetWidth + margin > from + room) left = tab.offsetLeft + tab.offsetWidth + margin - room;
     if (left !== from) ui.tabs.scrollTo({ left: Math.max(0, left), behavior: "smooth" });
   };
+  // A tab dragged along the strip takes its page there, as in Photoshop. The strip is not
+  // redrawn meanwhile: the tab held stays the one under the pointer.
+  let tabDrag = null;
+  let tabDragged = false;
+  const dragTab = (event, tab, doc) => {
+    if (event.button !== 0 || event.target.closest(".tab__close")) return;
+    // No text selection, and no browser drag of the label
+    event.preventDefault();
+    const fromX = event.clientX;
+    const grab = fromX - tab.getBoundingClientRect().left;
+    let moving = false;
+    let lastX = fromX;
+    const place = () => {
+      const strip = ui.tabs.getBoundingClientRect();
+      // Near an end of a strip too long for the room, it scrolls to bring the others in
+      const edge = 24;
+      if (lastX < strip.left + edge) ui.tabs.scrollLeft -= 8;
+      else if (lastX > strip.right - edge) ui.tabs.scrollLeft += 8;
+      for (;;) {
+        const before = tab.previousElementSibling;
+        const after = tab.nextElementSibling;
+        if (before) {
+          const box = before.getBoundingClientRect();
+          if (lastX < box.left + box.width / 2) { ui.tabs.insertBefore(tab, before); continue; }
+        }
+        if (after) {
+          const box = after.getBoundingClientRect();
+          if (lastX > box.left + box.width / 2) { ui.tabs.insertBefore(tab, after.nextElementSibling); continue; }
+        }
+        break;
+      }
+      const room = ui.tabs.scrollWidth - tab.offsetWidth;
+      const left = Math.max(0, Math.min(room, lastX - grab - strip.left + ui.tabs.scrollLeft));
+      tab.style.transform = `translateX(${left - tab.offsetLeft}px)`;
+    };
+    const move = (moved) => {
+      lastX = moved.clientX;
+      if (!moving) {
+        if (Math.abs(lastX - fromX) < 4) return;
+        moving = true;
+        tabDrag = doc;
+        tab.classList.add("is-dragging");
+      }
+      place();
+    };
+    const done = (ended) => {
+      tab.removeEventListener("pointermove", move);
+      tab.removeEventListener("pointerup", done);
+      tab.removeEventListener("pointercancel", done);
+      if (!moving) return;
+      tab.classList.remove("is-dragging");
+      tab.style.transform = "";
+      tabDrag = null;
+      // The click that ends the drag doesn't also switch pages
+      if (ended.type === "pointerup") {
+        tabDragged = true;
+        setTimeout(() => { tabDragged = false; }, 0);
+      }
+      const order = Array.from(ui.tabs.children, (each) => each.dataset.id);
+      app.docs.sort((a, b) => order.indexOf(String(a.id)) - order.indexOf(String(b.id)));
+      renderTabs();
+      PS.announce("tabs");
+    };
+    tab.setPointerCapture(event.pointerId);
+    tab.addEventListener("pointermove", move);
+    tab.addEventListener("pointerup", done);
+    tab.addEventListener("pointercancel", done);
+  };
   const renderTabs = () => {
     // A touch screen has its pages elsewhere (touch.js)
-    if (Shell.touch) return;
+    if (Shell.touch || tabDrag) return;
     const key = JSON.stringify([app.docs.map((doc) => [doc.id, doc.name, PS.isDirty(doc)]), app.doc ? app.doc.id : 0]);
     if (ui.tabs.dataset.key === key) return;
     ui.tabs.dataset.key = key;
@@ -4906,6 +4974,7 @@
     app.docs.forEach((doc) => {
       const tab = document.createElement("div");
       tab.className = "tab" + (doc === app.doc ? " is-on" : "");
+      tab.dataset.id = String(doc.id);
       tab.setAttribute("role", "tab");
       tab.setAttribute("aria-selected", String(doc === app.doc));
       tab.title = doc.name;
@@ -4922,8 +4991,10 @@
       });
       tab.append(label, close);
       tab.addEventListener("click", () => {
+        if (tabDragged) return;
         if (doc !== app.doc) switchDoc(doc);
       });
+      tab.addEventListener("pointerdown", (event) => dragTab(event, tab, doc));
       ui.tabs.appendChild(tab);
     });
     fitTabs();
