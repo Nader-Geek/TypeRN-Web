@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.tr = Object.assign(window.TYPER_WEB_STRINGS.tr || {}, {
   "Outline and effects": "Kontur ve efektler",
   "Letter turn": "Harf dönüşü",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "Her harf kendi etrafında döner, yol olduğu gibi kalır (Alt + yolun bir ucunu sürükleyin)",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "Sürükle: yolun ucu. Boşluk: SFX’i taşı. Alt: harfleri döndür. Cmd: aralarını aç. Shift: boyutlarını değiştir.",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "Sürükle: yolun ucu. Boşluk: SFX’i taşı. Alt: harfleri döndür. Cmd: aralarını aç. Shift: bu ucu büyüt veya küçült. Cmd + Shift: boyutlarını değiştir.",
 });

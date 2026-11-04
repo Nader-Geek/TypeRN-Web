@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.uk = Object.assign(window.TYPER_WEB_STRINGS.uk || {}, {
   "Outline and effects": "Контур і ефекти",
   "Letter turn": "Поворот літер",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "Кожна літера повернута навколо себе, шлях лишається як є (Alt + перетягнути кінець шляху)",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "Перетягування: кінець шляху. Пробіл: перемістити SFX. Alt: повернути літери. Cmd: розсунути їх. Shift: змінити їхній розмір.",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "Перетягування: кінець шляху. Пробіл: перемістити SFX. Alt: повернути літери. Cmd: розсунути їх. Shift: цей кінець більший чи менший. Cmd + Shift: змінити їхній розмір.",
 });

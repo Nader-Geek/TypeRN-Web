@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.ja = Object.assign(window.TYPER_WEB_STRINGS.ja || {}, {
   "Outline and effects": "フチと効果",
   "Letter turn": "文字の回転",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "パスはそのままで、各文字をその場で回転（Alt + パスの端をドラッグ）",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "ドラッグ：パスの端。スペース：SFX を移動。Alt：文字を回転。Cmd：字間を広げる・狭める。Shift：文字のサイズを変更。",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "ドラッグ：パスの端。スペース：SFX を移動。Alt：文字を回転。Cmd：字間を広げる・狭める。Shift：この端を大きく・小さく。Cmd + Shift：文字のサイズを変更。",
 });

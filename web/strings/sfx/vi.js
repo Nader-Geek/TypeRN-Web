@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.vi = Object.assign(window.TYPER_WEB_STRINGS.vi || {}, {
   "Outline and effects": "Viền và hiệu ứng",
   "Letter turn": "Xoay chữ",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "Mỗi chữ xoay tại chỗ, đường dẫn giữ nguyên (Alt + kéo một đầu đường dẫn)",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "Kéo: đầu đường dẫn. Phím cách: di chuyển SFX. Alt: xoay các chữ. Cmd: giãn chúng. Shift: đổi cỡ chúng.",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "Kéo: đầu đường dẫn. Phím cách: di chuyển SFX. Alt: xoay các chữ. Cmd: giãn chúng. Shift: đầu này to hơn hoặc nhỏ hơn. Cmd + Shift: đổi cỡ chúng.",
 });

@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.ko = Object.assign(window.TYPER_WEB_STRINGS.ko || {}, {
   "Outline and effects": "외곽선과 효과",
   "Letter turn": "글자 회전",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "경로는 그대로 두고 각 글자를 제자리에서 회전합니다 (Alt + 경로 끝 드래그)",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "드래그: 경로 끝. 스페이스: SFX 이동. Alt: 글자 회전. Cmd: 간격 조절. Shift: 크기 조절.",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "드래그: 경로 끝. 스페이스: SFX 이동. Alt: 글자 회전. Cmd: 간격 조절. Shift: 이쪽 끝을 크게 또는 작게. Cmd + Shift: 크기 조절.",
 });

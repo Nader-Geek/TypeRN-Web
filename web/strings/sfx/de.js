@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.de = Object.assign(window.TYPER_WEB_STRINGS.de || {}, {
   "Outline and effects": "Kontur und Effekte",
   "Letter turn": "Buchstabendrehung",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "Jeder Buchstabe um sich selbst gedreht, der Pfad bleibt, wie er ist (Alt + ein Pfadende ziehen)",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "Ziehen: das Pfadende. Leertaste: SFX verschieben. Alt: Buchstaben drehen. Cmd: auseinanderziehen. Umschalt: Größe ändern.",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "Ziehen: das Pfadende. Leertaste: SFX verschieben. Alt: Buchstaben drehen. Cmd: auseinanderziehen. Umschalt: dieses Ende größer oder kleiner. Cmd + Umschalt: Größe ändern.",
 });

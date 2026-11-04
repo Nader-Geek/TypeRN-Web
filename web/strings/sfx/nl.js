@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.nl = Object.assign(window.TYPER_WEB_STRINGS.nl || {}, {
   "Outline and effects": "Contour en effecten",
   "Letter turn": "Letterdraaiing",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "Elke letter om zichzelf gedraaid, het pad blijft zoals het is (Alt + een uiteinde van het pad slepen)",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "Slepen: het uiteinde van het pad. Spatie: de SFX verplaatsen. Alt: letters draaien. Cmd: uit elkaar zetten. Shift: grootte wijzigen.",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "Slepen: het uiteinde van het pad. Spatie: de SFX verplaatsen. Alt: letters draaien. Cmd: uit elkaar zetten. Shift: dit uiteinde groter of kleiner. Cmd + Shift: grootte wijzigen.",
 });

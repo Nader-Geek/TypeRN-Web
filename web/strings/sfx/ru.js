@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.ru = Object.assign(window.TYPER_WEB_STRINGS.ru || {}, {
   "Outline and effects": "Контур и эффекты",
   "Letter turn": "Поворот букв",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "Каждая буква повёрнута вокруг себя, путь остаётся прежним (Alt + перетащить конец пути)",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "Перетаскивание: конец пути. Пробел: переместить SFX. Alt: повернуть буквы. Cmd: раздвинуть их. Shift: изменить их размер.",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "Перетаскивание: конец пути. Пробел: переместить SFX. Alt: повернуть буквы. Cmd: раздвинуть их. Shift: этот конец крупнее или мельче. Cmd + Shift: изменить их размер.",
 });
