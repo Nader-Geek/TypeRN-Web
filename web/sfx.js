@@ -2096,6 +2096,14 @@
     word.addEventListener("input", () => edit((r) => relink(r, word.value), `sfx-word-${group ? group.id : 0}`, "SFX Text"));
     word.addEventListener("keydown", (event) => {
       event.stopPropagation();
+      // The word is typed into the document: Cmd+Z undoes it there, and then the SFX placed,
+      // not the field's own memory, which never saw the word the click put in
+      if (event.key.toLowerCase() === "z" && (event.metaKey || event.ctrlKey) && !event.altKey) {
+        event.preventDefault();
+        if (event.shiftKey) ops.redo();
+        else ops.undo();
+        return;
+      }
       if (event.key === "Enter" || event.key === "Escape") {
         word.blur();
         $("stage").focus({ preventScroll: true });
