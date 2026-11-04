@@ -146,6 +146,7 @@
       height: doc.height,
       resolution: doc.resolution,
       psd: doc.psd,
+      idml: doc.idml,
       state: doc.state,
       history: doc.history,
       historyIndex: doc.historyIndex,

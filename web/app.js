@@ -5155,7 +5155,8 @@
   /* -------------------------------- files --------------------------------- */
 
   const canPickFiles = typeof window.showOpenFilePicker === "function";
-  const OPEN_TYPES = [{ description: "Photoshop, PNG, JPEG", accept: { "image/vnd.adobe.photoshop": [".psd", ".psb"], "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"] } }];
+  const OPEN_TYPES = [{ description: "Photoshop, InDesign, PNG, JPEG", accept: { "image/vnd.adobe.photoshop": [".psd", ".psb"], "application/vnd.adobe.indesign-idml-package": [".idml"], "application/x-indesign": [".indd", ".indt"], "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"] } }];
+  const InDesign = window.TypeRInDesign;
 
   const tooLargeText = (width, height) => fill(T("This page is too large for this browser: {width} × {height} px."), { width, height });
   // Said before making it: past its limit a browser only gives a blank page
@@ -5167,7 +5168,9 @@
 
   // A chapter opens in the order of its pages: 2 before 10, and on its first page
   const NATURAL_ORDER = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-  const OPENABLE = /\.(psd|psb|png|jpe?g|webp)$/i;
+  const OPENABLE = /\.(psd|psb|idml|indd|indt|png|jpe?g|webp)$/i;
+  // What Batch Save reads: pictures, one page each
+  const PAGE_FILES = /\.(psd|psb|png|jpe?g|webp)$/i;
   const openFiles = async (entries) => {
     if (!settleTransform()) return;
     const inOrder = Array.from(entries).sort((a, b) => NATURAL_ORDER.compare((a.file || a).name, (b.file || b).name));
@@ -5177,14 +5180,15 @@
     for (const entry of inOrder) {
       const file = entry.file || entry;
       const handle = entry.handle || null;
-      if (!/\.(psd|psb|png|jpe?g|webp)$/i.test(file.name) && !/^image\/(png|jpeg|webp)$/.test(file.type)) {
-        toast(fill(T("{name} can't be opened. Use a PSD, PNG, JPEG or WebP."), { name: file.name }));
+      if (!/\.(psd|psb|png|jpe?g|webp)$/i.test(file.name) && !/^image\/(png|jpeg|webp)$/.test(file.type) && !InDesign.isInDesignName(file.name)) {
+        toast(fill(T("{name} can't be opened. Use a PSD, an InDesign file, PNG, JPEG or WebP."), { name: file.name }));
         continue;
       }
       working(fill(T("Opening {name}…"), { name: file.name }));
       try {
         await nextPaint();
-        opened.push(await ops.openBlob(file, file.name, undefined, handle));
+        if (InDesign.isInDesignName(file.name)) opened.push(...(await openInDesign(file, handle)));
+        else opened.push(await ops.openBlob(file, file.name, undefined, handle));
       } catch (error) {
         console.error(error);
         if (error.tooLarge) toast(tooLargeText(error.tooLarge.width, error.tooLarge.height), true);
@@ -5200,6 +5204,170 @@
     showOpenNotices();
   };
   const nextPaint = () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+
+  /* ------------------------------- InDesign ------------------------------- */
+
+  // InDesign links its pictures: TypeR finds them by name in the folder the user points at
+  const pickFolderOfFiles = () => new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.webkitdirectory = true;
+    input.addEventListener("change", () => resolve(Array.from(input.files)));
+    input.addEventListener("cancel", () => resolve(null));
+    input.click();
+  });
+  const askLinkFolder = async (name, count) => {
+    const answer = await dialog({
+      title: name,
+      body: fill(T("This InDesign file links {count} picture(s). Show TypeR the folder they are in (often “Links”), and the pages open with their pictures."), { count }),
+      ok: T("Choose the Folder…"),
+      cancel: T("Open Without Them"),
+    });
+    if (!answer) return null;
+    try {
+      if (typeof window.showDirectoryPicker === "function") return await InDesign.linkFolder(await window.showDirectoryPicker({ id: "typer-indesign-links", mode: "read" }));
+      const files = await pickFolderOfFiles();
+      return files ? InDesign.linkFiles(files) : null;
+    } catch (error) {
+      if (error.name !== "AbortError") toast(fill(T("{name} can't be read: {error}"), { name: name, error: error.message || error }), true);
+      return null;
+    }
+  };
+
+  // Every page of an .idml or .indd, each in its own tab
+  const openInDesign = async (file, handle) => {
+    const stamp = ops.fileStamp(file);
+    const open = app.docs.find((doc) => doc.idml && doc.idml.pkg.name === file.name && doc.idml.pkg.stamp === stamp);
+    if (open) {
+      PS.setActiveDoc(open);
+      return [];
+    }
+    const read = await InDesign.read(file);
+    if (!read.pageCount) throw new Error("This InDesign file has no page.");
+    let folder = null;
+    if (read.links.length) {
+      working(null);
+      folder = await askLinkFolder(file.name, read.links.length);
+      working(fill(T("Opening {name}…"), { name: file.name }));
+      await nextPaint();
+    }
+    const { pages, missing, previewed } = await InDesign.pages(read, folder);
+    read.pkg.stamp = stamp;
+    const docs = [];
+    for (const page of pages) {
+      await Fonts.ready(page.fontNames);
+      const doc = ops.addDoc({ name: page.name, path: `idml://${read.pkg.id}/${page.idml.page}`, width: page.width, height: page.height, resolution: page.resolution, layers: page.layers, handle, stamp, idml: page.idml });
+      page.fontNames.filter((ps) => ps && Fonts.isMissing(ps)).forEach((ps) => openNotices.missing.add(ps));
+      docs.push(doc);
+    }
+    if (missing.length) openNotices.parts.push({ name: file.name, part: fill(T("Pictures not found: {names}. Their frames show grey."), { names: missing.slice(0, 8).join(", ") + (missing.length > 8 ? "…" : "") }) });
+    if (previewed.length) openNotices.parts.push({ name: file.name, part: fill(T("{count} picture(s) show InDesign's low-resolution preview: their files weren't found."), { count: previewed.length }) });
+    if (read.pkg.format === "indd") openNotices.parts.push({ name: file.name, part: T("TypeR reads .indd files but can't write them: saving makes an .idml, which InDesign opens and can save as .indd.") });
+    return docs;
+  };
+
+  const pagesOf = (pkg) => app.docs.filter((doc) => doc.idml && doc.idml.pkg === pkg);
+  const IDML_TYPES = [{ description: "InDesign Markup (IDML)", accept: { "application/vnd.adobe.indesign-idml-package": [".idml"] } }];
+  const idmlName = (name) => name.replace(/\.(indd|indt|idml)$/i, "") + ".idml";
+
+  // Saving one page saves its whole file: every open page of it goes in
+  const saveInDesign = async (doc, as) => {
+    const pkg = doc.idml.pkg;
+    const pages = pagesOf(pkg);
+    let handle = !as && pkg.format === "idml" && /\.idml$/i.test(pkg.name) ? doc.handle : null;
+    let copyOnly = false;
+    try {
+      if (handle) {
+        if (handle.requestPermission && (await handle.requestPermission({ mode: "readwrite" })) !== "granted") handle = null;
+        else if (await changedOnDisk(doc)) {
+          const answer = await dialog({ title: pkg.name, body: T("This file changed on disk after it was opened or saved here. Replace it with your version?"), ok: T("Replace"), also: T("Save As…") });
+          if (!answer) return false;
+          if (answer.also) handle = null;
+        }
+      }
+      if (!handle && window.showSaveFilePicker) handle = await window.showSaveFilePicker({ suggestedName: idmlName(pkg.name), types: IDML_TYPES });
+      working(fill(T("Saving {name}…"), { name: handle ? handle.name : idmlName(pkg.name) }));
+      await nextPaint();
+      const savedIds = pages.map((page) => page.history[page.historyIndex].id);
+      const { blob, commit } = await InDesign.build(pkg, pages);
+      if (handle) await writeTo(handle, blob);
+      else {
+        await shareOrDownload([{ blob, name: idmlName(pkg.name) }]);
+        copyOnly = true;
+      }
+      commit();
+      pkg.name = handle ? handle.name : idmlName(pkg.name);
+      const stamp = handle ? ops.fileStamp(await handle.getFile()) : null;
+      pkg.stamp = stamp;
+      pages.forEach((page, index) => {
+        if (handle) page.handle = handle;
+        page.stamp = stamp;
+        ops.markSaved(page, savedIds[index]);
+      });
+      if (handle) Recent.add([handle]);
+    } catch (error) {
+      if (error.name === "AbortError") return false;
+      // A place the system protects, opened by a double-click: it can be read, not written
+      if (error.name === "SecurityError" && !as) return saveInDesign(doc, true);
+      console.error(error);
+      toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      return false;
+    } finally {
+      working(null);
+    }
+    const kept = pages.filter((page) => InDesign.unsavedPixels(page));
+    const said = copyOnly ? fill(T("A copy was downloaded: {name}. This browser can't save over the original file."), { name: pkg.name }) : fill(T("Saved {name}."), { name: pkg.name });
+    if (kept.length) toast(`${said} ${T("Changes to the pictures stay in TypeR: an .idml holds the texts, InDesign links its pictures. To keep them, use Batch Save (PSD) or Export as PNG.")}`, true);
+    else toast(said, copyOnly);
+    return true;
+  };
+
+  // The open pages as a new InDesign file: each page's picture embedded, its texts as frames
+  const exportInDesign = async () => {
+    const docs = app.docs.slice();
+    if (!docs.length) return;
+    if (!ui.editor.hidden) endEdit();
+    if (!settleTransform()) return;
+    const first = docs[0];
+    const name = idmlName((first.idml ? first.idml.pkg.name : first.name).replace(/\.[^.]+$/, ""));
+    let handle = null;
+    try {
+      if (window.showSaveFilePicker) handle = await window.showSaveFilePicker({ suggestedName: name, types: IDML_TYPES });
+      working(T("Exporting…"));
+      await nextPaint();
+      const entries = [];
+      for (const doc of docs) {
+        // Everything but the texts, which go in as frames
+        const art = Object.assign({}, doc, { state: Object.assign({}, doc.state, { layers: doc.state.layers.filter((layer) => layer.kind !== "text") }) });
+        const canvas = document.createElement("canvas");
+        canvas.width = doc.width;
+        canvas.height = doc.height;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, doc.width, doc.height);
+        PS.paintDoc(art, ctx, { keep: true });
+        const png = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        entries.push({ doc, picture: new Uint8Array(await png.arrayBuffer()) });
+        await nextPaint();
+      }
+      const blob = await InDesign.exportPackage(handle ? handle.name : name, entries);
+      if (handle) {
+        await writeTo(handle, blob);
+        Recent.add([handle]);
+        toast(fill(T("Saved {name}."), { name: handle.name }));
+      } else {
+        await shareOrDownload([{ blob, name }]);
+        toast(fill(T("Downloaded {name}."), { name }));
+      }
+    } catch (error) {
+      if (error.name !== "AbortError") {
+        console.error(error);
+        toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      }
+    } finally {
+      working(null);
+    }
+  };
 
   const openDialog = async () => {
     if (canPickFiles) {
@@ -5352,6 +5520,7 @@
   const saveAs = async (doc = app.doc) => {
     if (!doc) return false;
     if (!ui.editor.hidden) endEdit();
+    if (doc.idml) return saveInDesign(doc, true);
     const name = psdName(doc);
     let savedId;
     let copyOnly = false;
@@ -5397,6 +5566,7 @@
   const save = async (doc = app.doc) => {
     if (!doc) return false;
     if (!ui.editor.hidden) endEdit();
+    if (doc.idml) return saveInDesign(doc, false);
     if (doc.handle && /\.ps[db]$/i.test(doc.name)) {
       try {
         if (doc.handle.requestPermission && (await doc.handle.requestPermission({ mode: "readwrite" })) !== "granted") return saveAs(doc);
@@ -5442,7 +5612,7 @@
     const extension = type === "image/png" ? ".png" : ".jpg";
     const name = doc.name.replace(/\.[^.]+$/, "") + extension;
     const canvas = flattened(doc, type === "image/jpeg" ? "#fff" : null);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92));
+    const blob = await PS.withResolution(await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92)), doc.resolution);
     try {
       if (window.showSaveFilePicker) {
         const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: extension.slice(1).toUpperCase(), accept: { [type]: [extension] } }] });
@@ -5463,7 +5633,7 @@
     await nextPaint();
     for (const doc of app.docs) {
       const canvas = flattened(doc, type === "image/jpeg" ? "#fff" : null);
-      entries.push({ blob: await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92)), name: doc.name.replace(/\.[^.]+$/, "") + extension });
+      entries.push({ blob: await PS.withResolution(await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92)), doc.resolution), name: doc.name.replace(/\.[^.]+$/, "") + extension });
     }
     working(null);
     try {
@@ -5516,7 +5686,7 @@
   const imagesOfFolder = async (folder, deep, path = []) => {
     const found = [];
     for await (const handle of folder.values()) {
-      if (handle.kind === "file" && OPENABLE.test(handle.name)) found.push({ handle, name: handle.name, path });
+      if (handle.kind === "file" && PAGE_FILES.test(handle.name)) found.push({ handle, name: handle.name, path });
       else if (handle.kind === "directory" && deep && !(path.length === 0 && FORMAT_FOLDERS.has(handle.name.toUpperCase()))) found.push(...(await imagesOfFolder(handle, deep, [...path, handle.name])));
     }
     return found;
@@ -5629,7 +5799,7 @@
         input.type = "file";
         input.webkitdirectory = true;
         input.addEventListener("change", () => {
-          const files = Array.from(input.files).filter((file) => OPENABLE.test(file.name));
+          const files = Array.from(input.files).filter((file) => PAGE_FILES.test(file.name));
           pickedFiles = files.map((file) => {
             const parts = (file.webkitRelativePath || file.name).split("/");
             return { file, name: file.name, path: parts.slice(1, -1) };
@@ -5888,7 +6058,7 @@
             continue;
           }
           const canvas = fittedCanvas(flattened(doc, format.id === "jpeg" ? "#fff" : null), settings.fit[format.id]);
-          const blob = await new Promise((done) => canvas.toBlob(done, format.type, settings.quality / 100));
+          const blob = await PS.withResolution(await new Promise((done) => canvas.toBlob(done, format.type, settings.quality / 100)), doc.resolution);
           if (!blob) throw new Error(`the browser could not make the ${format.label}`);
           await keep(blob, output);
         }
@@ -5940,10 +6110,54 @@
     ops.closeDoc(doc);
   };
 
+  // A picture on the clipboard gives the new page its size, as in Photoshop: Ctrl+V then fills it
+  // exactly. Read only where it costs nothing at each New: Chrome asks once and the app never,
+  // while Safari and Firefox would show their Paste button every time.
+  const clipboardPictureSize = async () => {
+    if (!navigator.clipboard || !navigator.clipboard.read) return null;
+    if (!window.TypeRDesktop) {
+      try {
+        if ((await navigator.permissions.query({ name: "clipboard-read" })).state === "denied") return null;
+      } catch {
+        return null;
+      }
+    }
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        const type = item.types.find((name) => name.indexOf("image/") === 0);
+        if (!type) continue;
+        const blob = await item.getType(type);
+        // A PNG says its size in its first bytes, without decoding the picture
+        const head = new DataView(await blob.slice(0, 24).arrayBuffer());
+        if (head.byteLength === 24 && head.getUint32(0) === 0x89504e47 && head.getUint32(12) === 0x49484452) {
+          return { width: head.getUint32(16), height: head.getUint32(20) };
+        }
+        const bitmap = await createImageBitmap(blob);
+        const size = { width: bitmap.width, height: bitmap.height };
+        bitmap.close();
+        return size;
+      }
+    } catch {
+      // Refused, or nothing readable: the usual size stays
+    }
+    return null;
+  };
+
   const newDocument = async () => {
+    const pictureSize = clipboardPictureSize();
     const values = await dialog({
       title: T("New document"),
       ok: T("Create"),
+      // The dialog opens at once; the size arrives when the clipboard is read, unless already typed
+      ready: (inputs) => {
+        let typed = false;
+        [inputs.width, inputs.height].forEach((input) => input.addEventListener("input", () => { typed = true; }));
+        pictureSize.then((size) => {
+          if (!size || typed || !inputs.width.isConnected) return;
+          inputs.width.value = size.width;
+          inputs.height.value = size.height;
+        });
+      },
       fields: [
         { id: "name", label: T("Name"), value: T("Untitled") },
         { id: "width", label: T("Width (px)"), value: 2000, type: "number", min: 1 },
@@ -6925,6 +7139,7 @@
       { label: "Save As…", keys: "Shift+Cmd+S", enabled: hasDoc, action: () => saveAs() },
       { label: "Export as PNG…", enabled: hasDoc, action: () => exportImage("image/png") },
       { label: "Export as JPEG…", enabled: hasDoc, action: () => exportImage("image/jpeg") },
+      { label: "Export for InDesign (IDML)…", enabled: hasDoc, action: exportInDesign },
       { label: "Batch Save…", action: batchSave },
       null,
       { label: "Import Styles and Fonts (.zip, .json)…", action: () => $("file-kit").click() },

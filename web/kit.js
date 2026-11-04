@@ -84,8 +84,9 @@
     for (const entry of entries) {
       const name = new TextEncoder().encode(entry.name);
       const crc = crc32(entry.data);
-      let packed = await deflate(entry.data);
-      const method = packed.length < entry.data.length ? 8 : 0;
+      // A file that must stay as it is, as an .idml's mimetype
+      let packed = entry.store ? entry.data : await deflate(entry.data);
+      const method = !entry.store && packed.length < entry.data.length ? 8 : 0;
       if (!method) packed = entry.data;
       const fields = (view, at) => {
         view.setUint16(at, 20, true);
@@ -168,7 +169,7 @@
   };
 
   const STYLE_FIELDS = ["name", "textType", "textProps", "prefixes", "prefixColor", "prefixesDisabled", "stroke", "sizePresets", "autoSizeByPageWidth", "sizePresetDefaultIndex", "sizePresetMinWidths", "punctuationOnlyScale", "bubbleType"];
-  const SETTING_FIELDS = ["ignoreLinePrefixes", "ignoreTags", "autoClosePSD", "currentFolderTagPriority", "pastePointText", "smartPaste", "pasteOnClick", "smartPasteAutoClean", "smartPasteDistribute", "smartPasteMinScale", "smartPasteHyphenation", "refontRules"];
+  const SETTING_FIELDS = ["ignoreLinePrefixes", "ignoreTags", "autoClosePSD", "currentFolderTagPriority", "pastePointText", "smartPaste", "pasteOnClick", "smartPasteAutoClean", "smartPasteDistribute", "smartPasteMinScale", "smartPasteHyphenation", "readingOrder", "refontRules"];
 
   const newId = () => Math.random().toString(36).substring(2, 8);
 
@@ -380,5 +381,5 @@
     return active === "default" ? `${ROOT}/storage` : `${ROOT}/storage_profile_${active}`;
   };
 
-  window.TypeRKit = { readArchive, writeArchive, validate, mergeInto, keeps, loadFiles, read, keep, forget, storedPaths, activeStoragePath, freshStorage, freshTouchStorage, ROOT };
+  window.TypeRKit = { readArchive, writeArchive, zipEntries, validate, mergeInto, keeps, loadFiles, read, keep, forget, storedPaths, activeStoragePath, freshStorage, freshTouchStorage, ROOT };
 })();
