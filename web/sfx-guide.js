@@ -466,7 +466,9 @@
     const doc = ops.imageDocument(practicePage(), name, `new://sfx-practice-${PS.newId()}`);
     const page = doc || app.doc;
     App().setTool("sfx");
-    await SFX().newSfx({ line: [[420, 400], [800, 400]], text: "BOOM" });
+    // From the tool's own settings, not the ones kept from the last SFX: a letter turn or a wave
+    // kept from it would make the word unlike the pictures of the steps
+    await SFX().newSfx({ line: [[420, 400], [800, 400]], text: "BOOM", look: SFX().startingLook() });
     // Nothing to save until the practice changes it
     if (page && page.history && page.history[page.historyIndex]) page.savedId = page.history[page.historyIndex].id;
     SFX().drawOverlay();

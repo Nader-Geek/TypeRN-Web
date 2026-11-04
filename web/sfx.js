@@ -2774,6 +2774,8 @@
     onGesture,
     setMark,
     defaultsSnapshot,
+    // How a new SFX looks before anything is changed, the font and colour aside
+    startingLook: () => lookOf(BASE),
     restoreDefaults: (snapshot) => {
       // The word field keeps the bar as it is while it is being typed in
       if (barWord && barWord === document.activeElement) barWord.blur();
