@@ -6935,6 +6935,7 @@
     ["Help", [
       { label: "TypeR Tutorial", action: () => startPanel({ tour: true }) },
       { label: "Keyboard Shortcuts", action: () => showShortcuts() },
+      ...(Shell.touch ? [] : [{ label: "SFX Guide", action: () => window.TypeRSFXGuide && window.TypeRSFXGuide.show() }]),
       null,
       DESKTOP
         ? { label: "Download the Photoshop Plugin", action: () => window.open(EXTENSION_ZIP, "_blank", "noopener") }
@@ -7144,6 +7145,22 @@
           field.type = "button";
           field.disabled = true;
           make("kbd", "sk__cap", field, keys);
+          make("span", "", row);
+          make("span", "", row);
+        });
+      }
+      // The SFX tool's, as they are: its guide shows each one
+      const sfxRows = window.TypeRSFXGuide ? window.TypeRSFXGuide.rows().filter(({ text, label }) => !words || label.toLowerCase().includes(words) || text.toLowerCase().includes(words)) : [];
+      if (sfxRows.length) {
+        make("div", "sk__group", list, T("SFX tool"));
+        sfxRows.forEach(({ keys, label }) => {
+          shown++;
+          const row = make("div", "sk__row", list);
+          make("span", "sk__name", row, label);
+          const field = make("button", "sk__field", row);
+          field.type = "button";
+          field.disabled = true;
+          window.TypeRSFXGuide.capsInto(field, keys);
           make("span", "", row);
           make("span", "", row);
         });
