@@ -316,6 +316,70 @@ const checkShell = () => {
   }
 };
 
+/* ------------------------------ TypeR for Photoshop's settings ----------------------- */
+
+// Where the Photoshop plugin keeps its storage files: UXP has its own folder, the CEP extension
+// keeps them in its install folder. They're the same files TypeR Studio keeps in the page, so the
+// page can start from them. Only read, never written: the plugin keeps working as it was.
+const PLUGIN_FILE = /^storage(_profiles|_profile_[a-z0-9][a-z0-9_-]{0,79})?$/i;
+const PLUGIN_FILE_LIMIT = 50 * 1024 * 1024;
+const pluginFolders = () => {
+  if (process.env.TYPER_PHOTOSHOP_DIRS) return process.env.TYPER_PHOTOSHOP_DIRS.split(path.delimiter).filter(Boolean);
+  // A test must not find the settings of the computer it runs on
+  if (isTest) return [];
+  const appData = app.getPath("appData");
+  const folders = [path.join(appData, "TypeR", "UXP"), path.join(appData, "Adobe", "CEP", "extensions", "typertools")];
+  if (isMac) folders.push("/Library/Application Support/Adobe/CEP/extensions/typertools");
+  else {
+    folders.push(path.join(app.getPath("home"), "AppData", "Roaming", "Adobe", "CEP", "extensions", "typertools"));
+    [process.env["CommonProgramFiles(x86)"], process.env.CommonProgramFiles].filter(Boolean)
+      .forEach((common) => folders.push(path.join(common, "Adobe", "CEP", "extensions", "typertools")));
+  }
+  return folders.filter((folder, index) => folders.findIndex((other) => other.toLowerCase() === folder.toLowerCase()) === index);
+};
+
+// A file the plugin was writing when it stopped has its last good copy beside it
+const readPluginFile = async (file) => {
+  for (const candidate of [file, `${file}.bak`]) {
+    try {
+      const { size } = await fs.promises.stat(candidate);
+      if (!size || size > PLUGIN_FILE_LIMIT) continue;
+      const text = await fs.promises.readFile(candidate, "utf8");
+      const value = JSON.parse(text);
+      if (value && typeof value === "object" && !Array.isArray(value)) return text;
+    } catch (error) {}
+  }
+  return null;
+};
+
+// The folder used last wins, when both versions of the plugin have been installed
+const findPhotoshopSettings = async () => {
+  let best = null;
+  for (const folder of pluginFolders()) {
+    let names;
+    try {
+      names = (await fs.promises.readdir(folder)).filter((name) => PLUGIN_FILE.test(name));
+    } catch (error) {
+      continue;
+    }
+    if (!names.includes("storage") && !names.includes("storage_profiles")) continue;
+    let modified = 0;
+    const files = {};
+    for (const name of names) {
+      const text = await readPluginFile(path.join(folder, name));
+      if (text === null) continue;
+      files[name] = text;
+      try {
+        modified = Math.max(modified, (await fs.promises.stat(path.join(folder, name))).mtimeMs);
+      } catch (error) {}
+    }
+    if (!files.storage && !files.storage_profiles) continue;
+    const kind = folder.toLowerCase().includes(`${path.sep}cep${path.sep}`) ? "cep" : "uxp";
+    if (!best || modified > best.modified) best = { kind, modified, files };
+  }
+  return best;
+};
+
 /* ------------------------------------ putting it together -------------------------- */
 
 // Its scripts ran: this version works. Bringing a heavy session back can then take its time.
@@ -338,6 +402,10 @@ ipcMain.on("text-edit", (event, command) => {
   if (Object.values(TEXT_EDITS).includes(command) && win) win.webContents[command]();
 });
 ipcMain.on("set-strings", (event, given) => { strings = given; });
+ipcMain.handle("photoshop-settings", () => findPhotoshopSettings().catch((error) => {
+  console.warn("TypeR for Photoshop's settings:", error.message);
+  return null;
+}));
 ipcMain.on("reload-for-update", () => {
   app.relaunch();
   app.quit();

@@ -1,5 +1,6 @@
 // All the page can ask of the app. There's no file access here on purpose: the page goes through
 // the same pickers and handles as in a browser, so a download from the site can do no more here.
+// The one exception reads, never writes, the Photoshop plugin's settings files, at fixed places.
 
 const { contextBridge, ipcRenderer, webFrame } = require("electron");
 
@@ -16,4 +17,6 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
   textEdit: (command) => ipcRenderer.send("text-edit", command),
   onUpdateReady: (listener) => ipcRenderer.on("update-ready", () => listener()),
   reloadForUpdate: () => ipcRenderer.send("reload-for-update"),
+  // The Photoshop plugin's storage files on this computer, read only, or null
+  findPhotoshopSettings: () => ipcRenderer.invoke("photoshop-settings"),
 });
