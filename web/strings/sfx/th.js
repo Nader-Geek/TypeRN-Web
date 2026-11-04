@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.th = Object.assign(window.TYPER_WEB_STRINGS.th || {}, {
   "Outline and effects": "เส้นขอบและเอฟเฟกต์",
   "Letter turn": "การหมุนตัวอักษร",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "หมุนตัวอักษรแต่ละตัวรอบตัวเอง โดยเส้นทางยังคงเดิม (Alt + ลากปลายเส้นทาง)",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "ลาก: ปลายเส้นทาง Space: ย้าย SFX Alt: หมุนตัวอักษร Cmd: ปรับระยะห่าง Shift: ปรับขนาด",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "ลาก: ปลายเส้นทาง Space: ย้าย SFX Alt: หมุนตัวอักษร Cmd: ปรับระยะห่าง Shift: ขยายหรือย่อปลายด้านนี้ Cmd + Shift: ปรับขนาด",
 });

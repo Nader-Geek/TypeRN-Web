@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.id = Object.assign(window.TYPER_WEB_STRINGS.id || {}, {
   "Outline and effects": "Outline dan efek",
   "Letter turn": "Putaran huruf",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "Setiap huruf diputar di tempat, path-nya tetap (Alt + seret ujung path)",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "Seret: ujung path. Spasi: pindahkan SFX. Alt: putar huruf. Cmd: renggangkan. Shift: ubah ukurannya.",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "Seret: ujung path. Spasi: pindahkan SFX. Alt: putar huruf. Cmd: renggangkan. Shift: ujung ini lebih besar atau lebih kecil. Cmd + Shift: ubah ukurannya.",
 });

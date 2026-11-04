@@ -1612,8 +1612,29 @@
         const d0 = Math.hypot(from[0] - fixed[0], from[1] - fixed[1]) || 1;
         const f = clamp(Math.hypot(point[0] - fixed[0], point[1] - fixed[1]) / d0, 0.05, 20);
         if (gesture.way === "size") {
-          // Shift: all the letters bigger or smaller, from the end that stays
+          // Cmd + Shift: all the letters bigger or smaller, from the end that stays
           recipe.scale = base.scale * f;
+        } else if (gesture.way === "curve") {
+          // Shift: the end held grows or shrinks against the other, which keeps its size: the
+          // word turns growing or shrinking, or even again on the way back
+          const layout = gesture.layout;
+          const n = layout.letters.length;
+          if (n < 2) return;
+          const dragsLast = gesture.mode === "end1";
+          const was = base.curve.kind === "peak" ? { kind: "flat", amount: 0, peak: 0 } : base.curve;
+          const lastOverFirst = curveAt(was, n - 1, n, 1) / curveAt(was, 0, n, 0);
+          const ratio = clamp(dragsLast ? lastOverFirst * f : lastOverFirst / f, 1 / 7, 7);
+          const signed = (2 * (ratio - 1)) / (ratio + 1);
+          if (Math.abs(signed) < 0.03) {
+            if (base.curve.kind !== "peak" || Math.abs(f - 1) >= 0.05) recipe.curve.kind = "flat";
+          } else {
+            recipe.curve.kind = signed > 0 ? "grow" : "shrink";
+            recipe.curve.amount = round(clamp(Math.abs(signed) * 100, 0, 150), 1);
+          }
+          // The path follows the letters, and the end that stays keeps its letter's size
+          const fixedAt = (curve) => (dragsLast ? curveAt(curve, 0, n, 0) : curveAt(curve, n - 1, n, 1));
+          recipe.size = (base.size * layout.fit * fixedAt(base.curve)) / fixedAt(recipe.curve);
+          recipe.path.length = 0;
         } else {
           // Ctrl: the letters keep their size and move apart or together, the path with them
           const layout = gesture.layout;
@@ -1697,14 +1718,15 @@
   };
 
   // Dragging an end of the path: by itself, the path; Space moves the SFX, Alt turns the
-  // letters, Ctrl spreads them, Shift resizes them
+  // letters, Ctrl spreads them, Shift makes that end bigger or smaller than the other (the size
+  // along the word), Ctrl + Shift resizes them all
   let spaceHeld = false;
   const isSpaceKey = (event) => event.code === "Space" || event.key === " ";
   document.addEventListener("keydown", (event) => { if (isSpaceKey(event)) spaceHeld = true; }, true);
   document.addEventListener("keyup", (event) => { if (isSpaceKey(event)) spaceHeld = false; }, true);
   window.addEventListener("blur", () => { spaceHeld = false; });
-  const endWay = (event) => (spaceHeld ? "move" : event.altKey ? "turn" : event.ctrlKey || event.metaKey ? "spacing" : event.shiftKey ? "size" : "path");
-  const END_HINT = "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.";
+  const endWay = (event) => (spaceHeld ? "move" : event.altKey ? "turn" : event.ctrlKey || event.metaKey ? (event.shiftKey ? "size" : "spacing") : event.shiftKey ? "curve" : "path");
+  const END_HINT = "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.";
   let hintKept = null;
   const showEndHint = (on) => {
     const status = $("status-hint");

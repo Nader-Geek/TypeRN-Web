@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.zh = Object.assign(window.TYPER_WEB_STRINGS.zh || {}, {
   "Outline and effects": "轮廓和效果",
   "Letter turn": "字符旋转",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "每个字符原地旋转，路径保持不变（Alt + 拖动路径的一端）",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "拖动：路径的端点。空格：移动 SFX。Alt：旋转字符。Cmd：调整间距。Shift：调整大小。",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "拖动：路径的端点。空格：移动 SFX。Alt：旋转字符。Cmd：调整间距。Shift：放大或缩小这一端。Cmd + Shift：调整大小。",
 });

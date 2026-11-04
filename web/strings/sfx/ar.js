@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.ar = Object.assign(window.TYPER_WEB_STRINGS.ar || {}, {
   "Outline and effects": "الحدود والتأثيرات",
   "Letter turn": "دوران الحروف",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "كل حرف يدور حول نفسه ويبقى المسار كما هو (Alt + سحب أحد طرفي المسار)",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "السحب: طرف المسار. المسافة: نقل SFX. Alt: تدوير الحروف. Cmd: تباعدها. Shift: تغيير حجمها.",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "السحب: طرف المسار. المسافة: نقل SFX. Alt: تدوير الحروف. Cmd: تباعدها. Shift: تكبير هذا الطرف أو تصغيره. Cmd + Shift: تغيير حجمها.",
 });

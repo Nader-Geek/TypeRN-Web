@@ -120,5 +120,5 @@ window.TYPER_WEB_STRINGS.fr = Object.assign(window.TYPER_WEB_STRINGS.fr || {}, {
   "Outline and effects": "Contour et effets",
   "Letter turn": "Rotation des lettres",
   "Every letter turned on itself, the path staying as it is (Alt + drag an end of the path)": "Chaque lettre tournée sur elle-même, le tracé restant tel quel (Alt + glisser une extrémité du tracé)",
-  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: resize them.": "Glisser : l’extrémité du tracé. Espace : déplacer le SFX. Alt : tourner les lettres. Cmd : les espacer. Maj : les redimensionner.",
+  "Drag: the end of the path. Space: move the SFX. Alt: turn the letters. Cmd: spread them. Shift: this end bigger or smaller. Cmd + Shift: resize them.": "Glisser : l’extrémité du tracé. Espace : déplacer le SFX. Alt : tourner les lettres. Cmd : les espacer. Maj : agrandir ou réduire ce bout. Cmd + Maj : les redimensionner.",
 });
