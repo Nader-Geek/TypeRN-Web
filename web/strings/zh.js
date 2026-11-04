@@ -336,6 +336,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Page": "页面",
     "Paints on the active pixel layer. [ ]: size. Alt: eyedropper. Alt + right-drag: size / hardness.": "在当前像素图层上绘画。[ ]: 大小。Alt: 吸管工具。Alt + 右键拖动: 大小 / 硬度。",
     "Pan": "平移",
+    "Hold a tool's key": "按住工具的快捷键",
+    "Use the tool until you let go": "松开前临时使用该工具",
     "Pass Through": "穿透",
     "Paste": "粘贴",
     "Pasted layer": "粘贴的图层",

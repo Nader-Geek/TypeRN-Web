@@ -336,6 +336,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Page": "Сторінка",
     "Paints on the active pixel layer. [ ]: size. Alt: eyedropper. Alt + right-drag: size / hardness.": "Малює на активному шарі пікселів. [ ]: розмір. Alt: піпетка. Alt + перетягування правою кнопкою: розмір / жорсткість.",
     "Pan": "Прокручування",
+    "Hold a tool's key": "Утримувати клавішу інструмента",
+    "Use the tool until you let go": "Використовувати інструмент, доки клавішу натиснуто",
     "Pass Through": "Пропустити",
     "Paste": "Вставити",
     "Pasted layer": "Вставлений шар",

@@ -216,7 +216,7 @@
         antiAlias: ANTI_ALIAS_IN[text.antiAlias] || "antiAliasSmooth",
         textClickPoint: { horizontal: (originX / doc.width) * 100, vertical: (originY / doc.height) * 100 },
         textStyleRange: ranges,
-        paragraphStyleRange: [{ from: 0, to: value.length, paragraphStyle: { alignment, autoLeadingPercentage: (text.paragraphStyle && text.paragraphStyle.autoLeading) || 1.2 } }],
+        paragraphStyleRange: [{ from: 0, to: value.length, paragraphStyle: Object.assign({ alignment, autoLeadingPercentage: (text.paragraphStyle && text.paragraphStyle.autoLeading) || 1.2 }, text.paragraphStyle && text.paragraphStyle.hanging ? { hangingRoman: true } : {}) }],
         textShape: [bounds
           ? { textType: "box", orientation: text.orientation === "vertical" ? "vertical" : "horizontal", box: { width: (bounds[2] - bounds[0]) * scale, height: (bounds[3] - bounds[1]) * scale, autoHeight: false } }
           : { textType: "point", orientation: text.orientation === "vertical" ? "vertical" : "horizontal" }],
@@ -263,6 +263,61 @@
     return { canvas, pad };
   };
 
+  /* --------------------------- SFX in the file's XMP --------------------------- */
+
+  // Photoshop has nowhere to keep how an SFX was made: its settings go in the file's metadata,
+  // which Photoshop keeps, one entry per SFX folder, by its name. The folder and its letters
+  // stay ordinary layers that Photoshop edits as it likes.
+  const XMP_NS = "http://typer.hayasaku.fr/ns/sfx/1.0/";
+  const toBase64 = (text) => {
+    const bytes = new TextEncoder().encode(text);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
+  };
+  const fromBase64 = (text) => new TextDecoder().decode(Uint8Array.from(atob(text), (c) => c.charCodeAt(0)));
+  const SFX_PROPERTY = /\s*typer:sfx="[^"]*"|\s*<typer:sfx>[^<]*<\/typer:sfx>/g;
+  const sfxOfXmp = (xmp) => {
+    const found = /typer:sfx(?:="([^"]*)"|>([^<]*)<)/.exec(xmp || "");
+    if (!found) return [];
+    try {
+      const list = JSON.parse(fromBase64((found[1] || found[2] || "").trim()));
+      return Array.isArray(list) ? list : [];
+    } catch (error) {
+      console.warn("TypeR web: this file's SFX settings can't be read", error);
+      return [];
+    }
+  };
+  const xmpWithSfx = (xmp, list) => {
+    let out = String(xmp || "").replace(SFX_PROPERTY, "");
+    if (!list.length) return xmp ? out : undefined;
+    const value = toBase64(JSON.stringify(list));
+    if (!/<rdf:Description\b/.test(out)) {
+      out = `<?xpacket begin="\ufeff" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""/></rdf:RDF></x:xmpmeta><?xpacket end="w"?>`;
+    }
+    return out.replace(/<rdf:Description\b([^>]*?)(\/?)>/, (tag, attributes, closed) => {
+      const ns = /xmlns:typer=/.test(attributes) ? "" : ` xmlns:typer="${XMP_NS}"`;
+      return `<rdf:Description${attributes}${ns} typer:sfx="${value}"${closed}>`;
+    });
+  };
+  // Each saved SFX finds its folder again: by name, in order, else by the letters inside
+  const attachSfx = (groups, layers, xmp) => {
+    const list = sfxOfXmp(xmp);
+    if (!list.length) return;
+    const claimed = new Set();
+    // The letters are stacked in any order: they are compared as a set
+    const sorted = (text) => Array.from(String(text).replace(/\s/g, "")).sort().join("");
+    const lettersOf = (group) => sorted(layers.filter((layer) => layer.group === group.id && layer.kind === "text").map((layer) => layer.params.layerText.textKey).join(""));
+    list.forEach((entry) => {
+      if (!entry || !entry.recipe) return;
+      let group = groups.find((item) => !claimed.has(item) && item.name === entry.name);
+      if (!group) group = groups.find((item) => !claimed.has(item) && entry.recipe.text && lettersOf(item) === sorted(entry.recipe.text));
+      if (!group) return;
+      claimed.add(group);
+      group.sfx = entry.recipe;
+    });
+  };
+
   /* ------------------------------- opening ------------------------------- */
 
   const BACKGROUND_NAME = /^(background|arrière-plan|arriere-plan|fondo|fundo|hintergrund|背景|배경)$/i;
@@ -288,11 +343,18 @@
       raw: node,
     });
 
+    const groupsRead = [];
     const walk = (children, parent) => {
       (children || []).forEach((node, index) => {
         if (node.children) {
           const group = Object.assign(common(node, parent), { kind: "group", open: node.opened !== false });
           group.blend = node.blendMode || "pass through";
+          // A folder's own layer style and mask, as an SFX has them
+          const stroke = strokeFromEffects(node.effects);
+          if (stroke) group.stroke = stroke;
+          if (node.mask && node.mask.canvas) group.mask = node.mask;
+          if (node.fillOpacity === 0) group.knockout = true;
+          groupsRead.push(group);
           walk(node.children, group.id);
           layers.push(group);
           return;
@@ -301,12 +363,19 @@
           const params = paramsFromPsd(node.text, doc);
           params.layerText.textStyleRange.forEach((range) => fontNames.push(range.textStyle.fontPostScriptName));
           const layer = Object.assign(common(node, parent), { kind: "text", params, stroke: strokeFromEffects(node.effects), raster: null });
+          // Fill at 0%: only the stroke shows
+          if (node.fillOpacity === 0) layer.knockout = true;
           if (node.canvas) {
             layer.raster = { bitmap: node.canvas, left: node.left || 0, top: node.top || 0 };
             if (layer.stroke) {
               const { canvas, pad } = strokedDisplay(node.canvas, layer.stroke);
+              if (layer.knockout) {
+                const c = canvas.getContext("2d");
+                c.globalCompositeOperation = "destination-out";
+                c.drawImage(node.canvas, pad, pad);
+              }
               Object.assign(layer.raster, { display: canvas, displayLeft: -pad, displayTop: -pad });
-            }
+            } else if (layer.knockout) Object.assign(layer.raster, { display: engine.newCanvas(1, 1), displayLeft: 0, displayTop: 0 });
           }
           layer.rotated = isTurned(node.text.transform);
           // Sizes come out of the transform's scale when read: what is left of it is the turn
@@ -329,6 +398,7 @@
       });
     };
     walk(psd.children, null);
+    attachSfx(groupsRead, layers, psd.imageResources && psd.imageResources.xmpMetadata);
 
     if (!layers.length && psd.canvas) {
       layers.push(engine.newRaster("Background", { bitmap: psd.canvas, isBackground: true }));
@@ -405,7 +475,7 @@
       antiAlias: ANTI_ALIAS_OUT[lt.antiAlias] || "smooth",
       shapeType: box ? "box" : "point",
       style: styleToPsd(ranges[0] ? ranges[0].textStyle : {}, doc.resolution),
-      paragraphStyle: { justification: JUSTIFY_OUT[paragraph && paragraph.alignment] || "center" },
+      paragraphStyle: Object.assign({ justification: JUSTIFY_OUT[paragraph && paragraph.alignment] || "center" }, paragraph && paragraph.hangingRoman ? { hanging: true } : {}),
     };
     if (box) {
       // A little room, so that Photoshop's own line heights don't hide the last line.
@@ -473,6 +543,16 @@
     const node = commonOut(layer);
     if (layer.kind === "group") {
       node.opened = layer.open !== false;
+      // An SFX's outline goes around the whole folder, as Photoshop does since CS6
+      if (layer.stroke && layer.stroke.enabled && layer.stroke.size > 0) node.effects = Object.assign({}, node.effects, { stroke: strokesToPsd(layer.stroke) });
+      else if (node.effects && node.effects.stroke) {
+        node.effects = Object.assign({}, node.effects);
+        delete node.effects.stroke;
+      }
+      if (layer.mask && layer.mask.canvas) node.mask = layer.mask;
+      else delete node.mask;
+      if (layer.knockout) node.fillOpacity = 0;
+      else if (node.fillOpacity === 0) node.fillOpacity = 1;
       return node;
     }
     if (layer.kind === "text") {
@@ -492,8 +572,11 @@
       }
       flags.editedText = true;
       node.text = textToPsd(layer, doc);
-      const visual = engine.visualOf(layer, doc);
+      // A hollow text's pixels are its letters, which Photoshop hides at Fill 0%: its stroke is drawn from them
+      const visual = engine.visualOf(layer.knockout ? Object.assign({}, layer, { knockout: false, stroke: null }) : layer, doc);
       if (visual) place(node, visual.canvas, visual.x, visual.y);
+      if (layer.knockout) node.fillOpacity = 0;
+      else if (node.fillOpacity === 0) node.fillOpacity = 1;
       if (layer.stroke && layer.stroke.enabled) node.effects = Object.assign({}, node.effects, { stroke: strokesToPsd(layer.stroke) });
       else if (node.effects && node.effects.stroke) {
         node.effects = Object.assign({}, node.effects);
@@ -635,6 +718,10 @@
     });
     delete imageResources.thumbnail;
     delete imageResources.thumbnailRaw;
+    const sfx = window.TypeRSFX ? window.TypeRSFX.recipesForSave(doc) : [];
+    const xmp = xmpWithSfx(imageResources.xmpMetadata, sfx);
+    if (xmp === undefined) delete imageResources.xmpMetadata;
+    else imageResources.xmpMetadata = xmp;
     const root = Object.assign({}, source, { width: doc.width, height: doc.height, bitsPerChannel: 8, canvas: composite, children, imageResources });
     if (!root.colorMode) root.colorMode = 3;
     const psb = /\.psb$/i.test(target) || doc.width > 30000 || doc.height > 30000;
@@ -654,5 +741,5 @@
     return lib.writePsdUint8Array(root, Object.assign({ generateThumbnail: true }, options));
   };
 
-  window.TypeRPSD = { read, readText, write, library };
+  window.TypeRPSD = { read, readText, write, library, sfxOfXmp, xmpWithSfx };
 })();

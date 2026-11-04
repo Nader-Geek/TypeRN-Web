@@ -13,11 +13,11 @@
   const TOOLS = 42;
   const HEAD = 26;
   const MIN_DOCS = 320;
-  const ELEMENTS = { tools: "tools", typer: "dock-typer", layers: "pane-layers", character: "pane-character", breaks: "breaks", history: "pane-history" };
-  const PANELS = ["typer", "layers", "character", "breaks", "history"];
-  const SIDE = ["layers", "character", "breaks", "history"];
+  const ELEMENTS = { tools: "tools", typer: "dock-typer", layers: "pane-layers", character: "pane-character", sfx: "pane-sfx", breaks: "breaks", history: "pane-history" };
+  const PANELS = ["typer", "layers", "character", "sfx", "breaks", "history"];
+  const SIDE = ["layers", "character", "sfx", "breaks", "history"];
   const COLUMNS = ["left", "middle", "right"];
-  const MIN = { tools: [42, 42], typer: [280, 260], layers: [170, 90], character: [210, 130], breaks: [210, 120], history: [150, 80] };
+  const MIN = { tools: [42, 42], typer: [280, 260], layers: [170, 90], character: [210, 130], sfx: [230, 160], breaks: [210, 120], history: [150, 80] };
   const Shell = window.TypeRShell;
   const work = $("work");
   const docs = work.querySelector(".docs");
@@ -29,9 +29,10 @@
   const fresh = () => ({
     version: 1,
     tools: "left",
-    columns: { left: { width: 250, panels: [] }, middle: { width: 360, panels: ["typer"] }, right: { width: 250, panels: ["layers", "character", "breaks", "history"] } },
-    heights: { typer: 600, layers: 290, character: 240, breaks: 290, history: 180 },
-    hidden: { history: true },
+    columns: { left: { width: 250, panels: [] }, middle: { width: 360, panels: ["typer"] }, right: { width: 250, panels: ["layers", "character", "sfx", "breaks", "history"] } },
+    heights: { typer: 600, layers: 290, character: 240, sfx: 420, breaks: 290, history: 180 },
+    // The SFX panel comes with the SFX tool
+    hidden: { history: true, sfx: true },
     floating: {},
     order: [],
     dockOf: {},
@@ -53,7 +54,11 @@
         });
       });
       PANELS.forEach((id) => {
-        if (!seen.has(id)) layout.columns.right.panels.push(id);
+        if (seen.has(id)) return;
+        layout.columns.right.panels.push(id);
+        // A panel this layout never had: the SFX one waits for its tool
+        if (id === "sfx") layout.hidden = Object.assign({}, layout.hidden, { sfx: true });
+        if (!layout.heights[id]) layout.heights = Object.assign({}, layout.heights, { [id]: fresh().heights[id] });
       });
       return layout;
     } catch (error) {

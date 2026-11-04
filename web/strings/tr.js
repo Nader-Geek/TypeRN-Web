@@ -336,6 +336,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Page": "Sayfa",
     "Paints on the active pixel layer. [ ]: size. Alt: eyedropper. Alt + right-drag: size / hardness.": "Etkin piksel katmanında boyar. [ ]: boyut. Alt: damlalık. Alt + sağ tuşla sürükleme: boyut / sertlik.",
     "Pan": "Kaydır",
+    "Hold a tool's key": "Bir aracın tuşunu basılı tut",
+    "Use the tool until you let go": "Bırakana kadar aracı kullan",
     "Pass Through": "Geçir",
     "Paste": "Yapıştır",
     "Pasted layer": "Yapıştırılan katman",

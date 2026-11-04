@@ -56,24 +56,27 @@
   /* ------------------------------- icons ------------------------------- */
 
   const SVG = (inner) => `<svg viewBox="0 0 24 24" aria-hidden="true">${inner}</svg>`;
+  // The tools' icons are Lucide's (lucide.dev, ISC, see vendor/LICENSE-lucide.txt), or drawn on its grid when it has none:
+  // ellipse, polygon, clean, sfx
   const ICON = {
-    move: SVG('<path d="M12 3v18M3 12h18M12 3 9.500 5.500M12 3l2.500 2.500M12 21l-2.500-2.500M12 21l2.500-2.500M3 12l2.500-2.500M3 12l2.500 2.500M21 12l-2.500-2.500M21 12l-2.500 2.500"/>'),
-    rectangle: SVG('<rect x="4" y="6" width="16" height="12" stroke-dasharray="3 2.400"/>'),
-    ellipse: SVG('<ellipse cx="12" cy="12" rx="8.500" ry="6.500" stroke-dasharray="3 2.400"/>'),
-    lasso: SVG('<path d="M5 11c0-3.500 3.200-6 7-6s7 2.500 7 6-3.200 5.500-7 5.500c-1 0-2-.1-2.900-.4M7.600 15c-1.600-.9-2.600-2.300-2.600-4M9 16c0 2-1.200 3.500-3 4"/>'),
-    polygon: SVG('<path d="M9 16.500 5 12l3-7 11 2.500-3 8ZM9 16.500c0 1.800-1.200 3-3 3.500"/>'),
-    wand: SVG('<path d="m4 20 9-9m1.500-1.500 2-2M15 3v3m6 3h-3m.5-5.500-2 2M19 15l-1.500-1.500M12 7.500 10.500 6"/>'),
-    brush: SVG('<path d="M14 5.500 18.500 10M4 20c3.500 0 5-.8 6-2.200 1-1.400.6-3-.6-3.900-1.300-1-3-.6-3.900.7C4.600 16 5 18 4 20ZM10 13.500 19.800 3.700a1.500 1.500 0 0 1 2.100 2.100L12 15.500"/>'),
-    eraser: SVG('<path d="m8 20-4.300-4.300a1.500 1.500 0 0 1 0-2.100L13.600 3.700a1.500 1.500 0 0 1 2.100 0l4.600 4.600a1.500 1.500 0 0 1 0 2.100L10 20Zm0 0h12M8.500 8.800l6.700 6.700"/>'),
-    crop: SVG('<path d="M7 2v15h15M2 7h15v15"/>'),
-    stamp: SVG('<path d="M9.500 13.500c0-2-1.500-3-1.500-5.500a4 4 0 0 1 8 0c0 2.500-1.500 3.500-1.500 5.500M5 13.500h14V17H5zM7 20.500h10"/>'),
-    clean: SVG('<path d="M12 4c4.700 0 8 2.700 8 6s-3.300 6-8 6c-.8 0-1.600-.1-2.300-.2L5.500 19l.8-3.900C4.800 14 4 12.400 4 10c0-3.300 3.300-6 8-6Z"/><path d="m12 7 .8 2.200L15 10l-2.200.8L12 13l-.8-2.200L9 10l2.200-.8Z"/>'),
-    eyedropper: SVG('<path d="M4 20c0-2 .5-3 1.500-4L14 7.500l2.500 2.500-8.500 8.500c-1 1-2 1.500-4 1.500ZM13 6.500l1.500-1.500 1-1a2.100 2.100 0 0 1 3 3l-1 1-1.500 1.500M12 5.500l6.500 6.500"/>'),
-    text: SVG('<path d="M5 6V4h14v2M12 4v16M9 20h6"/>'),
-    hand: SVG('<path d="M8 12V5.500a1.500 1.500 0 0 1 3 0V11m0-1V4.500a1.500 1.500 0 0 1 3 0V11m0-5a1.500 1.500 0 0 1 3 0v6m0-3a1.500 1.500 0 0 1 3 0v5.500a6.500 6.500 0 0 1-6.500 6.500H12a6 6 0 0 1-5-2.700L3.800 14a1.500 1.500 0 0 1 2.500-1.600L8 14.500"/>'),
-    zoom: SVG('<circle cx="10.500" cy="10.500" r="6.500"/><path d="m20 20-4.800-4.800M10.500 7.500v6M7.500 10.500h6"/>'),
-    undo: SVG('<path d="M9 7 4 12l5 5M4 12h11a5 5 0 0 1 0 10h-2"/>'),
-    redo: SVG('<path d="m15 7 5 5-5 5M20 12H9a5 5 0 0 0 0 10h2"/>'),
+    move: SVG('<path d="M12 2v20"/> <path d="m15 19-3 3-3-3"/> <path d="m19 9 3 3-3 3"/> <path d="M2 12h20"/> <path d="m5 9-3 3 3 3"/> <path d="m9 5 3-3 3 3"/>'),
+    rectangle: SVG('<path d="M5 3a2 2 0 0 0-2 2"/> <path d="M19 3a2 2 0 0 1 2 2"/> <path d="M21 19a2 2 0 0 1-2 2"/> <path d="M5 21a2 2 0 0 1-2-2"/> <path d="M9 3h1"/> <path d="M9 21h1"/> <path d="M14 3h1"/> <path d="M14 21h1"/> <path d="M3 9v1"/> <path d="M21 9v1"/> <path d="M3 14v1"/> <path d="M21 14v1"/>'),
+    ellipse: SVG('<ellipse cx="12" cy="12" rx="10" ry="7" pathLength="40" stroke-dasharray="1.150 2.850"/>'),
+    lasso: SVG('<path d="M3.704 14.467a10 8 0 1 1 3.115 2.375"/> <path d="M7 22a5 5 0 0 1-2-3.994"/> <circle cx="5" cy="16" r="2"/>'),
+    polygon: SVG('<path d="M3.700 14.500 2 8l7-6 11 1.500 2 7.500-8 7-7.200-1.200"/><path d="M7 22a5 5 0 0 1-2-4"/><circle cx="5" cy="16" r="2"/>'),
+    wand: SVG('<path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/> <path d="m14 7 3 3"/> <path d="M5 6v4"/> <path d="M19 14v4"/> <path d="M10 2v2"/> <path d="M7 8H3"/> <path d="M21 16h-4"/> <path d="M11 3H9"/>'),
+    brush: SVG('<path d="m11 10 3 3"/> <path d="M6.5 21A3.5 3.5 0 1 0 3 17.5a2.62 2.62 0 0 1-.708 1.792A1 1 0 0 0 3 21z"/> <path d="M9.969 17.031 21.378 5.624a1 1 0 0 0-3.002-3.002L6.967 14.031"/>'),
+    eraser: SVG('<path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21"/> <path d="m5.082 11.09 8.828 8.828"/>'),
+    crop: SVG('<path d="M6 2v14a2 2 0 0 0 2 2h14"/> <path d="M18 22V8a2 2 0 0 0-2-2H2"/>'),
+    stamp: SVG('<path d="M14 13V8.5C14 7 15 7 15 5a3 3 0 0 0-6 0c0 2 1 2 1 3.5V13"/> <path d="M20 15.5a2.5 2.5 0 0 0-2.5-2.5h-11A2.5 2.5 0 0 0 4 15.5V17a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1z"/> <path d="M5 22h14"/>'),
+    clean: SVG('<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.290a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/><path d="M12 7.500l.9 2.600 2.600.9-2.600.9L12 14.500l-.9-2.600L8.500 11l2.600-.9Z"/>'),
+    eyedropper: SVG('<path d="m12 9-8.414 8.414A2 2 0 0 0 3 18.828v1.344a2 2 0 0 1-.586 1.414A2 2 0 0 1 3.828 21h1.344a2 2 0 0 0 1.414-.586L15 12"/> <path d="m18 9 .4.4a1 1 0 1 1-3 3l-3.8-3.8a1 1 0 1 1 3-3l.4.4 3.4-3.4a1 1 0 1 1 3 3z"/> <path d="m2 22 .414-.414"/>'),
+    text: SVG('<path d="M12 4v16"/> <path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/> <path d="M9 20h6"/>'),
+    sfx: SVG('<g transform="rotate(-14 10 14)"><path d="M14.600 15H5.400M3 20 9.600 6.300a.450.450 0 0 1 .800 0L17 20"/></g><path d="M13.38 3.64L14.51 1.52M16.53 6.53L19.01 5.21M17.56 10.79L20.14 11.07"/>'),
+    hand: SVG('<path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/> <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"/> <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/> <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>'),
+    zoom: SVG('<circle cx="11" cy="11" r="8"/> <line x1="21" x2="16.65" y1="21" y2="16.65"/> <line x1="11" x2="11" y1="8" y2="14"/> <line x1="8" x2="14" y1="11" y2="11"/>'),
+    undo: SVG('<path d="M9 14 4 9l5-5"/> <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>'),
+    redo: SVG('<path d="m15 14 5-5-5-5"/> <path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/>'),
     eye: SVG('<path d="M2 12s3.600-7 10-7 10 7 10 7-3.600 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>'),
     folder: SVG('<path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/>'),
     plus: SVG('<path d="M12 5v14M5 12h14"/>'),
@@ -88,7 +91,7 @@
     modeAdd: SVG('<rect x="4" y="4" width="11" height="11"/><rect x="9" y="9" width="11" height="11"/>'),
     modeSub: SVG('<path d="M4 4h11v5H9v6H4Z"/><rect x="9" y="9" width="11" height="11" stroke-dasharray="2 2"/>'),
     modeInt: SVG('<rect x="4" y="4" width="11" height="11" stroke-dasharray="2 2"/><rect x="9" y="9" width="11" height="11" stroke-dasharray="2 2"/><rect x="9" y="9" width="6" height="6" fill="currentColor"/>'),
-    swap: SVG('<path d="M4 9a5 5 0 0 1 5-5h6M12 1l3 3-3 3M20 15a5 5 0 0 1-5 5H9M12 23l-3-3 3-3"/>'),
+    swap: SVG('<path d="m3 16 4 4 4-4"/> <path d="M7 20V4"/> <path d="m21 8-4-4-4 4"/> <path d="M17 4v16"/>'),
     fullScreen: SVG('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'),
     fullScreenExit: SVG('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'),
     alignMiddle: SVG('<rect x="4" y="4" width="16" height="16"/><path d="M8 10h8M8 14h8"/>'),
@@ -974,7 +977,9 @@
     // On a touch screen a pasted text can be handled right away, without changing tool
     const wandShows = Shell.touch && app.tool === "wand";
     if (!doc || (app.tool !== "move" && !typing && !wandShows)) return;
-    const list = (typing ? doc.state.layers.filter((layer) => layer.id === editing.id) : activeLayers().filter((layer) => layer.kind !== "group" && !layer.isBackground && (!wandShows || layer.kind === "text"))).map((layer) => (doc.preview && doc.preview.id === layer.id ? doc.preview : layer));
+    // An SFX is its letters: the frame goes around them, and its handles scale and turn them all
+    const sfxLetters = (layers) => layers.flatMap((layer) => (layer.kind === "group" && layer.sfx ? doc.state.layers.filter((item) => item.kind === "text" && item.group === layer.id) : [layer]));
+    const list = (typing ? doc.state.layers.filter((layer) => layer.id === editing.id) : sfxLetters(activeLayers()).filter((layer) => layer.kind !== "group" && !layer.isBackground && (!wandShows || layer.kind === "text"))).map((layer) => (doc.preview && doc.preview.id === layer.id ? doc.preview : layer));
     if (!list.length) return;
     const live = doc.live;
     let left = Infinity;
@@ -1005,7 +1010,8 @@
     ui.box.setAttribute("y", Math.round(y0) + 0.5);
     ui.box.setAttribute("width", Math.max(1, Math.round(x1 - x0)));
     ui.box.setAttribute("height", Math.max(1, Math.round(y1 - y0)));
-    ui.box.removeAttribute("hidden");
+    // Show Transform Controls off: no frame around texts either, until one is typed in
+    if (!(texts && !typing && !Shell.touch && !settings.transformControls)) ui.box.removeAttribute("hidden");
     if (texts) taskBarBox = { x0, y0, x1, y1 };
     // The move tool's way into Free Transform, for pixel layers
     if (settings.transformControls && !Shell.touch && !typing && list.every((layer) => layer.kind === "raster" && !layer.locked && !layer.adjustment)) {
@@ -1023,7 +1029,7 @@
       return;
     }
     // Several texts: their corners scale them together, and just outside the frame a drag turns
-    // them all, as Free Transform does in Photoshop. Without Show Transform Controls, the frame alone.
+    // them all, as Free Transform does in Photoshop. Without Show Transform Controls, nothing.
     if (list.length > 1 && texts) {
       if (live || (!Shell.touch && !settings.transformControls)) return;
       textGroup = { ids: list.map((layer) => layer.id), frame: { left, top, right, bottom } };
@@ -1041,8 +1047,8 @@
     }
     // A text in perspective gets handles too: they grow or stretch its surface (see "surface")
     if (list.length !== 1 || list[0].kind !== "text") return;
-    // Show Transform Controls off: the move tool leaves a text its frame, without handles to
-    // scale or turn it. Typing in it still shows them, as in Photoshop.
+    // Show Transform Controls off: the move tool shows neither frame nor handles to scale or
+    // turn a text. Typing in it still shows them, as in Photoshop.
     const bare = !typing && !Shell.touch && !settings.transformControls;
     // Just outside a corner, as in Photoshop, a drag turns the text
     const turnable = app.tool === "move" && !typing && !bare;
@@ -1098,7 +1104,7 @@
       return [x + pad * (su * u[0] + sv * v[0]), y + pad * (su * u[1] + sv * v[1])];
     });
     ui.box.setAttribute("hidden", "");
-    svgEl("path", { class: "transform-frame", d: `M${corners.map(([x, y]) => `${x} ${y}`).join("L")}Z` }, ui.handles);
+    if (!bare) svgEl("path", { class: "transform-frame", d: `M${corners.map(([x, y]) => `${x} ${y}`).join("L")}Z` }, ui.handles);
     if (live) return;
     const [mx, my] = toScreen(t.center[0] + shift[0], t.center[1] + shift[1]);
     const hw = Math.hypot(corners[1][0] - corners[0][0], corners[1][1] - corners[0][1]) / 2;
@@ -1731,6 +1737,7 @@
     ["clean", "Bubble Cleaner", "J"],
     ["eyedropper", "Eyedropper", "I"],
     ["text", "Type", "T"],
+    ["sfx", "SFX", "K"],
     null,
     ["hand", "Hand", "H"],
     ["zoom", "Zoom", "Z"],
@@ -1750,6 +1757,7 @@
     clean: "Click a bubble: its text goes, painted over in the bubble's own colours, whatever they are. Drag a box: only inside it, for text on a plain background.",
     eyedropper: "Click to pick the foreground colour. Alt: the background colour.",
     text: "Click a text to edit it, click elsewhere to add one, drag to draw a text box. Esc or Cmd+Enter to finish.",
+    sfx: "Click: an SFX there. Drag: along a line. Alt + drag: along a path you draw. Shift + click: fill a bubble. On an SFX: drag a letter, its ● turns it, its corner resizes it.",
     hand: "Drag to pan. Space works with every tool.",
     zoom: "Click to zoom in, Alt to zoom out.",
   };
@@ -1781,6 +1789,7 @@
       button.setAttribute("aria-pressed", String(on));
     });
     ui.brushRing.setAttribute("hidden", "");
+    if (window.TypeRSFX) window.TypeRSFX.toolChosen(tool);
     renderOptions();
     renderStatus();
     schedule(false);
@@ -2082,7 +2091,8 @@
   // fonts: the browser skips the rows out of sight (content-visibility in app.css).
   const folded = (value) => String(value).normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[\s\-_]+/g, "");
   let closeFontMenu = null;
-  const openFontMenu = (anchor, current) => {
+  // `chosen`: what to do with the family picked, when it isn't for the selected texts
+  const openFontMenu = (anchor, current, chosen) => {
     const back = document.activeElement;
     const stored = new WeakMap();
     const keptFonts = new IntersectionObserver((entries) => entries.forEach(({ isIntersecting, target }) => {
@@ -2177,6 +2187,10 @@
     };
     const choose = (family) => {
       close(true);
+      if (chosen) {
+        chosen(family);
+        return;
+      }
       setFontFamily(family);
       characterKey = "";
       renderOptions();
@@ -2582,6 +2596,7 @@
       if (document.fullscreenEnabled) bar.appendChild(fullScreen);
       return;
     }
+    if (tool === "sfx" && window.TypeRSFX) window.TypeRSFX.options(bar);
     if (SELECTION_TOOLS.has(tool)) {
       const modes = document.createElement("span");
       modes.className = "obar__group";
@@ -2718,6 +2733,29 @@
   let gestureCount = 0;
   let spacing = false;
   const pointers = new Map();
+  // A tool's key held down lends the tool, as Space lends the hand: let go, the previous one
+  // comes back. A quick press keeps it. So does work that waits for Enter: a text being typed,
+  // an outline not closed, a frame or a transform not applied.
+  let spring = null;
+  const SPRING_HOLD = 300;
+  const springKey = (event) => event.code || event.key.toLowerCase();
+  const settleSpring = () => {
+    const lent = spring;
+    // A stroke goes to its end before the tool goes back
+    if (!lent || !lent.released || pointers.size) return;
+    spring = null;
+    if (app.tool !== lent.tool || polygon || !ui.editor.hidden || transformOf() || (crop && crop.edited)) return;
+    setTool(lent.previous);
+  };
+  const releaseSpring = (event) => {
+    if (!spring || springKey(event) !== spring.key) return;
+    if (!spring.used && performance.now() - spring.time < SPRING_HOLD) {
+      spring = null;
+      return;
+    }
+    spring.released = true;
+    settleSpring();
+  };
   let pinch = null;
   // Two fingers tapping undo, three redo. A pen in the game leaves the drawing to it,
   // and fingers pan.
@@ -3062,6 +3100,7 @@
   };
 
   ui.stage.addEventListener("pointerdown", (event) => {
+    if (spring) spring.used = true;
     if (event.target.closest(".start, .editor")) return;
     // While typing, the handles still work: only a click elsewhere ends the edit. A finger
     // can also move the page, to see where the text goes: only its tap ends the edit.
@@ -3226,6 +3265,15 @@
         return;
       }
     }
+    if (tool === "sfx" && window.TypeRSFX) {
+      const made = window.TypeRSFX.down(event, point, base);
+      if (made) {
+        gesture = made;
+        ui.stage.setPointerCapture(event.pointerId);
+      }
+      event.preventDefault();
+      return;
+    }
     if (tool === "text") {
       const hit = textAt(point);
       if (hit) beginEdit(hit);
@@ -3364,6 +3412,7 @@
       ui.stage.style.cursor = over ? HANDLE_CURSOR[over.kind] : c.touched && inCrop(c, toDoc(event)) ? "move" : "";
     }
     if (polygon && tool === "polygon" && !gesture && !pinch) showPolygon(polygonAim(toDoc(event), event));
+    if (tool === "sfx" && !gesture && app.doc && window.TypeRSFX) window.TypeRSFX.hover(event, toDoc(event));
     if (!gesture || event.pointerId !== gesture.id) {
       if (SELECTION_TOOLS.has(tool) && app.doc && !event.shiftKey && !event.altKey && app.selectionMode === "new") {
         const [x, y] = toDoc(event);
@@ -3373,6 +3422,10 @@
       return;
     }
     const current = gesture;
+    if (current.kind === "sfx") {
+      window.TypeRSFX.move(current, event, toDoc(event));
+      return;
+    }
     if (current.kind === "brushAdjust") {
       app.brush.size = Math.max(1, Math.min(2000, Math.round(current.size + (2 * (event.clientX - current.x)) / view().zoom)));
       app.brush.hardness = Math.max(0, Math.min(100, Math.round(current.hardness + (event.clientY - current.y) / 2)));
@@ -3608,6 +3661,10 @@
       smartLines = [];
       schedule(false);
     }
+    if (kind === "sfx") {
+      window.TypeRSFX.up(current, event, point, cancelled);
+      return;
+    }
     if (kind === "transform") {
       const t = transformOf();
       if (t && cancelled) {
@@ -3676,6 +3733,7 @@
   };
   ui.stage.addEventListener("pointerup", finishGesture);
   ui.stage.addEventListener("pointercancel", finishGesture);
+  ["pointerup", "pointercancel"].forEach((type) => ui.stage.addEventListener(type, settleSpring));
   ui.stage.addEventListener("pointerleave", () => {
     ui.brushRing.setAttribute("hidden", "");
     hideStampPreview();
@@ -3691,7 +3749,7 @@
     const point = toDoc(event);
     const hit = ops.hitLayer(point[0], point[1]);
     if (hit && !app.doc.state.activeIds.includes(hit.id)) ops.selectLayer(hit.id);
-    openContextMenu(event.clientX, event.clientY, ["Deselect", "Reselect", "Inverse", null, "Cut", "Copy", "Fill with Foreground Colour", "Fill with Background Colour", "Content-Aware Fill…", null, "Free Transform", null, "Duplicate Layer", "Group Layers", "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", "Merge Down", "Merge Visible"]);
+    openContextMenu(event.clientX, event.clientY, ["Deselect", "Reselect", "Inverse", null, "Cut", "Copy", "Fill with Foreground Colour", "Fill with Background Colour", "Content-Aware Fill…", null, "Free Transform", null, "Duplicate Layer", "Group Layers", "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", null, "Convert to SFX", "Separate SFX Letters", "Keep in the bank…", null, "Merge Down", "Merge Visible"]);
   });
   ui.stage.addEventListener("dblclick", (event) => {
     const turning = transformOf();
@@ -4250,7 +4308,7 @@
         event.preventDefault();
         if (Shell.touch) return;
         if (!doc.state.activeIds.includes(layer.id)) ops.selectLayer(layer.id);
-        openContextMenu(event.clientX, event.clientY, [{ label: "Rename", action: () => renameRow(layer, name) }, "Duplicate Layer", "Delete Layer", null, "Group Layers", "Ungroup Layers", null, "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", null, "Merge Down", "Merge Visible", "Flatten Image"]);
+        openContextMenu(event.clientX, event.clientY, [{ label: "Rename", action: () => renameRow(layer, name) }, "Duplicate Layer", "Delete Layer", null, "Group Layers", "Ungroup Layers", null, "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", null, "Convert to SFX", "Separate SFX Letters", "Keep in the bank…", null, "Merge Down", "Merge Visible", "Flatten Image"]);
       });
       row.addEventListener("click", (event) => {
         // Cmd + click on a thumbnail: its pixels as a selection, and with Shift, added to it
@@ -6034,6 +6092,8 @@
   const hasDoc = () => Boolean(app.doc);
   const hasSelection = () => Boolean(app.doc && app.doc.state.selection);
   const hasLayer = () => Boolean(activeLayer());
+  // One SFX chosen: its copy is an SFX of its own, with letters of its own
+  const oneSfx = () => Boolean(window.TypeRSFX && app.doc && app.doc.state.activeIds.length === 1 && window.TypeRSFX.activeSfx() && window.TypeRSFX.activeSfx().id === app.doc.state.activeIds[0]);
 
   const askRadius = async (title, then) => {
     const values = await dialog({ title, ok: "OK", fields: [{ id: "radius", label: T("Pixels"), value: 4, type: "number", min: 1 }] });
@@ -6634,7 +6694,7 @@
       // Photoshop's Shift+Cmd+N opens a private window from a browser tab: it only arrives in the installed app or full screen
       { label: "New Layer", keys: DESKTOP ? "Shift+Cmd+N" : "Alt+Shift+Cmd+N", alias: DESKTOP ? undefined : "Shift+Cmd+N", enabled: hasDoc, action: () => ops.newLayer(nextLayerName()) },
       { label: "New Group", enabled: hasDoc, action: () => ops.newGroup(T("Group")) },
-      { label: "Duplicate Layer", keys: "Cmd+J", enabled: hasLayer, action: () => ops.duplicateLayers() },
+      { label: "Duplicate Layer", keys: "Cmd+J", enabled: hasLayer, action: () => (oneSfx() ? window.TypeRSFX.duplicate() : ops.duplicateLayers()) },
       { label: "Delete Layer", enabled: hasLayer, action: () => ops.deleteLayers() },
       { label: "Group Layers", keys: "Cmd+G", enabled: () => activeLayers().some((layer) => !layer.isBackground), action: () => ops.groupLayers(T("Group")) },
       { label: "Ungroup Layers", keys: "Shift+Cmd+G", enabled: () => activeLayers().some((layer) => layer.kind === "group"), action: () => ops.ungroupLayers() },
@@ -6651,6 +6711,12 @@
       { label: "Convert to Point Text", enabled: () => activeTexts().some(isParagraph), action: () => activeTexts().forEach((layer) => { if (isParagraph(layer)) ops.convertText(layer.id); }) },
       { label: "Perspective", keys: "Shift+P", enabled: () => activeTexts().length === 1 && !activeTexts()[0].rotated, action: () => enterSurface(activeTexts()[0]) },
       { label: "Rasterize Type", enabled: () => activeTexts().length > 0, action: () => activeTexts().forEach((layer) => ops.rasterizeText(layer.id)) },
+      null,
+      { label: "New SFX", enabled: hasDoc, action: () => { setTool("sfx"); window.TypeRSFX.newSfx({}); } },
+      { label: "Convert to SFX", enabled: () => Boolean(window.TypeRSFX && window.TypeRSFX.canConvert()), action: () => window.TypeRSFX.convert() },
+      { label: "Separate SFX Letters", enabled: () => Boolean(window.TypeRSFX && window.TypeRSFX.activeSfx()), action: () => window.TypeRSFX.separate() },
+      { label: "Keep in the bank…", enabled: () => Boolean(window.TypeRSFX && window.TypeRSFX.activeSfx()), action: () => window.TypeRSFX.keepInBank() },
+      null,
       { label: "Merge Down", keys: "Cmd+E", enabled: hasLayer, action: () => ops.mergeSelected() },
       { label: "Merge Visible", keys: "Shift+Cmd+E", enabled: hasDoc, action: () => ops.mergeVisible() },
       { label: "Flatten Image", enabled: hasDoc, action: () => ops.flatten() },
@@ -6684,6 +6750,7 @@
       null,
       { label: "Layers", check: () => Workspace().isVisible("layers"), action: () => Workspace().toggle("layers") },
       { label: "Character", check: () => Workspace().isVisible("character"), action: () => Workspace().toggle("character") },
+      { label: "SFX", check: () => Workspace().isVisible("sfx"), action: () => Workspace().toggle("sfx") },
       { label: "History", check: () => Workspace().isVisible("history"), action: () => Workspace().toggle("history") },
       { label: "Line Breaks", keys: "Shift+L", check: () => Workspace().isVisible("breaks"), action: () => Workspace().toggle("breaks") },
       ...(Shell.touch ? [] : [{ label: "Contextual Task Bar", check: () => settings.taskBar, action: () => setTaskBar(!settings.taskBar) }]),
@@ -6892,7 +6959,7 @@
         });
       });
       // What stays as it is: other tools count on them
-      const fixed = [["← ↑ → ↓", T("Move the active layer by 1 px (Shift: 10 px), or the selection if a selection tool is on")], [T("Space"), T("Pan")], ["Enter", T("Apply")], ["Esc", T("Cancel")]].filter(([keys, label]) => !words || label.toLowerCase().includes(words) || keys.toLowerCase().includes(words));
+      const fixed = [["← ↑ → ↓", T("Move the active layer by 1 px (Shift: 10 px), or the selection if a selection tool is on")], [T("Space"), T("Pan")], [T("Hold a tool's key"), T("Use the tool until you let go")], ["Enter", T("Apply")], ["Esc", T("Cancel")]].filter(([keys, label]) => !words || label.toLowerCase().includes(words) || keys.toLowerCase().includes(words));
       if (fixed.length) {
         make("div", "sk__group", list, T("Fixed"));
         fixed.forEach(([keys, label]) => {
@@ -7346,7 +7413,12 @@
           return;
         }
         event.preventDefault();
+        // Held, a tool's key repeats: the tool is already there
+        if (item.entry && event.repeat) return;
+        const before = app.tool;
         item.action();
+        // The panel keeps its key ups: only the page's keys lend a tool
+        if (item.entry && !fromPanel && app.tool !== before) spring = { key: springKey(event), tool: app.tool, previous: before, time: performance.now(), used: false, released: false };
         return;
       }
     }
@@ -7398,6 +7470,7 @@
     PS.setKeys({ meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, key: PS.keyName(event) });
   });
   document.addEventListener("keyup", (event) => {
+    releaseSpring(event);
     if (isSpace(event)) {
       spacing = false;
       ui.stage.classList.remove("is-spacing");
@@ -7407,6 +7480,7 @@
   });
   window.addEventListener("blur", () => {
     spacing = false;
+    spring = null;
     ui.stage.classList.remove("is-spacing", "is-sampling");
     PS.clearKeys();
   });
@@ -7882,6 +7956,13 @@
     nudge,
     flattened,
     applyTextPatch,
+    openFontMenu,
+    scrubbed,
+    numberInput,
+    checkbox,
+    facesOf,
+    mainFace,
+    working,
     isEditing: () => !ui.editor.hidden,
     editingId: () => (editing ? editing.id : null),
     warnMissingFont(layer) {

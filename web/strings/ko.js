@@ -336,6 +336,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Page": "페이지",
     "Paints on the active pixel layer. [ ]: size. Alt: eyedropper. Alt + right-drag: size / hardness.": "활성 픽셀 레이어에 칠합니다. [ ]: 크기. Alt: 스포이드 도구. Alt + 오른쪽 드래그: 크기 / 경도.",
     "Pan": "화면 이동",
+    "Hold a tool's key": "도구 키를 길게 누르기",
+    "Use the tool until you let go": "키를 놓을 때까지 도구 사용",
     "Pass Through": "통과",
     "Paste": "붙여넣기",
     "Pasted layer": "붙여넣은 레이어",

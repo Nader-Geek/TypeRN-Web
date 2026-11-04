@@ -336,6 +336,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Page": "หน้า",
     "Paints on the active pixel layer. [ ]: size. Alt: eyedropper. Alt + right-drag: size / hardness.": "วาดบน Layer พิกเซลที่ใช้งานอยู่ [ ]: ขนาด Alt: Eyedropper Alt + ลากด้วยปุ่มขวา: ขนาด / ความแข็ง",
     "Pan": "เลื่อนมุมมอง",
+    "Hold a tool's key": "กดแป้นของเครื่องมือค้างไว้",
+    "Use the tool until you let go": "ใช้เครื่องมือจนกว่าจะปล่อยแป้น",
     "Pass Through": "Pass Through",
     "Paste": "วาง",
     "Pasted layer": "Layer ที่วางแล้ว",
