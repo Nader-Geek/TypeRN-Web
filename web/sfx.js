@@ -161,6 +161,20 @@
     defaults.source = null;
     writeStore(STORE, Object.assign(clone(defaults), { source: recipe.source ? { at: [0, 0], amount: recipe.source.amount, radial: recipe.source.radial } : null }));
   };
+  // The SFX guide's practice leaves the settings as they were before it
+  const defaultsSnapshot = () => ({ kept: clone(defaults), stored: readStore(STORE, null) });
+  const restoreDefaults = (snapshot) => {
+    if (!snapshot) return;
+    defaults = snapshot.kept;
+    if (snapshot.stored) writeStore(STORE, snapshot.stored);
+    else {
+      try {
+        window.localStorage.removeItem(STORE);
+      } catch (error) {
+        // Nothing was kept before, nothing to take back
+      }
+    }
+  };
   const storedSource = () => {
     const stored = readStore(STORE, null);
     return stored && stored.source ? { amount: stored.source.amount, radial: stored.source.radial } : null;
@@ -1316,6 +1330,20 @@
   /* ------------------------------ letter by letter ------------------------------ */
 
   // The letter being worked on, in the SFX tool
+  // What was just done with the tool, for whoever listens (the SFX guide's practice)
+  const listeners = new Set();
+  const tell = (detail) => listeners.forEach((listener) => {
+    try {
+      listener(detail);
+    } catch (error) {
+      console.warn("TypeR SFX: a listener failed", error);
+    }
+  });
+  const onGesture = (listener) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
+
   let picked = null;
   const pickedLetter = (group) => (picked && group && picked.group === group.id ? picked.key : null);
 
@@ -1381,6 +1409,12 @@
 
   let handles = [];
   let preview = null;
+  // A handle the SFX guide points at: an end of the path, the picked letter, its ● or its corner
+  let mark = null;
+  const setMark = (kind) => {
+    mark = kind || null;
+    drawOverlay();
+  };
   // The letter's box on the page, turned with it
   const cornersOf = (pose, doc, pad = 0) => {
     const m = measure(doc, pose.font, pose.ch);
@@ -1457,6 +1491,18 @@
       const [x, y] = screen(recipe.source.at);
       svg("path", { d: `M${x} ${y - 7}L${x + 7} ${y}L${x} ${y + 7}L${x - 7} ${y}Z`, class: "sfx-source" }, g);
       handles.push({ kind: "source", at: [x, y] });
+    }
+    if (mark) {
+      let at = null;
+      if (mark === "letter") {
+        const pose = layout.letters.find((item) => item.key === key) || layout.letters[Math.min(1, layout.letters.length - 1)];
+        if (pose) at = screen(pose.center);
+      } else {
+        const kind = { knob: "letterTurn", corner: "letterSize" }[mark] || mark;
+        const handle = handles.find((item) => item.kind === kind);
+        if (handle) at = handle.at;
+      }
+      if (at) svg("circle", { cx: at[0], cy: at[1], r: 14, class: "sfx-mark" }, g);
     }
   };
 
@@ -1546,6 +1592,7 @@
         gesture.from = point;
       }
       gesture.way = way;
+      (gesture.ways = gesture.ways || new Set()).add(way);
       showEndHint(true);
     }
     const recipe = normal(clone(gesture.recipe));
@@ -1769,9 +1816,12 @@
       }
       drawOverlay();
       focusText();
+      tell({ mode: "create" });
       return;
     }
     showAll();
+    if (gesture.moved) tell({ mode: gesture.mode, ways: gesture.ways ? Array.from(gesture.ways) : [] });
+    else if (gesture.mode === "letter") tell({ mode: "pick" });
   };
 
   const hover = (event, point) => {
@@ -1973,6 +2023,12 @@
   ];
   const DICE = '<rect x="2.5" y="2.5" width="11" height="11" rx="2"/><circle class="sfx-dot" cx="5.5" cy="5.5" r="1"/><circle class="sfx-dot" cx="10.5" cy="10.5" r="1"/><circle class="sfx-dot" cx="8" cy="8" r="1"/><circle class="sfx-dot" cx="10.5" cy="5.5" r="1"/><circle class="sfx-dot" cx="5.5" cy="10.5" r="1"/>';
   const BACK = '<path d="M10 3.5 5.5 8l4.5 4.5"/>';
+  const HELP = '<circle cx="8" cy="8" r="6.5"/><path d="M6.1 6.2a2 2 0 0 1 3.9.6c0 1.3-2 2-2 2"/><path d="M8 11.3h.01"/>';
+  const helpButton = (bar) => {
+    if (!window.TypeRSFXGuide) return;
+    const node = iconButton(bar, HELP, T("SFX guide: every shortcut, and a 2-minute practice"), false, () => window.TypeRSFXGuide.show());
+    node.classList.add("sfx__help");
+  };
   const iconButton = (parent, inner, title, on, action) => {
     const node = el("button", "icon-btn" + (on ? " is-on" : ""), parent);
     node.type = "button";
@@ -2190,6 +2246,7 @@
       button(actions, T("Longer"), () => elongate(key)).title = T("Repeat this letter: BOM, BOOM, BOOOM");
       button(actions, T("Reset"), () => editLetter(key, (l) => { l.o = null; l.lock = null; }, null, "SFX Letter")).disabled = !letter.o && !letter.lock;
       button(actions, T("Remove"), () => removeLetter(key));
+      helpButton(bar);
       return;
     }
 
@@ -2208,6 +2265,7 @@
       button(actions, T("Replace the original"), replaceOriginal);
       button(actions, T("Subtitle beside it"), subtitle);
       if (group) button(actions, T("Hide under the selection"), hideUnderSelection);
+      helpButton(bar);
       return;
     }
 
@@ -2232,6 +2290,7 @@
     outline.appendChild(width);
     el("span", "sfx__unit", outline, "px");
     presetSelect(bar);
+    helpButton(bar);
   };
 
   /* --------------------------- previews of the looks --------------------------- */
@@ -2655,6 +2714,8 @@
     else return;
     event.preventDefault();
     event.stopPropagation();
+    const KEY_ACTIONS = { Escape: "release", ArrowLeft: "move", ArrowRight: "move", ArrowUp: "move", ArrowDown: "move", "[": "turn", "{": "turn", "]": "turn", "}": "turn", "+": "size", "=": "size", "-": "size", _: "size", Tab: "step", Enter: "retype", Delete: "remove", Backspace: "remove" };
+    tell({ mode: "key", action: KEY_ACTIONS[k] });
   }, true);
 
   // A double-click on a letter: type over it
@@ -2662,7 +2723,9 @@
   if (stageNode) stageNode.addEventListener("dblclick", (event) => {
     if (app.tool !== "sfx" || !app.doc || event.altKey) return;
     const key = pickedLetter(activeSfx());
-    if (key !== null) retype(key);
+    if (key === null) return;
+    retype(key);
+    tell({ mode: "key", action: "retype" });
   });
 
   // The panel shows with the tool, the first time and whenever it was left hidden
@@ -2671,6 +2734,7 @@
       const workspace = window.TypeRWorkspace;
       if (workspace && !window.TypeRShell.touch && !workspace.isVisible("sfx")) workspace.setVisible("sfx", true);
       renderPanel(true);
+      if (window.TypeRSFXGuide) window.TypeRSFXGuide.toolChosen();
     } else preview = null;
     drawOverlay();
   };
@@ -2707,5 +2771,15 @@
     isSfx: (layer) => Boolean(app.doc && layer && sfxOf(app.doc, layer)),
     sfxOf: (layer) => (app.doc && layer ? sfxOf(app.doc, layer) : null),
     renderPanel,
+    onGesture,
+    setMark,
+    defaultsSnapshot,
+    restoreDefaults: (snapshot) => {
+      // The word field keeps the bar as it is while it is being typed in
+      if (barWord && barWord === document.activeElement) barWord.blur();
+      restoreDefaults(snapshot);
+      if (app.tool === "sfx") showAll();
+    },
+    pickedLetter: () => pickedLetter(activeSfx()),
   };
 })();
