@@ -162,9 +162,13 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 /* Many pages: the long names give up room first, cut with "…" (fitTabs sets --tab-cap; the full
    name shows on hover and in the » list; the page on screen keeps 140 px). Once all are at their smallest, the strip scrolls. */
 .tab { flex: none; display: flex; align-items: center; gap: 8px; min-width: 72px; max-width: var(--tab-cap, 320px); padding: 0 8px 0 12px; border-right: 1px solid var(--line); color: var(--muted); white-space: nowrap; cursor: pointer; }
+.tab { -webkit-user-select: none; user-select: none; }
 .tab span:first-child { overflow: hidden; text-overflow: ellipsis; }
 .tab:hover { color: var(--text); }
 .tab.is-on { max-width: var(--tab-on-cap, var(--tab-cap, 320px)); background: var(--ui); color: var(--text); }
+/* Dragged to another place in the strip: it follows the pointer above the others */
+.tab.is-dragging { position: relative; z-index: 1; background: var(--ui-dark); color: var(--text); box-shadow: 0 0 0 1px var(--line), 0 2px 8px rgba(0, 0, 0, 0.45); cursor: grabbing; }
+.tab.is-on.is-dragging { background: var(--ui); }
 .tab__close { flex: none; width: 16px; height: 16px; border-radius: 2px; line-height: 15px; text-align: center; color: var(--muted); }
 .tab__close:hover { background: var(--ui-3); color: #fff; }
 
