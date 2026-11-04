@@ -87,6 +87,16 @@
             "LSHandlerRank": "Alternate"
           },
           {
+            "CFBundleTypeName": "InDesign Document",
+            "CFBundleTypeExtensions": [
+              "indd",
+              "indt",
+              "idml"
+            ],
+            "CFBundleTypeRole": "Editor",
+            "LSHandlerRank": "Alternate"
+          },
+          {
             "CFBundleTypeName": "Image",
             "CFBundleTypeExtensions": [
               "png",

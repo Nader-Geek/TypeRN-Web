@@ -1678,6 +1678,191 @@
     ctx.restore();
   };
 
+  /* ===================== a picture's resolution, in ppi ===================== */
+
+  // What Photoshop finds in a PNG, a JPEG or a WebP: the size in points of a text depends on
+  // it. Without it, 72 ppi, as in Photoshop.
+  // A PNG says it in pixels per metre: 300 ppi comes back as 299.9994
+  const sensiblePpi = (ppi) => {
+    if (!Number.isFinite(ppi) || ppi < 1 || ppi > 10000) return null;
+    return Math.abs(ppi - Math.round(ppi)) < 0.05 ? Math.round(ppi) : Math.round(ppi * 100) / 100;
+  };
+  const ppiOfTiff = (bytes) => {
+    if (bytes.length < 8) return null;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const little = bytes[0] === 0x49;
+    if (!little && bytes[0] !== 0x4d) return null;
+    const u16 = (at) => view.getUint16(at, little);
+    const u32 = (at) => view.getUint32(at, little);
+    const ifd = u32(4);
+    if (ifd + 2 > bytes.length) return null;
+    let x = null;
+    let unit = 2;
+    for (let i = 0, count = u16(ifd); i < count; i++) {
+      const at = ifd + 2 + i * 12;
+      if (at + 12 > bytes.length) break;
+      const tag = u16(at);
+      if (tag === 0x011a) {
+        const value = u32(at + 8);
+        if (value + 8 <= bytes.length && u32(value + 4)) x = u32(value) / u32(value + 4);
+      } else if (tag === 0x0128) unit = u16(at + 8);
+    }
+    if (x === null || unit === 1) return null;
+    return sensiblePpi(unit === 3 ? x * 2.54 : x);
+  };
+  const ppiOfXmp = (text) => {
+    const field = (name) => {
+      const found = text.match(new RegExp(`tiff:${name}\\s*=\\s*"([^"]+)"`)) || text.match(new RegExp(`<tiff:${name}>([^<]+)<`));
+      return found ? found[1].trim() : null;
+    };
+    const x = field("XResolution");
+    if (!x) return null;
+    const [top, bottom = "1"] = x.split("/");
+    const ppi = Number(top) / Number(bottom);
+    return sensiblePpi(field("ResolutionUnit") === "3" ? ppi * 2.54 : ppi);
+  };
+  const latin1 = (bytes) => {
+    let out = "";
+    for (let i = 0; i < bytes.length; i += 8192) out += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+    return out;
+  };
+  const ppiOfPng = (bytes) => {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let exif = null;
+    let xmp = null;
+    for (let at = 8; at + 8 <= bytes.length; ) {
+      const length = view.getUint32(at);
+      const type = latin1(bytes.subarray(at + 4, at + 8));
+      const data = bytes.subarray(at + 8, Math.min(bytes.length, at + 8 + length));
+      // Pixels per metre
+      if (type === "pHYs" && data.length >= 9 && data[8] === 1) return sensiblePpi(new DataView(data.buffer, data.byteOffset, 9).getUint32(0) * 0.0254);
+      if (type === "eXIf") exif = data;
+      if (type === "iTXt" && latin1(data.subarray(0, 18)) === "XML:com.adobe.xmp\0") xmp = data;
+      if (type === "IEND") break;
+      at += 12 + length;
+    }
+    return (exif && ppiOfTiff(exif)) || (xmp && ppiOfXmp(latin1(xmp))) || null;
+  };
+  const ppiOfJpeg = (bytes) => {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let photoshop = null;
+    let exif = null;
+    let xmp = null;
+    let jfif = null;
+    for (let at = 2; at + 4 <= bytes.length; ) {
+      if (bytes[at] !== 0xff) break;
+      const marker = bytes[at + 1];
+      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+        at += 2;
+        continue;
+      }
+      // The image data starts: everything worth reading came before
+      if (marker === 0xda || marker === 0xd9) break;
+      const length = view.getUint16(at + 2);
+      const data = bytes.subarray(at + 4, Math.min(bytes.length, at + 2 + length));
+      const head = latin1(data.subarray(0, 29));
+      if (marker === 0xe0 && head.startsWith("JFIF\0") && data.length >= 12 && (data[7] === 1 || data[7] === 2)) {
+        const density = (data[8] << 8) | data[9];
+        jfif = sensiblePpi(data[7] === 2 ? density * 2.54 : density);
+      } else if (marker === 0xe1 && head.startsWith("Exif\0")) exif = ppiOfTiff(data.subarray(6));
+      else if (marker === 0xe1 && head.startsWith("http://ns.adobe.com/xap/1.0/\0")) xmp = ppiOfXmp(latin1(data));
+      else if (marker === 0xed && head.startsWith("Photoshop 3.0\0")) {
+        // The 8BIM resources, ResolutionInfo (1005) among them, in 16.16 fixed point
+        const res = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        for (let i = 14; i + 12 <= data.length; ) {
+          if (latin1(data.subarray(i, i + 4)) !== "8BIM") break;
+          const id = res.getUint16(i + 4);
+          const nameLength = data[i + 6];
+          const start = i + 6 + ((nameLength + 2) & ~1);
+          if (start + 4 > data.length) break;
+          const size = res.getUint32(start);
+          if (id === 0x03ed && size >= 8 && start + 12 <= data.length) photoshop = sensiblePpi(res.getUint32(start + 4) / 65536);
+          i = start + 4 + size + (size & 1);
+        }
+      }
+      at += 2 + length;
+    }
+    return photoshop || exif || xmp || jfif || null;
+  };
+  const ppiOfWebp = (bytes) => {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let xmp = null;
+    for (let at = 12; at + 8 <= bytes.length; ) {
+      const type = latin1(bytes.subarray(at, at + 4));
+      const length = view.getUint32(at + 4, true);
+      const data = bytes.subarray(at + 8, Math.min(bytes.length, at + 8 + length));
+      if (type === "EXIF") {
+        const ppi = ppiOfTiff(latin1(data.subarray(0, 6)) === "Exif\0\0" ? data.subarray(6) : data);
+        if (ppi) return ppi;
+      }
+      if (type === "XMP ") xmp = ppiOfXmp(latin1(data));
+      at += 8 + length + (length & 1);
+    }
+    return xmp;
+  };
+  const imageResolution = async (blob) => {
+    try {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return ppiOfPng(bytes);
+      if (bytes[0] === 0xff && bytes[1] === 0xd8) return ppiOfJpeg(bytes);
+      if (latin1(bytes.subarray(0, 4)) === "RIFF" && latin1(bytes.subarray(8, 12)) === "WEBP") return ppiOfWebp(bytes);
+    } catch (error) {
+      console.warn("Could not read the resolution", error);
+    }
+    return null;
+  };
+
+  // A PNG or a JPEG from canvas.toBlob, which says nothing of the resolution, made to say it
+  const PNG_CRC = Int32Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c;
+  });
+  const pngCrc = (bytes) => {
+    let crc = -1;
+    for (let i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ PNG_CRC[(crc ^ bytes[i]) & 0xff];
+    return (crc ^ -1) >>> 0;
+  };
+  const withResolution = async (blob, ppi) => {
+    if (!blob || !(ppi > 0)) return blob;
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    if (bytes[0] === 0x89 && bytes[1] === 0x50) {
+      const ppm = Math.round(ppi / 0.0254);
+      const chunk = new Uint8Array(21);
+      const view = new DataView(chunk.buffer);
+      view.setUint32(0, 9);
+      chunk.set([0x70, 0x48, 0x59, 0x73], 4);
+      view.setUint32(8, ppm);
+      view.setUint32(12, ppm);
+      chunk[16] = 1;
+      view.setUint32(17, pngCrc(chunk.subarray(4, 17)));
+      // Right after the header, which is always 8 + 25 bytes
+      const parts = [];
+      let at = 33;
+      parts.push(bytes.subarray(0, 33), chunk);
+      const source = new DataView(bytes.buffer);
+      while (at + 8 <= bytes.length) {
+        const length = source.getUint32(at);
+        const end = at + 12 + length;
+        if (latin1(bytes.subarray(at + 4, at + 8)) !== "pHYs") parts.push(bytes.subarray(at, end));
+        at = end;
+      }
+      return new Blob(parts, { type: blob.type });
+    }
+    if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+      const density = Math.min(65535, Math.round(ppi));
+      if (bytes[2] === 0xff && bytes[3] === 0xe0 && latin1(bytes.subarray(6, 11)) === "JFIF\0") {
+        const out = bytes.slice();
+        out[13] = 1;
+        out.set([density >> 8, density & 255, density >> 8, density & 255], 14);
+        return new Blob([out], { type: blob.type });
+      }
+      const app0 = Uint8Array.from([0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 1, density >> 8, density & 255, density >> 8, density & 255, 0, 0]);
+      return new Blob([bytes.subarray(0, 2), app0, bytes.subarray(2)], { type: blob.type });
+    }
+    return blob;
+  };
+
   /* ============================ documents ============================ */
 
   let nextId = 100;
@@ -1685,7 +1870,7 @@
 
   const newRaster = (name, fields) => Object.assign({ id: newId(), kind: "raster", name, visible: true, opacity: 1, blend: "normal", bitmap: null, left: 0, top: 0, dx: 0, dy: 0, paint: NONE, group: null }, fields);
 
-  const createDoc = ({ name, path, width, height, resolution, layers, handle, psd, stamp }) => {
+  const createDoc = ({ name, path, width, height, resolution, layers, handle, psd, stamp, idml }) => {
     const doc = {
       id: newId(),
       name,
@@ -1696,6 +1881,8 @@
       height,
       resolution: resolution || 72,
       psd: psd || null,
+      // A page of an InDesign file: the file's package, shared by its pages (indesign.js)
+      idml: idml || null,
       sampleCache: null,
       sampleKey: "",
       state: { layers: layers || [], selection: null, lastSelection: null, activeIds: [] },
@@ -4743,11 +4930,12 @@
     },
     // A document session.js kept, as it was. Ids go on after its own, and its repeated
     // gestures stay apart from the ones to come, whose keys start over with the page.
-    restoreDoc({ nextId: nextFree, name, path, stamp, handle, width, height, resolution, psd, state, history, historyIndex, savedId, view }, activate) {
+    restoreDoc({ nextId: nextFree, name, path, stamp, handle, width, height, resolution, psd, idml, state, history, historyIndex, savedId, view }, activate) {
       nextId = Math.max(nextId, nextFree);
       history.forEach((entry) => { entry.coalesce = null; });
       if (view.fitted) view.seen = false;
-      const doc = { id: newId(), name, path, stamp: stamp || null, handle: handle || null, width, height, resolution, psd: psd || null, sampleCache: null, sampleKey: "", state, history, historyIndex, savedId, view };
+      const doc = { id: newId(), name, path, stamp: stamp || null, handle: handle || null, width, height, resolution, psd: psd || null, idml: idml || null, sampleCache: null, sampleKey: "", state, history, historyIndex, savedId, view };
+      if (doc.idml && window.TypeRInDesign) window.TypeRInDesign.adopt(doc);
       if (activate) setDoc(doc);
       else {
         app.docs.push(doc);
@@ -4765,19 +4953,19 @@
       }
       return ops.addDoc({ name, path: "new://" + newId(), width, height, resolution, layers: [layer] });
     },
-    imageDocument(image, name, path, handle) {
+    imageDocument(image, name, path, handle, resolution) {
       refuseIfTooLarge(image.naturalWidth || image.width, image.naturalHeight || image.height);
       const width = image.naturalWidth || image.width;
       const height = image.naturalHeight || image.height;
       const bitmap = newCanvas(width, height);
       bitmap.getContext("2d").drawImage(image, 0, 0);
       const layer = newRaster((app.names && app.names.background) || "Background", { bitmap, isBackground: true });
-      return ops.addDoc({ name, path, width, height, layers: [layer], handle });
+      return ops.addDoc({ name, path, width, height, resolution, layers: [layer], handle });
     },
-    loadImage(url, name, path, handle) {
+    loadImage(url, name, path, handle, resolution) {
       return new Promise((resolve, reject) => {
         const image = new Image();
-        image.onload = () => resolve(ops.imageDocument(image, name, path || url, handle));
+        image.onload = () => resolve(ops.imageDocument(image, name, path || url, handle, resolution));
         image.onerror = () => reject(new Error("Could not read " + name));
         image.src = url;
       });
@@ -4802,9 +4990,10 @@
         emit("psd-opened", { doc, missing: read.missingFonts, notes: read.notes });
         return doc;
       }
+      const resolution = await imageResolution(file);
       const url = URL.createObjectURL(file);
       try {
-        const doc = await ops.loadImage(url, name, key, handle);
+        const doc = await ops.loadImage(url, name, key, handle, resolution);
         doc.stamp = stamp;
         return doc;
       } finally {
@@ -4833,7 +5022,7 @@
         const bitmap = newCanvas(width, height);
         bitmap.getContext("2d").drawImage(image, 0, 0);
         const layer = newRaster((app.names && app.names.background) || "Background", { bitmap, isBackground: true });
-        return createDoc({ name, path: "batch://" + newId(), width, height, layers: [layer] });
+        return createDoc({ name, path: "batch://" + newId(), width, height, resolution: await imageResolution(file), layers: [layer] });
       } finally {
         URL.revokeObjectURL(url);
       }
@@ -5630,6 +5819,8 @@
     newRaster,
     newId,
     newCanvas,
+    imageResolution,
+    withResolution,
     wrapWords,
     cssFont,
     TEXT_LANGUAGES,
