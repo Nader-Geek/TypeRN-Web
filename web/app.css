@@ -213,10 +213,15 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .brush-preview { position: absolute; z-index: 5; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .ants--b { animation: none; } }
 
-.editor { position: absolute; z-index: 5; margin: 0; padding: 0; border: 0; outline: 1px dashed rgba(40, 142, 223, 0.8); background: transparent; color: transparent; caret-color: var(--blue); resize: none; overflow: hidden; white-space: pre; }
-.editor::selection { background: rgba(40, 142, 223, 0.4); color: transparent; }
+/* On the page, the editor only takes the keys: its caret and selection are drawn over the
+   canvas's own lines (#type-marks), which its lines don't match */
+.editor { position: absolute; z-index: 5; margin: 0; padding: 0; border: 0; outline: 1px dashed rgba(40, 142, 223, 0.8); background: transparent; color: transparent; caret-color: transparent; resize: none; overflow: hidden; white-space: pre; }
+.editor::selection { background: transparent; color: transparent; }
 .editor.is-warped { padding: 4px 6px; outline: 1px solid var(--blue); background: rgba(30, 30, 30, 0.94); color: #fff; caret-color: #fff; overflow: auto; }
-.editor.is-warped::selection { color: #fff; }
+.editor.is-warped::selection { background: rgba(40, 142, 223, 0.4); color: #fff; }
+.type-selection { fill: rgba(40, 142, 223, 0.4); }
+.type-caret { fill: var(--blue); animation: type-caret 1.06s steps(1) infinite; }
+@keyframes type-caret { 50% { opacity: 0; } }
 
 .hud { position: absolute; z-index: 6; padding: 2px 6px; background: rgba(20, 19, 19, 0.92); border-radius: 2px; color: #fff; font-variant-numeric: tabular-nums; pointer-events: none; white-space: pre; }
 

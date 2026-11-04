@@ -350,6 +350,56 @@
     };
   };
 
+  // Where the caret can go in a text, line by line as the canvas sets them: the part of the
+  // text each line holds, and the x after each of its letters. The editor's own lines don't
+  // break or measure the same, so its caret and selection are drawn from these.
+  const caretCache = new WeakMap();
+  const caretLines = (layer, doc) => {
+    const lt = layer.params.layerText;
+    const relative = relativeLayout(lt, doc.resolution);
+    let rel = caretCache.get(relative);
+    if (!rel) {
+      const text = lt.textKey || "";
+      const base = (lt.textStyleRange && lt.textStyleRange[0] && lt.textStyleRange[0].textStyle) || {};
+      const size = sizePxOf(base, doc.resolution);
+      const shown = new Map(relative.lines.map((line) => [line.runs, line]));
+      rel = [];
+      let w = 0;
+      let lineStart = 0;
+      // Indices are the text's own, as the editor holds it: "\r\n" is one break of two letters
+      text.split(/(\r\n|[\r\n])/).forEach((hard, part) => {
+        if (part % 2) {
+          lineStart += hard.length;
+          return;
+        }
+        const lineEnd = lineStart + hard.length;
+        let at = lineStart;
+        do {
+          const runs = relative.wrapped[w++];
+          if (!runs) break;
+          const piece = runs.map((run) => run.text).join("");
+          const found = piece ? text.indexOf(piece, at) : -1;
+          const start = found >= at && found <= lineEnd ? found : at;
+          const end = Math.min(lineEnd, start + piece.length);
+          at = end;
+          while (at < lineEnd && text[at] === " ") at++;
+          const line = shown.get(runs);
+          // A line that doesn't fit in its box isn't drawn: the caret has nowhere to go there
+          if (!line) continue;
+          const xs = [line.x];
+          for (let k = 1; k <= end - start; k++) xs.push(line.x + measureRuns(sliceRuns(runs, 0, k), doc.resolution).advance);
+          const ascent = line.m.fontAscent || size * 0.8;
+          const descent = line.m.fontDescent || size * 0.2;
+          rel.push({ start, end, xs, baseline: line.baseline, top: line.baseline - ascent, bottom: line.baseline + descent, size });
+        } while (at < lineEnd);
+        lineStart = lineEnd;
+      });
+      caretCache.set(relative, rel);
+    }
+    const [ax, ay] = anchorOf(lt, doc);
+    return rel.map((line) => Object.assign({}, line, { xs: line.xs.map((x) => x + ax), baseline: line.baseline + ay, top: line.top + ay, bottom: line.bottom + ay }));
+  };
+
   /* ------------------------------ text on a surface ----------------------------- */
 
   // A text in perspective, or around a can or a page, stays a text: `warp` says where its
@@ -5495,6 +5545,7 @@
     lineModel,
     lineWidth,
     layoutLayer,
+    caretLines,
     surfaceOf,
     isDirty,
     newRaster,

@@ -37,6 +37,7 @@
     spreads: { left: $("spread-left"), right: $("spread-right") },
     brushPreview: $("brush-preview"),
     editor: $("editor"),
+    typeMarks: $("type-marks"),
     hud: $("hud"),
     tabs: $("tabs"),
     options: $("options"),
@@ -947,6 +948,7 @@
     ui.overDoc.setAttribute("transform", `translate(${v.x} ${v.y}) scale(${v.zoom})`);
     ui.handles.textContent = "";
     handleBoxes = [];
+    drawTypeMarks();
     ui.box.setAttribute("hidden", "");
     pixelControls = null;
     turnControls = null;
@@ -3917,6 +3919,173 @@
     }
   };
 
+  // The editor's own lines don't break or measure like the canvas's: on the page, where the
+  // caret goes and what is selected are worked out from the lines the canvas draws, and
+  // drawn over them. Only a text typed in the little box below keeps the editor's own.
+  function typingOnPage() {
+    return !ui.editor.hidden && Boolean(editing) && !ui.editor.classList.contains("is-warped");
+  }
+  function typedLines() {
+    const layer = app.doc && editing ? app.doc.state.layers.find((item) => item.id === editing.id) : null;
+    return layer ? PS.caretLines(layer, app.doc) : [];
+  }
+  // At a break inside a word, an index is the start of the next line
+  const lineOfIndex = (lines, index) => {
+    let found = 0;
+    lines.forEach((line, i) => {
+      if (line.start <= index) found = i;
+    });
+    return found;
+  };
+  const xOfIndex = (line, index) => line.xs[Math.max(0, Math.min(line.xs.length - 1, index - line.start))];
+  const indexNearX = (line, x) => {
+    let best = 0;
+    line.xs.forEach((lx, k) => {
+      if (Math.abs(lx - x) < Math.abs(line.xs[best] - x)) best = k;
+    });
+    return line.start + best;
+  };
+  const indexAtPoint = (lines, [x, y]) => {
+    if (!lines.length) return 0;
+    let at = lines.length - 1;
+    for (let i = 0; i < lines.length - 1; i++) {
+      if (y < (lines[i].bottom + lines[i + 1].top) / 2) {
+        at = i;
+        break;
+      }
+    }
+    return indexNearX(lines[at], x);
+  };
+
+  function drawTypeMarks() {
+    ui.typeMarks.textContent = "";
+    if (!typingOnPage()) return;
+    const lines = typedLines();
+    if (!lines.length) return;
+    const { selectionStart: from, selectionEnd: to } = ui.editor;
+    if (from === to) {
+      if (document.activeElement !== ui.editor) return;
+      const line = lines[lineOfIndex(lines, from)];
+      const [x, top] = toScreen(xOfIndex(line, from), line.top);
+      const [, bottom] = toScreen(0, line.bottom);
+      svgEl("rect", { class: "type-caret", x: x - 0.75, y: top, width: 1.5, height: Math.max(1, bottom - top) }, ui.typeMarks);
+      return;
+    }
+    let d = "";
+    lines.forEach((line, i) => {
+      const start = Math.max(from, line.start);
+      const end = Math.min(to, line.end);
+      // A selection that goes on past a line's end takes the space or the break there
+      const through = to > line.end && from <= line.end && (i === lines.length - 1 || lines[i + 1].start > line.end);
+      if (start > end || (start === end && !through)) return;
+      const [x0, y0] = toScreen(xOfIndex(line, start), line.top);
+      const [x1, y1] = toScreen(xOfIndex(line, end) + (through ? line.size * 0.25 : 0), line.bottom);
+      d += `M${x0} ${y0}H${x1}V${y1}H${x0}Z`;
+    });
+    if (d) svgEl("path", { class: "type-selection", d }, ui.typeMarks);
+  }
+
+  const selectTyped = (anchor, focus) => {
+    ui.editor.setSelectionRange(Math.min(anchor, focus), Math.max(anchor, focus), focus < anchor ? "backward" : "forward");
+  };
+  const WORD_LETTER = /[\p{L}\p{N}\p{M}_]/u;
+  // A double-click takes a word, the apostrophe of "l'homme" with it
+  const wordAround = (text, index) => {
+    const inWord = (i) => i >= 0 && i < text.length && (WORD_LETTER.test(text[i]) || (/['’]/.test(text[i]) && WORD_LETTER.test(text[i - 1] || "") && WORD_LETTER.test(text[i + 1] || "")));
+    let at = index;
+    if (!inWord(at) && inWord(at - 1)) at--;
+    if (!inWord(at)) return at < text.length && !/[\r\n]/.test(text[at]) ? [at, at + 1] : [at, at];
+    let start = at;
+    let end = at + 1;
+    while (inWord(start - 1)) start--;
+    while (inWord(end)) end++;
+    return [start, end];
+  };
+  // A triple-click takes the paragraph
+  const paragraphAround = (text, index) => {
+    let start = index;
+    let end = index;
+    while (start > 0 && !/[\r\n]/.test(text[start - 1])) start--;
+    while (end < text.length && !/[\r\n]/.test(text[end])) end++;
+    return [start, end];
+  };
+  const unitAround = (unit, text, index) => (unit === 2 ? wordAround(text, index) : unit === 3 ? paragraphAround(text, index) : [index, index]);
+
+  let typeDrag = null;
+  let typeClick = null;
+  // Up and down keep to the x the caret started from, as in any editor
+  let caretGoal = null;
+  ui.editor.addEventListener("pointerdown", (event) => {
+    caretGoal = null;
+    // Ctrl + click on a Mac asks for the menu, spelling suggestions included
+    if (!typingOnPage() || event.button !== 0 || (IS_MAC && event.ctrlKey)) return;
+    event.preventDefault();
+    ui.editor.focus({ preventScroll: true });
+    const index = indexAtPoint(typedLines(), toDoc(event));
+    const now = performance.now();
+    const again = typeClick && now - typeClick.time < 500 && Math.hypot(event.clientX - typeClick.x, event.clientY - typeClick.y) < 6;
+    const unit = again ? (typeClick.unit % 3) + 1 : 1;
+    typeClick = { time: now, x: event.clientX, y: event.clientY, unit };
+    const { selectionStart, selectionEnd, selectionDirection } = ui.editor;
+    let anchor;
+    if (event.shiftKey && unit === 1) {
+      const fixed = selectionDirection === "backward" ? selectionEnd : selectionStart;
+      anchor = [fixed, fixed];
+      selectTyped(fixed, index);
+    } else {
+      anchor = unitAround(unit, ui.editor.value, index);
+      selectTyped(anchor[0], anchor[1]);
+    }
+    typeDrag = { id: event.pointerId, anchor, unit };
+    ui.editor.setPointerCapture(event.pointerId);
+    schedule(false);
+  });
+  ui.editor.addEventListener("pointermove", (event) => {
+    if (!typeDrag || typeDrag.id !== event.pointerId || !typingOnPage()) return;
+    const [start, end] = unitAround(typeDrag.unit, ui.editor.value, indexAtPoint(typedLines(), toDoc(event)));
+    const [anchorStart, anchorEnd] = typeDrag.anchor;
+    if (start < anchorStart) selectTyped(anchorEnd, start);
+    else selectTyped(anchorStart, Math.max(end, anchorEnd));
+    schedule(false);
+  });
+  ["pointerup", "pointercancel"].forEach((type) => ui.editor.addEventListener(type, (event) => {
+    if (typeDrag && typeDrag.id === event.pointerId) typeDrag = null;
+  }));
+
+  // Up, down and the ends of a line go by the canvas's lines. False for any other key.
+  const moveByLines = (event) => {
+    const { key } = event;
+    const vertical = (key === "ArrowUp" || key === "ArrowDown") && !event.metaKey && !event.ctrlKey && !event.altKey;
+    const toEdge = ((key === "Home" || key === "End") && !event.metaKey && !event.ctrlKey && !event.altKey)
+      || (IS_MAC && event.metaKey && !event.ctrlKey && !event.altKey && (key === "ArrowLeft" || key === "ArrowRight"));
+    // A click after a key starts again from one: it doesn't make a double-click
+    typeClick = null;
+    if (!vertical) caretGoal = null;
+    if (!vertical && !toEdge) return false;
+    const lines = typedLines();
+    if (!lines.length) return false;
+    const { selectionStart, selectionEnd, selectionDirection, value } = ui.editor;
+    const backward = key === "ArrowUp" || key === "Home" || key === "ArrowLeft";
+    const anchor = selectionDirection === "backward" ? selectionEnd : selectionStart;
+    let focus = selectionDirection === "backward" ? selectionStart : selectionEnd;
+    if (!event.shiftKey && selectionStart !== selectionEnd) focus = backward ? selectionStart : selectionEnd;
+    const at = lineOfIndex(lines, focus);
+    let target;
+    if (vertical) {
+      if (caretGoal === null) caretGoal = xOfIndex(lines[at], focus);
+      const next = at + (backward ? -1 : 1);
+      target = next < 0 ? 0 : next >= lines.length ? value.length : indexNearX(lines[next], caretGoal);
+    } else target = backward ? lines[at].start : lines[at].end;
+    if (event.shiftKey) selectTyped(anchor, target);
+    else ui.editor.setSelectionRange(target, target);
+    return true;
+  };
+
+  ["focus", "blur", "select"].forEach((type) => ui.editor.addEventListener(type, () => schedule(false)));
+  document.addEventListener("selectionchange", () => {
+    if (typingOnPage()) schedule(false);
+  });
+
   const SPELLING_LANGUAGES = { englishLanguage: "en-US", ukenglishLanguage: "en-GB", standardFrenchLanguage: "fr", canadianFrenchLanguage: "fr-CA", spanishLanguage: "es", italianLanguage: "it", germanLanguageReformed1996: "de", oldGermanLanguage: "de", standardPortugueseLanguage: "pt-PT", brazilianPortugueseLanguage: "pt-BR", kdutchLanguageOldRules: "nl", polishLanguage: "pl", russianLanguage: "ru", ukranianLanguage: "uk", turkishLanguage: "tr" };
 
   const beginEdit = (layer, isNew) => {
@@ -4004,7 +4173,12 @@
     event.stopPropagation();
     if (isCommand(event)) handleKey(event);
     if (event.defaultPrevented) return;
-    if (event.key === "Escape") {
+    // The caret moves before the next frame: it is drawn again there
+    if (typingOnPage()) schedule(false);
+    if (typingOnPage() && moveByLines(event)) {
+      event.preventDefault();
+      renderCharacter();
+    } else if (event.key === "Escape") {
       event.preventDefault();
       cancelEdit();
     } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey || event.code === "NumpadEnter")) {
