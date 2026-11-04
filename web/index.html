@@ -29,13 +29,14 @@
   <meta name="twitter:image" content="https://typer.hayasaku.fr/og.png">
   <link rel="icon" type="image/png" href="../images/icon.png">
   <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="sfx.css">
   <script src="shell.js"></script>
   <!-- The interface for fingers: a computer loads it only if it ever needs it -->
   <script>if (window.TypeRShell.touch) document.write('<link rel="stylesheet" href="touch.css">')</script>
   <script>window.TYPER_SUPPORTED = ["en", "fr", "es", "it", "de", "pt", "ru", "uk", "pl", "nl", "tr", "ar", "vi", "id", "th", "ja", "ko", "zh"]</script>
   <!-- The query keeps browsers from reusing the i18n.js of the former site, which had the same address. -->
   <script src="../i18n.js?v=3"></script>
-  <script>if (window.TYPER_I18N.lang !== "en") document.write('<script src="strings/' + window.TYPER_I18N.lang + '.js"><\/script>')</script>
+  <script>if (window.TYPER_I18N.lang !== "en") document.write('<script src="strings/' + window.TYPER_I18N.lang + '.js"><\/script><script src="strings/sfx/' + window.TYPER_I18N.lang + '.js"><\/script>')</script>
   <script>document.documentElement.classList.add("js")</script>
 </head>
 <body>
@@ -131,6 +132,10 @@
           <div class="dock__head"><span id="head-character"></span></div>
           <div class="character" id="character"></div>
         </section>
+        <section class="pane pane--sfx" id="pane-sfx">
+          <div class="dock__head"><span id="head-sfx">SFX</span></div>
+          <div class="character sfx" id="sfx"></div>
+        </section>
         <section class="pane pane--breaks breaks" id="breaks">
           <div class="dock__head"><span id="breaks-title"></span></div>
           <div class="breaks__tools">
@@ -179,6 +184,7 @@
   <script src="recent.js"></script>
   <script src="workspace.js"></script>
   <script src="app.js"></script>
+  <script src="sfx.js"></script>
   <script src="hyphenation.js"></script>
   <script src="breaks.js"></script>
   <script>

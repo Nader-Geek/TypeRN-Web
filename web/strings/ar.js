@@ -336,6 +336,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Page": "صفحة",
     "Paints on the active pixel layer. [ ]: size. Alt: eyedropper. Alt + right-drag: size / hardness.": "يرسم على طبقة البكسلات النشطة. [ ]: الحجم. Alt: القطارة. Alt + السحب بالزر الأيمن: الحجم / الصلابة.",
     "Pan": "تحريك العرض",
+    "Hold a tool's key": "الضغط مطولاً على مفتاح أداة",
+    "Use the tool until you let go": "استخدام الأداة حتى تحرير المفتاح",
     "Pass Through": "تمرير",
     "Paste": "لصق",
     "Pasted layer": "طبقة ملصوقة",

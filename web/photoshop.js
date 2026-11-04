@@ -206,6 +206,39 @@
     return lines;
   };
 
+  // Photoshop's Roman Hanging Punctuation puts these outside the margins, wholly or by half
+  const HANG_FULL = new Set([".", ",", "-", "\u2010", "'", "\"", "\u2018", "\u2019", "\u201C", "\u201D"]);
+  const HANG_HALF = new Set(["*", "~", "\u2026", "\u2013", "\u2014", ":", ";"]);
+  const hangShare = (ch) => (HANG_FULL.has(ch) ? 1 : HANG_HALF.has(ch) ? 0.5 : 0);
+  // How far a line's first and last characters hang out
+  const hangsOf = (m) => {
+    const ends = [];
+    [m.placed[0], m.placed[m.placed.length - 1]].forEach((item, end) => {
+      const ch = item && (end ? item.shown.slice(-1) : item.shown[0]);
+      const share = ch ? hangShare(ch) : 0;
+      if (!share) return ends.push(0);
+      setRunFont(measureCtx, item.run.style, item.size);
+      ends.push(measureCtx.measureText(ch).width * item.scaleX * share);
+    });
+    return ends;
+  };
+
+  // Whether a font draws a character itself, or the browser takes it from another font:
+  // the character comes out the same width whichever font follows it
+  const glyphsSeen = new Map();
+  const ownGlyph = (textStyle, ch) => {
+    const css = Fonts.resolve(textStyle).css;
+    const key = Fonts.generation + "|" + css + "|" + ch;
+    if (!glyphsSeen.has(key)) {
+      const widthWith = (next) => {
+        measureCtx.font = `100px "${css}", ${next}`;
+        return measureCtx.measureText(ch).width;
+      };
+      glyphsSeen.set(key, widthWith("monospace") === widthWith("serif"));
+    }
+    return glyphsSeen.get(key);
+  };
+
   // Where each line goes and the box of its ink, measured once per text and style.
   // Everything here is relative to the layer's anchor: moving a layer costs nothing.
   const layoutCache = new Map();
@@ -227,11 +260,16 @@
       });
       lines = wrapped;
     }
-    // Measured on real PSDs, in every font: Photoshop puts the first line of a box
-    // at 0.75 of the text size below its top, whatever the font's own ascent
+    // Photoshop's first baseline in a box is its Ascent: as low as the top of the font's
+    // "d". Measured on 730 lines of real PSDs: 0.86 of the size in Sakana, 0.75 in
+    // Victory Speech, where a fixed 0.75 put Sakana's lines 2 px too high
     const firstRuns = lines[0] && lines[0].length ? lines[0] : null;
     const firstStyle = firstRuns ? firstRuns[0].style : (lt.textStyleRange && lt.textStyleRange[0] && lt.textStyleRange[0].textStyle) || {};
-    const firstOffset = sizePxOf(firstStyle, resolution) * 0.75;
+    const firstSize = sizePxOf(firstStyle, resolution);
+    // Vertical scale stretches the letters, not this
+    const ascent = ownGlyph(firstStyle, "d") ? (setRunFont(measureCtx, firstStyle, firstSize), measureCtx.measureText("d").actualBoundingBoxAscent) : 0;
+    // A font of capitals only has no "d" of its own: 0.75 is what Photoshop comes close to
+    const firstOffset = ascent > 0 ? ascent : firstSize * 0.75;
     let baseline = 0;
     const out = [];
     let left = Infinity;
@@ -259,9 +297,13 @@
         overflow = true;
         return;
       }
+      // Roman Hanging Punctuation: what hangs is left out of the line's width
+      const [hangLeft, hangRight] = paragraph.hangingRoman ? hangsOf(m) : [0, 0];
+      const set = m.advance - hangLeft - hangRight;
       let x;
-      if (frame) x = align === "left" ? 0 : align === "right" ? frame.width - m.advance : (frame.width - m.advance) / 2;
-      else x = align === "left" ? 0 : align === "right" ? -m.advance : -m.advance / 2;
+      if (frame) x = align === "left" ? 0 : align === "right" ? frame.width - set : (frame.width - set) / 2;
+      else x = align === "left" ? 0 : align === "right" ? -set : -set / 2;
+      x -= hangLeft;
       out.push({ runs, m, x, baseline, lead });
       if (runs.length) {
         left = Math.min(left, x + m.inkLeft);
@@ -416,6 +458,7 @@
 
   const drawLines = (ctx, lines, stroke, layer) => {
     const paragraph = layer.params.layerText.paragraphStyleRange && layer.params.layerText.paragraphStyleRange[0];
+    const bolder = EMBOLDEN[layer.params.layerText.antiAlias] || 0;
     const direction = paragraph && paragraph.paragraphStyle && paragraph.paragraphStyle.directionType;
     ctx.save();
     ctx.textBaseline = "alphabetic";
@@ -441,17 +484,25 @@
       lines.forEach((line) => {
         line.m.placed.forEach((item) => {
           place(line, item, () => {
-            ctx.lineWidth = pass.size * 2;
+            ctx.lineWidth = (pass.size + bolder) * 2;
             ctx.strokeText(item.shown, 0, 0);
           });
         });
       });
     });
+    // A hollow text (Photoshop's Fill at 0%) keeps its stroke: the letters let the page through
+    if (layer.knockout) ctx.globalCompositeOperation = "destination-out";
     lines.forEach((line) => {
       line.m.placed.forEach((item) => {
         place(line, item, () => {
-          ctx.fillStyle = rgbCss(item.run.style.color);
+          ctx.fillStyle = layer.knockout ? "#000" : rgbCss(item.run.style.color);
           ctx.fillText(item.shown, 0, 0);
+          if (bolder) {
+            // In the run's own units, which its width and height scale
+            ctx.strokeStyle = ctx.fillStyle;
+            ctx.lineWidth = (bolder * 2) / Math.max(item.scaleX, item.scaleY);
+            ctx.strokeText(item.shown, 0, 0);
+          }
         });
       });
     });
@@ -1007,18 +1058,21 @@
   };
 
   // Photoshop's anti-aliasing methods, as curves on the coverage the browser draws.
-  // Strong and Smooth were fitted on real PSDs (55 and 7 text layers); Sharp and Crisp
+  // Strong and Smooth were fitted on real PSDs (49 and 7 text layers); Sharp and Crisp
   // raise the contrast of the same edge, None keeps it on or off.
   const edgeCurve = (a, c) => Math.max(0, Math.min(1, (a - 0.6) * c + 0.5));
   const ANTI_ALIAS = {
     antiAliasNone: (a) => (a >= 0.6 ? 1 : 0),
     antiAliasSharp: (a) => edgeCurve(a, 2.4),
     antiAliasCrisp: (a) => edgeCurve(a, 1.6),
-    antiAliasStrong: (a) => a ** 1.5,
+    antiAliasStrong: (a) => a ** 1.25,
     antiAliasSmooth: (a) => a ** 1.8,
     antiAliasPlatformGray: (a) => a ** 1.8,
     antiAliasPlatformLCD: (a) => a ** 1.8,
   };
+  // Strong makes the letters heavier, as Photoshop says. A curve alone left them 13% lighter
+  // than Photoshop's on those PSDs, and grey: 0.3 px around each letter brings them level
+  const EMBOLDEN = { antiAliasStrong: 0.3 };
   const antiAliasTables = new Map();
   const antiAliasTable = (mode) => {
     const name = ANTI_ALIAS[mode] ? mode : "antiAliasSmooth";
@@ -1198,7 +1252,7 @@
     const relative = layout.relative;
     const stroke = layer.stroke && layer.stroke.enabled && layer.stroke.size > 0 ? layer.stroke : null;
     const antiAlias = layer.params.layerText.antiAlias || "antiAliasSmooth";
-    const strokeKey = (stroke ? JSON.stringify(stroke) : "") + "|" + antiAlias;
+    const strokeKey = (stroke ? JSON.stringify(stroke) : "") + "|" + antiAlias + (layer.knockout ? "|hollow" : "");
     let forLayout = textBitmaps.get(relative);
     if (!forLayout) {
       forLayout = new Map();
@@ -1231,12 +1285,16 @@
         applyAntiAlias(canvas, ctx, antiAlias);
         entry = { canvas, x, y };
       } else {
-        const canvas = newCanvas(b.width + pad * 2, b.height + pad * 2);
+        // On whole pixels, as the turned text above: a picture laid between two pixels is
+        // resampled, which blurs every letter by half a pixel
+        const x = Math.floor(b.left - pad);
+        const y = Math.floor(b.top - pad);
+        const canvas = newCanvas(Math.ceil(b.right + pad) - x, Math.ceil(b.bottom + pad) - y);
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        ctx.translate(pad - b.left, pad - b.top);
+        ctx.translate(-x, -y);
         drawLines(ctx, relative.lines, stroke, layer);
         applyAntiAlias(canvas, ctx, antiAlias);
-        entry = { canvas, x: b.left - pad, y: b.top - pad };
+        entry = { canvas, x, y };
       }
       keepText(forLayout, entryKey, entry);
     }
@@ -1262,6 +1320,135 @@
       id = parent.group;
     }
     return { visible: layer.visible !== false, opacity };
+  };
+
+  // A folder with a layer style of its own, as an SFX gets: its stroke goes around everything
+  // inside it at once, so letters that overlap make one shape. Such a folder is drawn as one
+  // picture, its layers first, then its stroke, its Fill at 0% and its mask.
+  const groupStroke = (layer) => (layer.stroke && layer.stroke.enabled && layer.stroke.size > 0 ? layer.stroke : null);
+  const isStyledGroup = (layer) => layer.kind === "group" && Boolean(groupStroke(layer) || layer.knockout || (layer.mask && layer.mask.canvas && !layer.mask.disabled));
+  // The outermost styled folder a layer is in, if any
+  const styledParentOf = (layer, byId) => {
+    let found = null;
+    for (let id = layer.group; id; ) {
+      const parent = byId.get(id);
+      if (!parent) break;
+      if (isStyledGroup(parent)) found = parent;
+      id = parent.group;
+    }
+    return found;
+  };
+  // Grows a shape by `size` pixels all round, in `color`: the same rings as a PSD's strokes
+  const ringOf = (source, pad, size, color, into) => {
+    const ring = newCanvas(into.width, into.height);
+    const c = ring.getContext("2d");
+    const steps = Math.min(48, Math.max(12, Math.round(size * 4)));
+    // The inner circle fills what a small dot would leave open inside the outer one
+    for (const r of size > 3 ? [size, size / 2] : [size]) {
+      for (let i = 0; i < steps; i++) {
+        const angle = (i / steps) * Math.PI * 2;
+        c.drawImage(source, pad + Math.cos(angle) * r, pad + Math.sin(angle) * r);
+      }
+    }
+    c.globalCompositeOperation = "source-in";
+    c.fillStyle = colorCss(color);
+    c.fillRect(0, 0, ring.width, ring.height);
+    into.getContext("2d").drawImage(ring, 0, 0);
+  };
+  const groupVisuals = new Map();
+  // `still`: the folder moves as a whole, so its picture is the one it has at rest
+  // `skip`: layers to leave out (the Magic Wand reads the page without its text)
+  const groupVisual = (group, doc, still, skip) => {
+    const layers = doc.state.layers;
+    const byId = new Map(layers.map((layer) => [layer.id, layer]));
+    const members = familyOf(layers, group.id);
+    const live = !still && doc.live ? doc.live : null;
+    const parts = [];
+    const nested = new Set();
+    layers.forEach((layer) => {
+      if (layer.id === group.id || !members.has(layer.id)) return;
+      const styled = styledParentOf(layer, byId);
+      if (layer.kind === "group") {
+        if (styled === group && isStyledGroup(layer) && chainOf(layer, byId).visible) {
+          nested.add(layer.id);
+          const visual = groupVisual(layer, doc, still, skip);
+          if (visual) parts.push({ visual, alpha: layer.opacity === undefined ? 1 : layer.opacity, blend: BLENDS[layer.blend] || "source-over", key: "g" + layer.id });
+        }
+        return;
+      }
+      if (styled !== group || layer.clipping || (skip && skip(layer))) return;
+      // Its visibility inside the folder: the folder's own opacity is applied to the whole
+      let visible = layer.visible !== false;
+      let opacity = layer.opacity === undefined ? 1 : layer.opacity;
+      for (let id = layer.group; id && id !== group.id; ) {
+        const parent = byId.get(id);
+        if (!parent) break;
+        if (parent.visible === false) visible = false;
+        opacity *= parent.opacity === undefined ? 1 : parent.opacity;
+        id = parent.group;
+      }
+      if (!visible) return;
+      const visual = visualOf(doc.preview && doc.preview.id === layer.id ? doc.preview : layer, doc);
+      if (!visual || !visual.canvas || !visual.canvas.width) return;
+      const dx = live && live.ids.has(layer.id) ? Math.round(live.dx) : 0;
+      const dy = live && live.ids.has(layer.id) ? Math.round(live.dy) : 0;
+      parts.push({ visual: { canvas: visual.canvas, x: visual.x + dx, y: visual.y + dy }, alpha: opacity, blend: BLENDS[layer.blend] || "source-over", key: identity(visual.canvas) });
+    });
+    if (!parts.length) return null;
+    const stroke = groupStroke(group);
+    const mask = group.mask && group.mask.canvas && !group.mask.disabled ? group.mask : null;
+    const key = parts.map((part) => [part.key, part.visual.x, part.visual.y, part.alpha, part.blend].join(",")).join(";") + "|" + JSON.stringify(stroke) + "|" + Boolean(group.knockout) + "|" + identity(mask);
+    const kept = skip ? null : groupVisuals.get(group.id);
+    if (kept && kept.key === key) return kept.visual;
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    parts.forEach(({ visual }) => {
+      left = Math.min(left, visual.x);
+      top = Math.min(top, visual.y);
+      right = Math.max(right, visual.x + visual.canvas.width);
+      bottom = Math.max(bottom, visual.y + visual.canvas.height);
+    });
+    const pad = Math.ceil(strokeReach(stroke)) + 2;
+    const fill = newCanvas(right - left + pad * 2, bottom - top + pad * 2);
+    const f = fill.getContext("2d");
+    parts.forEach(({ visual, alpha, blend }) => {
+      f.globalAlpha = alpha;
+      f.globalCompositeOperation = blend;
+      f.drawImage(visual.canvas, visual.x - left + pad, visual.y - top + pad);
+    });
+    f.globalAlpha = 1;
+    f.globalCompositeOperation = "source-over";
+    let out = fill;
+    if (stroke || group.knockout) {
+      out = newCanvas(fill.width, fill.height);
+      const o = out.getContext("2d");
+      if (stroke) {
+        if (stroke.outer && stroke.outer.size > 0) ringOf(fill, 0, strokeReach(stroke), stroke.outer.color, out);
+        ringOf(fill, 0, stroke.size, stroke.color, out);
+      }
+      o.globalCompositeOperation = group.knockout ? "destination-out" : "source-over";
+      o.drawImage(fill, 0, 0);
+      o.globalCompositeOperation = "source-over";
+    }
+    if (mask) {
+      const alpha = newCanvas(out.width, out.height);
+      const a = alpha.getContext("2d");
+      if (mask.defaultColor) a.fillRect(0, 0, alpha.width, alpha.height);
+      a.translate(pad - left, pad - top);
+      a.clearRect(mask.left || 0, mask.top || 0, mask.canvas.width, mask.canvas.height);
+      a.drawImage(maskAlpha(mask), mask.left || 0, mask.top || 0);
+      const o = out.getContext("2d");
+      o.globalCompositeOperation = "destination-in";
+      o.drawImage(alpha, 0, 0);
+      o.globalCompositeOperation = "source-over";
+    }
+    const visual = { canvas: out, x: left - pad, y: top - pad };
+    if (skip) return visual;
+    if (groupVisuals.size > 200) groupVisuals.clear();
+    groupVisuals.set(group.id, { key, visual });
+    return visual;
   };
 
   let scratch = null;
@@ -1308,10 +1495,35 @@
       ctx.clip();
       if (!options.keep) ctx.clearRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
     } else if (!options.keep) ctx.clearRect(0, 0, doc.width, doc.height);
+    const anyStyled = layers.some(isStyledGroup);
     for (let i = 0; i < layers.length; i++) {
       const layer = layers[i];
+      if (anyStyled && layer.kind === "group" && isStyledGroup(layer) && !styledParentOf(layer, byId)) {
+        const chain = chainOf(layer, byId);
+        if (!chain.visible) continue;
+        // Moved whole, it keeps its picture: the stroke isn't drawn again at every step
+        const family = Array.from(familyOf(layers, layer.id)).filter((id) => byId.get(id).kind !== "group");
+        const whole = (set) => set && family.length && family.every((id) => set.has(id));
+        const moving = whole(live && live.ids);
+        const turning = whole(doc.liveTransform && doc.liveTransform.ids);
+        const visual = groupVisual(layer, doc, moving, options.skip);
+        if (!visual) continue;
+        const x = visual.x + (moving ? Math.round(live.dx) : 0);
+        const y = visual.y + (moving ? Math.round(live.dy) : 0);
+        if (rect && !turning && (x >= rect.right || y >= rect.bottom || x + visual.canvas.width <= rect.left || y + visual.canvas.height <= rect.top)) continue;
+        ctx.globalAlpha = (layer.opacity === undefined ? 1 : layer.opacity) * chain.opacity;
+        ctx.globalCompositeOperation = BLENDS[layer.blend] || "source-over";
+        if (turning) {
+          ctx.save();
+          ctx.transform(...doc.liveTransform.matrix);
+          ctx.drawImage(visual.canvas, x, y);
+          ctx.restore();
+        } else ctx.drawImage(visual.canvas, x, y);
+        continue;
+      }
       if (layer.kind === "group" || layer.clipping) continue;
       if (options.skip && options.skip(layer)) continue;
+      if (anyStyled && styledParentOf(layer, byId)) continue;
       const chain = chainOf(layer, byId);
       if (!chain.visible) continue;
       const alpha = (layer.opacity === undefined ? 1 : layer.opacity) * chain.opacity;
@@ -3375,6 +3587,23 @@
       if (!layer) return;
       commitState(doc, name || "Layer Properties", { layers: replaceLayer(doc, layer, changes) }, coalesce);
     },
+    // A whole new list of layers in one step, as an SFX lays out its letters again. `amend`
+    // puts it in the step just made instead, as when a pasted line turns into an SFX.
+    setLayers(layers, name, { coalesce, activeIds, amend, selection } = {}) {
+      const doc = app.doc;
+      if (!doc) return;
+      const change = { layers };
+      if (activeIds) change.activeIds = activeIds.filter((id) => layers.some((layer) => layer.id === id));
+      if (selection !== undefined) change.selection = selection;
+      if (amend) {
+        doc.state = Object.assign({}, doc.state, change);
+        doc.history[doc.historyIndex].state = doc.state;
+        emit("history");
+        emit("render");
+      } else commitState(doc, name, change, coalesce);
+      if (selection === null) emit("selection", null);
+      firePanelEvent(activeIds ? EVENT_SELECT : EVENT_HISTORY);
+    },
     // The live part of a move: only the picture on screen changes until it ends
     beginLiveMove(ids) {
       const doc = app.doc;
@@ -3414,18 +3643,46 @@
     moveLayer(id, dx, dy) {
       ops.moveLayers([id], dx, dy);
     },
-    // The top layer under a point: text by its box, pixels by what is painted there
-    hitLayer(x, y) {
+    // The top layer under a point: text by its box, pixels by what is painted there. A letter
+    // of an SFX gives its SFX, unless `deep` asks for the letter itself.
+    hitLayer(x, y, deep) {
       const doc = app.doc;
       if (!doc) return null;
       const layers = doc.state.layers;
       const byId = new Map(layers.map((layer) => [layer.id, layer]));
+      const sfxOf = (layer) => {
+        let found = null;
+        for (let id = layer.group; id; ) {
+          const parent = byId.get(id);
+          if (!parent) break;
+          if (parent.sfx) found = parent;
+          id = parent.group;
+        }
+        return found;
+      };
       for (let i = layers.length - 1; i >= 0; i--) {
         const layer = layers[i];
         if (layer.kind === "group" || layer.locked || layer.isBackground || !chainOf(layer, byId).visible) continue;
         if (layer.kind === "text") {
-          const box = frameOf(layer, doc);
-          if (x >= box.left - 6 && x <= box.right + 6 && y >= box.top - 6 && y <= box.bottom + 6) return layer;
+          // A turned letter answers inside its own turned box, not the square around it
+          let inside;
+          if (layer.rotated && !layer.warp) {
+            const f = turnedFrame(layer, doc);
+            const [a, b, , d] = f.corners;
+            const ux = b[0] - a[0];
+            const uy = b[1] - a[1];
+            const vx = d[0] - a[0];
+            const vy = d[1] - a[1];
+            const lu = Math.hypot(ux, uy) || 1;
+            const lv = Math.hypot(vx, vy) || 1;
+            const pu = ((x - a[0]) * ux + (y - a[1]) * uy) / lu;
+            const pv = ((x - a[0]) * vx + (y - a[1]) * vy) / lv;
+            inside = pu >= -6 && pu <= lu + 6 && pv >= -6 && pv <= lv + 6;
+          } else {
+            const box = frameOf(layer, doc);
+            inside = x >= box.left - 6 && x <= box.right + 6 && y >= box.top - 6 && y <= box.bottom + 6;
+          }
+          if (inside) return (!deep && sfxOf(layer)) || layer;
           continue;
         }
         const visual = visualOf(layer, doc);
@@ -5252,6 +5509,9 @@
     drawOp,
     setActiveDoc: (doc) => setDoc(doc),
     paramsFromStyle: (style, text, runs, size) => paramsFromStyle(style, text, runs, size),
+    newTextLayer: (doc, params, stroke, name) => newTextLayer(doc, params, stroke, name),
+    familyOf: (layers, id) => familyOf(layers, id),
+    groupVisual: (group, doc) => groupVisual(group, doc),
     centredOn,
     get fonts() { return Fonts.list(); },
     extensionId: EXTENSION_ID,
