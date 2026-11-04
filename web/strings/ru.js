@@ -338,6 +338,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Pan": "Панорамирование",
     "Hold a tool's key": "Удерживать клавишу инструмента",
     "Use the tool until you let go": "Использовать инструмент, пока клавиша нажата",
+    "Zoom: drag right to zoom in, left to zoom out": "Масштаб: тяните вправо, чтобы приблизить, влево — чтобы отдалить",
     "Pass Through": "Пропустить",
     "Paste": "Вставить",
     "Pasted layer": "Вставленный слой",

@@ -338,6 +338,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Pan": "Kéo khung nhìn",
     "Hold a tool's key": "Giữ phím của một công cụ",
     "Use the tool until you let go": "Dùng công cụ cho đến khi thả phím",
+    "Zoom: drag right to zoom in, left to zoom out": "Thu phóng: kéo sang phải để phóng to, sang trái để thu nhỏ",
     "Pass Through": "Pass Through",
     "Paste": "Dán",
     "Pasted layer": "Layer đã dán",

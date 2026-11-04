@@ -338,6 +338,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Pan": "เลื่อนมุมมอง",
     "Hold a tool's key": "กดแป้นของเครื่องมือค้างไว้",
     "Use the tool until you let go": "ใช้เครื่องมือจนกว่าจะปล่อยแป้น",
+    "Zoom: drag right to zoom in, left to zoom out": "ซูม: ลากไปทางขวาเพื่อขยาย ไปทางซ้ายเพื่อย่อ",
     "Pass Through": "Pass Through",
     "Paste": "วาง",
     "Pasted layer": "Layer ที่วางแล้ว",

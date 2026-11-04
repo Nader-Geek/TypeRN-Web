@@ -338,6 +338,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Pan": "Kaydır",
     "Hold a tool's key": "Bir aracın tuşunu basılı tut",
     "Use the tool until you let go": "Bırakana kadar aracı kullan",
+    "Zoom: drag right to zoom in, left to zoom out": "Yakınlaştırma: yakınlaştırmak için sağa, uzaklaştırmak için sola sürükle",
     "Pass Through": "Geçir",
     "Paste": "Yapıştır",
     "Pasted layer": "Yapıştırılan katman",

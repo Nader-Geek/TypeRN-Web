@@ -2734,6 +2734,23 @@
   let gesture = null;
   let gestureCount = 0;
   let spacing = false;
+  // Ctrl or Cmd with Space lends the zoom, as in Photoshop. On a Mac, Cmd + Space is Spotlight's
+  // unless it was given another key, so Ctrl + Space does it too.
+  const zoomHeld = (event) => spacing && (event.ctrlKey || event.metaKey);
+  const showZoomHold = (event) => {
+    const held = zoomHeld(event);
+    ui.stage.classList.toggle("is-zoom-hold", held);
+    ui.stage.classList.toggle("is-zoom-out", event.altKey && (held || app.tool === "zoom"));
+  };
+  // Dragged sideways, the zoom follows the pointer from where it was pressed: to the right it
+  // comes closer, to the left it goes back. A click without a drag is one step, Alt one step back.
+  const ZOOM_DRAG = 150;
+  const beginZoom = (base, event) => {
+    const rect = ui.stage.getBoundingClientRect();
+    gesture = Object.assign(base, { kind: "zoom", zoom: view().zoom, cx: event.clientX - rect.left, cy: event.clientY - rect.top });
+    ui.stage.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
   const pointers = new Map();
   // A tool's key held down lends the tool, as Space lends the hand: let go, the previous one
   // comes back. A quick press keeps it. So does work that waits for Enter: a text being typed,
@@ -3151,6 +3168,10 @@
       event.preventDefault();
       return;
     }
+    if (zoomHeld(event) && event.button !== 1) {
+      beginZoom(base, event);
+      return;
+    }
     if ((tool === "brush" || tool === "eraser" || tool === "stamp") && isBrushAdjust(event)) {
       gesture = Object.assign(base, { kind: "brushAdjust", size: app.brush.size, hardness: app.brush.hardness, slop: 0 });
       ui.stage.setPointerCapture(event.pointerId);
@@ -3189,8 +3210,7 @@
       return;
     }
     if (tool === "zoom") {
-      const rect = ui.stage.getBoundingClientRect();
-      zoomStep(event.altKey ? -1 : 1, event.clientX - rect.left, event.clientY - rect.top);
+      beginZoom(base, event);
       return;
     }
     if (tool === "eyedropper" || isSampling(event)) {
@@ -3449,6 +3469,7 @@
     }
     if (current.kind === "crop") dragCrop(current, point, event);
     else if (current.kind === "transform") dragTransform(current, point, event);
+    else if (current.kind === "zoom") zoomTo(current.zoom * Math.pow(2, (event.clientX - current.x) / ZOOM_DRAG), current.cx, current.cy);
     else if (current.kind === "pan") {
       const doc = app.doc;
       doc.view.x = current.vx + event.clientX - current.x;
@@ -3691,6 +3712,8 @@
     else if (cancelled) return;
     else if (kind === "pendingStroke") {
       if (startStroke(current)) ops.endStroke();
+    } else if (kind === "zoom") {
+      if (!current.moved) zoomStep(current.altAtStart || event.altKey ? -1 : 1, current.cx, current.cy);
     } else if (kind === "pan") {
       if (current.moved) return;
       if (current.tapEnds) endEdit();
@@ -3741,6 +3764,11 @@
     hideStampPreview();
   });
   ui.stage.addEventListener("contextmenu", (event) => {
+    // Ctrl + Space and a click is the zoom's, even where a Mac would see Ctrl + click
+    if (zoomHeld(event) || (gesture && gesture.kind === "zoom")) {
+      event.preventDefault();
+      return;
+    }
     // On a Mac, Ctrl + click also asks for the menu: with the wand, Ctrl means something else
     const macWandClick = IS_MAC && event.ctrlKey && app.tool === "wand";
     // The editor keeps the browser's menu: that's where spelling suggestions are
@@ -7205,7 +7233,7 @@
         });
       });
       // What stays as it is: other tools count on them
-      const fixed = [["← ↑ → ↓", T("Move the active layer by 1 px (Shift: 10 px), or the selection if a selection tool is on")], [T("Space"), T("Pan")], [T("Hold a tool's key"), T("Use the tool until you let go")], ["Enter", T("Apply")], ["Esc", T("Cancel")]].filter(([keys, label]) => !words || label.toLowerCase().includes(words) || keys.toLowerCase().includes(words));
+      const fixed = [["← ↑ → ↓", T("Move the active layer by 1 px (Shift: 10 px), or the selection if a selection tool is on")], [T("Space"), T("Pan")], [IS_MAC ? `⌘${T("Space")} / ⌃${T("Space")}` : `Ctrl+${T("Space")}`, T("Zoom: drag right to zoom in, left to zoom out")], [T("Hold a tool's key"), T("Use the tool until you let go")], ["Enter", T("Apply")], ["Esc", T("Cancel")]].filter(([keys, label]) => !words || label.toLowerCase().includes(words) || keys.toLowerCase().includes(words));
       if (fixed.length) {
         make("div", "sk__group", list, T("Fixed"));
         fixed.forEach(([keys, label]) => {
@@ -7700,7 +7728,8 @@
       if (key === "arrowdown") nudge(0, step);
       return;
     }
-    if (isSpace(event) && !command) {
+    // With Ctrl or Cmd as well, it is the zoom's
+    if (isSpace(event)) {
       event.preventDefault();
       if (!spacing) {
         spacing = true;
@@ -7729,21 +7758,24 @@
     if (event.key === "Alt") event.preventDefault();
     handleKey(event, false);
     showSampling(event);
+    showZoomHold(event);
     PS.setKeys({ meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, key: PS.keyName(event) });
   });
   document.addEventListener("keyup", (event) => {
     releaseSpring(event);
-    if (isSpace(event)) {
+    // While Cmd is down a Mac never says Space was let go: both go together
+    if (isSpace(event) || (IS_MAC && event.key === "Meta")) {
       spacing = false;
       ui.stage.classList.remove("is-spacing");
     }
     showSampling(event);
+    showZoomHold(event);
     PS.setKeys({ meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, key: "" });
   });
   window.addEventListener("blur", () => {
     spacing = false;
     spring = null;
-    ui.stage.classList.remove("is-spacing", "is-sampling");
+    ui.stage.classList.remove("is-spacing", "is-sampling", "is-zoom-hold", "is-zoom-out");
     PS.clearKeys();
   });
 

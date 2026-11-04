@@ -185,6 +185,10 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .stage.is-spacing.is-marquee { cursor: move; }
 .stage[data-tool="zoom"] { cursor: zoom-in; }
 .stage[data-tool="brush"], .stage[data-tool="eraser"], .stage[data-tool="stamp"] { cursor: none; }
+/* Held, Ctrl or Cmd with Space wins over what the tool shows, the brush's ring as well */
+.stage.is-zoom-hold { cursor: zoom-in !important; }
+.stage.is-zoom-hold .brush-ring { display: none; }
+.stage[data-tool="zoom"].is-zoom-out, .stage.is-zoom-hold.is-zoom-out { cursor: zoom-out !important; }
 .stage.is-cloning { cursor: crosshair; }
 .stage.is-cloning .brush-ring { display: none; }
 .stage.is-over-selection { cursor: default; }
