@@ -9,7 +9,7 @@ Photoshop, ouverture depuis le système, hors-ligne dès le premier lancement, m
 ```sh
 npm install          # une seule fois
 npm start            # lance l'app depuis les sources
-npm test             # 36 vérifications sur l'app réelle, sans connexion
+npm test             # 41 vérifications sur l'app réelle, sans connexion
 ```
 
 `npm start` et `npm test` copient d'abord les fichiers du site dans `content/`. Git décide de ce

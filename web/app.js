@@ -8056,6 +8056,8 @@
     initFontBar();
     // One thing at a time: the panel's tutorial starts once this is read
     await showBetaOnce();
+    // TypeR Studio offers to start from TypeR for Photoshop's settings (desktop.js)
+    if (window.TypeRStudio) await window.TypeRStudio.beforePanel().catch((error) => console.warn("TypeR Studio: Photoshop's settings", error));
     startPanel();
     await window.TypeRSession.restore({
       progress: (name) => working(name ? fill(T("Opening {name}…"), { name }) : null),

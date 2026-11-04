@@ -22,7 +22,8 @@ const step = (name, ok, detail) => {
 };
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const launch = async (profile, env = {}, args = []) => {
+const booted = () => window.TypeRApp && window.TypeRApp.booted;
+const launch = async (profile, env = {}, args = [], ready = booted) => {
   const started = Date.now();
   const clean = { ...process.env };
   delete clean.ELECTRON_RUN_AS_NODE;
@@ -37,7 +38,7 @@ const launch = async (profile, env = {}, args = []) => {
   page.on("pageerror", (error) => problems.push(String(error).slice(0, 200)));
   page.on("requestfailed", (request) => problems.push(`failed ${request.url()}`));
   page.on("response", (response) => { if (response.status() >= 400) problems.push(`${response.status()} ${response.url()}`); });
-  await page.waitForFunction(() => window.TypeRApp && window.TypeRApp.booted, null, { timeout: 30000 });
+  await page.waitForFunction(ready, null, { timeout: 30000 });
   return { app, page, problems, bootMs: Date.now() - started };
 };
 const close = async ({ app, page }) => {
@@ -290,6 +291,39 @@ const main = async () => {
   await close(run);
   const refused = JSON.parse(fs.readFileSync(path.join(profile2, "content", "state.json"), "utf8")).refused;
   step("and it isn't taken again", refused.includes(state.id));
+
+  /* ---------------------------- TypeR for Photoshop's settings ------------------------ */
+  // A plugin folder as the CEP version leaves it: two profiles, and files that aren't settings
+  const plugin = path.join(WORK, "typertools");
+  fs.mkdirSync(plugin);
+  const style = (id) => ({ id, name: id, folder: null, textProps: { layerText: { textStyleRange: [{ from: 0, to: 1, textStyle: { fontPostScriptName: "ArialMT", fontName: "Arial", size: 20 } }] } } });
+  const pluginFiles = {
+    storage: JSON.stringify({ notFirstTime: true, styles: [style("base")], autoUpdate: true, mcpOperations: [1], tabs: [{ id: "t", name: "105", autoName: true, images: [{ name: "01.psd", path: "/nowhere/01.psd" }], lastOpenedImagePath: "/nowhere/01.psd" }] }),
+    storage_profiles: JSON.stringify({ version: 1, activeProfileId: "p1", profiles: [{ id: "default", name: "Default" }, { id: "p1", name: "Manhwa" }] }),
+    storage_profile_p1: JSON.stringify({ notFirstTime: true, whatsNewSeen: "3.0", styles: [style("m1"), style("m2")] }),
+    "storage.before-import": "{}",
+  };
+  Object.entries(pluginFiles).forEach(([name, text]) => fs.writeFileSync(path.join(plugin, name), text));
+  const offered = () => document.querySelector("#modal[open]") || (window.TypeRApp && window.TypeRApp.booted);
+  const modalText = (page) => page.evaluate(() => { const modal = document.querySelector("#modal[open]"); return modal ? modal.innerText : null; });
+  const profile3 = path.join(WORK, "profile3");
+  run = await launch(profile3, { TYPER_PHOTOSHOP_DIRS: plugin }, [], offered);
+  step("a first start offers TypeR for Photoshop's settings", /\b3\b/.test((await modalText(run.page)) || ""), ((await modalText(run.page)) || "no dialog").split("\n").filter(Boolean)[0]);
+  await run.page.click("#modal .modal__foot .btn:last-child");
+  await run.page.waitForFunction(booted, null, { timeout: 30000 });
+  await wait(1500);
+  const taken = await run.page.evaluate(() => {
+    const Kit = window.TypeRKit;
+    const base = JSON.parse(Kit.read("/typer/storage"));
+    return { paths: Kit.storedPaths().sort(), active: Kit.activeStoragePath(), styles: JSON.parse(Kit.read(Kit.activeStoragePath())).styles.map((one) => one.id), base, frame: document.getElementById("panel-frame").src };
+  });
+  step("its profiles and styles are taken", taken.active === "/typer/storage_profile_p1" && taken.styles.join() === "m1,m2" && taken.paths.join() === "/typer/storage,/typer/storage_profile_p1,/typer/storage_profiles", JSON.stringify({ active: taken.active, styles: taken.styles }));
+  step("without what only the plugin needs", !taken.base.mcpOperations && taken.base.autoUpdate === false && taken.base.tabs[0].images.length === 0 && taken.base.tabs[0].name === "105" && /panel\/index\.html/.test(taken.frame));
+  step("the plugin's files are left as they were", Object.entries(pluginFiles).every(([name, text]) => fs.readFileSync(path.join(plugin, name), "utf8") === text));
+  await close(run);
+  run = await launch(profile3, { TYPER_PHOTOSHOP_DIRS: plugin }, [], offered);
+  step("and it's offered only once", (await modalText(run.page)) === null);
+  await close(run);
 
   const failed = results.filter((item) => !item.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
