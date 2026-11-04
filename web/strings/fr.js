@@ -339,6 +339,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Pan": "Se déplacer",
     "Hold a tool's key": "Maintenir la touche d'un outil",
     "Use the tool until you let go": "Utiliser l'outil jusqu'au relâchement",
+    "Zoom: drag right to zoom in, left to zoom out": "Zoom : glisser vers la droite pour zoomer, vers la gauche pour dézoomer",
     "Pass Through": "Transfert",
     "Paste": "Coller",
     "Pasted layer": "Calque collé",

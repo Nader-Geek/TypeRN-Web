@@ -338,6 +338,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Pan": "平移",
     "Hold a tool's key": "按住工具的快捷键",
     "Use the tool until you let go": "松开前临时使用该工具",
+    "Zoom: drag right to zoom in, left to zoom out": "缩放：向右拖动放大，向左拖动缩小",
     "Pass Through": "穿透",
     "Paste": "粘贴",
     "Pasted layer": "粘贴的图层",
