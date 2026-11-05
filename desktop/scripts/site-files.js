@@ -20,11 +20,31 @@ const listFiles = () => {
     .sort();
 };
 
-const describe = () => {
+// The same files as a commit holds them: what a push puts online, whatever else is being
+// changed in the working tree at the time
+const listAt = (ref) => {
+  const out = execFileSync("git", ["ls-tree", "-r", "-z", "--full-tree", ref, "--", ...WANTED], { cwd: REPO, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  return out
+    .split("\0")
+    .filter(Boolean)
+    .map((line) => {
+      const [meta, file] = line.split("\t");
+      const [mode, type, object] = meta.split(" ");
+      return { file, mode, type, object };
+    })
+    .filter((entry) => entry.type === "blob" && entry.mode !== "120000" && !SKIPPED.has(entry.file))
+    .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+};
+
+const hashOf = (data) => ({ sha256: crypto.createHash("sha256").update(data).digest("hex"), size: data.length });
+
+// Without a commit, the files as they are on the disk
+const describe = (ref) => {
   const files = {};
-  for (const file of listFiles()) {
-    const data = fs.readFileSync(path.join(REPO, file));
-    files[file] = { sha256: crypto.createHash("sha256").update(data).digest("hex"), size: data.length };
+  if (ref) {
+    for (const entry of listAt(ref)) files[entry.file] = hashOf(execFileSync("git", ["cat-file", "blob", entry.object], { cwd: REPO, maxBuffer: 256 * 1024 * 1024 }));
+  } else {
+    for (const file of listFiles()) files[file] = hashOf(fs.readFileSync(path.join(REPO, file)));
   }
   const id = crypto.createHash("sha256").update(JSON.stringify(files)).digest("hex").slice(0, 16);
   return { id, files };
