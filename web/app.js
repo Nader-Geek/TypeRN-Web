@@ -3871,6 +3871,9 @@
   /* -------------------------------- typing -------------------------------- */
 
   let editing = null;
+  // A turned text is typed on the page too, turned with it around its anchor: its caret
+  // and selection are worked out on its straight lines, then turned the same way
+  const turnOfTyped = (layer, doc) => (layer && layer.rotated && !layer.warp && layer.spin ? { spin: layer.spin, anchor: PS.layoutLayer(layer, doc).anchor } : null);
   const placeEditor = () => {
     if (ui.editor.hidden || !editing || !app.doc) return;
     const doc = app.doc;
@@ -3880,7 +3883,11 @@
     const layout = PS.layoutLayer(layer, doc);
     const style = layer.params.layerText.textStyleRange[0].textStyle;
     const docked = Shell.touch;
-    ui.editor.classList.toggle("is-warped", Boolean(layer.warp || layer.rotated) || docked);
+    const turn = turnOfTyped(layer, doc);
+    const inBox = Boolean(layer.warp || (layer.rotated && !turn));
+    ui.editor.style.transform = "";
+    ui.editor.style.transformOrigin = "";
+    ui.editor.classList.toggle("is-warped", inBox || docked);
     ui.editor.classList.toggle("is-docked", docked);
     // On a phone the page is too small to type on, and the keyboard hides half of it: the
     // text is typed just above the keyboard, and shows on the page as it's typed
@@ -3897,9 +3904,9 @@
       ui.editor.style.height = `${height}px`;
       return;
     }
-    // A caret can't follow a surface or a turn: the text is typed in a little box below it,
-    // and shows on the page as it's typed
-    if (layer.warp || layer.rotated) {
+    // A caret can't follow a surface: the text is typed in a little box below it, and shows
+    // on the page as it's typed
+    if (inBox) {
       const f = PS.frameOf(layer, doc);
       const [x, y] = toScreen(f.left, f.bottom);
       const height = (ui.editor.value.split("\n").length + 1) * 22 + 8;
@@ -3945,6 +3952,11 @@
       editor.style.left = `${align === "left" ? ax : align === "right" ? ax - width : ax - width / 2}px`;
       editor.style.top = `${top}px`;
     }
+    if (turn) {
+      const [sx, sy] = toScreen(turn.anchor[0], turn.anchor[1]);
+      editor.style.transformOrigin = `${sx - parseFloat(editor.style.left)}px ${sy - top}px`;
+      editor.style.transform = `matrix(${turn.spin.join(",")},0,0)`;
+    }
   };
 
   // The editor's own lines don't break or measure like the canvas's: on the page, where the
@@ -3953,9 +3965,23 @@
   function typingOnPage() {
     return !ui.editor.hidden && Boolean(editing) && !ui.editor.classList.contains("is-warped");
   }
+  function typedLayer() {
+    return app.doc && editing ? app.doc.state.layers.find((item) => item.id === editing.id) : null;
+  }
   function typedLines() {
-    const layer = app.doc && editing ? app.doc.state.layers.find((item) => item.id === editing.id) : null;
+    const layer = typedLayer();
     return layer ? PS.caretLines(layer, app.doc) : [];
+  }
+  // Where the pointer is on the typed text's straight lines: on a turned text, turned back
+  function typedPoint(event) {
+    const point = toDoc(event);
+    const turn = turnOfTyped(typedLayer(), app.doc);
+    if (!turn) return point;
+    const [a, b, c, d] = turn.spin;
+    const det = a * d - b * c || 1;
+    const dx = point[0] - turn.anchor[0];
+    const dy = point[1] - turn.anchor[1];
+    return [turn.anchor[0] + (d * dx - c * dy) / det, turn.anchor[1] + (a * dy - b * dx) / det];
   }
   // At a break inside a word, an index is the start of the next line
   const lineOfIndex = (lines, index) => {
@@ -3991,12 +4017,20 @@
     const lines = typedLines();
     if (!lines.length) return;
     const { selectionStart: from, selectionEnd: to } = ui.editor;
+    // Drawn straight, and turned as the text is around its anchor
+    let marks = ui.typeMarks;
+    const turn = turnOfTyped(typedLayer(), app.doc);
+    if (turn) {
+      const [a, b, c, d] = turn.spin;
+      const [sx, sy] = toScreen(turn.anchor[0], turn.anchor[1]);
+      marks = svgEl("g", { transform: `matrix(${a} ${b} ${c} ${d} ${sx - a * sx - c * sy} ${sy - b * sx - d * sy})` }, ui.typeMarks);
+    }
     if (from === to) {
       if (document.activeElement !== ui.editor) return;
       const line = lines[lineOfIndex(lines, from)];
       const [x, top] = toScreen(xOfIndex(line, from), line.top);
       const [, bottom] = toScreen(0, line.bottom);
-      svgEl("rect", { class: "type-caret", x: x - 0.75, y: top, width: 1.5, height: Math.max(1, bottom - top) }, ui.typeMarks);
+      svgEl("rect", { class: "type-caret", x: x - 0.75, y: top, width: 1.5, height: Math.max(1, bottom - top) }, marks);
       return;
     }
     let d = "";
@@ -4010,7 +4044,7 @@
       const [x1, y1] = toScreen(xOfIndex(line, end) + (through ? line.size * 0.25 : 0), line.bottom);
       d += `M${x0} ${y0}H${x1}V${y1}H${x0}Z`;
     });
-    if (d) svgEl("path", { class: "type-selection", d }, ui.typeMarks);
+    if (d) svgEl("path", { class: "type-selection", d }, marks);
   }
 
   const selectTyped = (anchor, focus) => {
@@ -4049,7 +4083,7 @@
     if (!typingOnPage() || event.button !== 0 || (IS_MAC && event.ctrlKey)) return;
     event.preventDefault();
     ui.editor.focus({ preventScroll: true });
-    const index = indexAtPoint(typedLines(), toDoc(event));
+    const index = indexAtPoint(typedLines(), typedPoint(event));
     const now = performance.now();
     const again = typeClick && now - typeClick.time < 500 && Math.hypot(event.clientX - typeClick.x, event.clientY - typeClick.y) < 6;
     const unit = again ? (typeClick.unit % 3) + 1 : 1;
@@ -4070,7 +4104,7 @@
   });
   ui.editor.addEventListener("pointermove", (event) => {
     if (!typeDrag || typeDrag.id !== event.pointerId || !typingOnPage()) return;
-    const [start, end] = unitAround(typeDrag.unit, ui.editor.value, indexAtPoint(typedLines(), toDoc(event)));
+    const [start, end] = unitAround(typeDrag.unit, ui.editor.value, indexAtPoint(typedLines(), typedPoint(event)));
     const [anchorStart, anchorEnd] = typeDrag.anchor;
     if (start < anchorStart) selectTyped(anchorEnd, start);
     else selectTyped(anchorStart, Math.max(end, anchorEnd));
