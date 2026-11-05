@@ -4375,8 +4375,12 @@
       const at = doc.state.layers.findIndex((layer) => layer.id === id);
       if (at < 1) return;
       const top = doc.state.layers[at];
+      if (top.kind === "group") {
+        ops.mergeGroup(top.id);
+        return;
+      }
       const below = doc.state.layers[at - 1];
-      if (top.kind === "group" || below.kind === "group") return;
+      if (below.kind === "group") return;
       if (top.locked || below.locked) {
         emit("layer-locked");
         return;
@@ -4396,21 +4400,47 @@
         ops.mergeDown();
         return;
       }
+      const all = doc.state.layers;
       const chosen = new Set();
-      doc.state.activeIds.forEach((id) => familyOf(doc.state.layers, id).forEach((member) => chosen.add(member)));
-      const list = doc.state.layers.filter((layer) => chosen.has(layer.id) && layer.kind !== "group" && layer.visible !== false);
-      if (list.length < 2) return;
-      if (list.some((layer) => layer.locked)) {
+      doc.state.activeIds.forEach((id) => familyOf(all, id).forEach((member) => chosen.add(member)));
+      const list = all.filter((layer) => chosen.has(layer.id) && layer.kind !== "group" && layer.visible !== false);
+      // A folder goes into the merge whole, as in Photoshop: it and what it holds are gone after
+      const folders = all.filter((layer) => layer.kind === "group" && doc.state.activeIds.includes(layer.id));
+      if (list.length < 2 && !folders.length) return;
+      const gone = new Set(list.map((layer) => layer.id));
+      folders.forEach((folder) => familyOf(all, folder.id).forEach((member) => gone.add(member)));
+      if (all.some((layer) => gone.has(layer.id) && layer.locked)) {
         emit("layer-locked");
         return;
       }
-      const top = list[list.length - 1];
-      const bottom = list[0];
-      const merged = newRaster(top.name, { group: bottom.isBackground ? null : top.group, isBackground: bottom.isBackground, blend: bottom.blend, opacity: 1 });
-      merged.bitmap = flattenLayers(doc, list);
+      const drawn = all.filter((layer) => gone.has(layer.id) && (layer.kind === "group" || layer.visible !== false));
+      const bottom = list[0] || drawn[0];
+      const top = drawn[drawn.length - 1];
       const anchor = bottom.isBackground ? bottom : top;
-      const gone = new Set(list.map((layer) => layer.id));
-      const layers = doc.state.layers.flatMap((layer) => (layer === anchor ? [merged] : gone.has(layer.id) ? [] : [layer]));
+      const merged = newRaster(top.name, { group: bottom.isBackground ? null : outsideOf(anchor.group, gone, all), isBackground: Boolean(bottom.isBackground), blend: bottom.kind === "group" ? "normal" : bottom.blend, opacity: 1 });
+      merged.bitmap = paintAlone(doc, drawn);
+      const layers = all.flatMap((layer) => (layer === anchor ? [merged] : gone.has(layer.id) ? [] : [layer]));
+      commitState(doc, "Merge Layers", { layers, activeIds: [merged.id] });
+      firePanelEvent(EVENT_SELECT);
+    },
+    // A folder into one layer, in its place and with its name, opacity and blend mode, as
+    // Photoshop's Merge Group. What's hidden inside it is dropped.
+    mergeGroup(id) {
+      const doc = app.doc;
+      const all = doc ? doc.state.layers : [];
+      const folder = all.find((layer) => layer.id === id && layer.kind === "group");
+      if (!folder) return;
+      const family = familyOf(all, id);
+      if (all.some((layer) => family.has(layer.id) && layer.locked)) {
+        emit("layer-locked");
+        return;
+      }
+      // Its own opacity stays on the new layer, not in its pixels
+      const whole = Object.assign({}, folder, { visible: true, opacity: 1 });
+      const inside = all.filter((layer) => family.has(layer.id)).map((layer) => (layer === folder ? whole : layer));
+      const merged = newRaster(folder.name, { group: folder.group || null, visible: folder.visible !== false, opacity: folder.opacity === undefined ? 1 : folder.opacity, blend: folder.blend === "pass through" ? "normal" : folder.blend || "normal" });
+      merged.bitmap = paintAlone(doc, inside);
+      const layers = all.flatMap((layer) => (layer === folder ? [merged] : family.has(layer.id) ? [] : [layer]));
       commitState(doc, "Merge Layers", { layers, activeIds: [merged.id] });
       firePanelEvent(EVENT_SELECT);
     },
@@ -5169,6 +5199,34 @@
       app.docs = [];
       app.doc = null;
     },
+  };
+
+  // Some layers of a page drawn on their own, as the page draws them: folders with their
+  // opacity and style, clipped layers on their base. Those whose folder isn't among them
+  // are drawn as if at the top of the page.
+  const paintAlone = (doc, layers) => {
+    const ids = new Set(layers.map((layer) => layer.id));
+    const all = doc.state.layers;
+    const alone = layers.map((layer) => {
+      const at = all.indexOf(layer);
+      let under = at - 1;
+      while (under >= 0 && all[under].clipping && all[under].kind !== "group") under--;
+      const lonely = layer.clipping && (under < 0 || !ids.has(all[under].id));
+      const free = layer.group && !ids.has(layer.group);
+      return lonely || free ? Object.assign({}, layer, lonely ? { clipping: false } : null, free ? { group: null } : null) : layer;
+    });
+    const canvas = newCanvas(doc.width, doc.height);
+    paintDoc(Object.assign({}, doc, { state: Object.assign({}, doc.state, { layers: alone }), live: null, liveTransform: null, preview: null }), canvas.getContext("2d"));
+    return canvas;
+  };
+
+  // The nearest folder above `id` that stays
+  const outsideOf = (id, gone, layers) => {
+    while (id && gone.has(id)) {
+      const parent = layers.find((layer) => layer.id === id);
+      id = parent ? parent.group || null : null;
+    }
+    return id || null;
   };
 
   const flattenLayers = (doc, layers) => {
