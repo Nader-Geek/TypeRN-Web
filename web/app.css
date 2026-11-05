@@ -606,6 +606,7 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .bsave__note { margin: 0; color: var(--muted); font-size: 12px; }
 .bsave__format { display: grid; gap: 8px; padding: 9px 10px; background: var(--ui); border: 1px solid var(--line); border-radius: 5px; transition: border-color 0.12s; }
 .bsave__format.is-on { border-color: var(--blue-dark); }
+.bsave__format.is-off { opacity: 0.55; }
 .modal__body .bsave__name { font-weight: 700; letter-spacing: 0.03em; }
 .bsave__options { display: grid; gap: 8px; padding-left: 21px; }
 .bsave__options:empty { display: none; }

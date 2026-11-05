@@ -7937,17 +7937,34 @@
     return canvas;
   };
 
+  // Safari makes a PNG when asked for a WebP: the format is only offered where it really comes out
+  const canWriteWebp = (() => {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      return canvas.toDataURL("image/webp").indexOf("data:image/webp") === 0;
+    } catch (error) {
+      return false;
+    }
+  })();
+  const IMAGE_EXTENSIONS = { "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp" };
+  const IMAGE_LABELS = { "image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WebP" };
+
   const exportImage = async (type) => {
     const doc = app.doc;
     if (!doc) return;
     if (!ui.editor.hidden) endEdit();
-    const extension = type === "image/png" ? ".png" : ".jpg";
+    if (type === "image/webp" && !canWriteWebp) {
+      toast(T("This browser can't write WebP."), true);
+      return;
+    }
+    const extension = IMAGE_EXTENSIONS[type];
     const name = doc.name.replace(/\.[^.]+$/, "") + extension;
     const canvas = flattened(doc, type === "image/jpeg" ? "#fff" : null);
     const blob = await PS.withResolution(await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92)), doc.resolution);
     try {
       if (window.showSaveFilePicker) {
-        const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: extension.slice(1).toUpperCase(), accept: { [type]: [extension] } }] });
+        const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: IMAGE_LABELS[type], accept: { [type]: [extension] } }] });
         await writeTo(handle, blob);
       } else await shareOrDownload([{ blob, name }]);
       toast(fill(T(window.showSaveFilePicker ? "Saved {name}." : "Downloaded {name}."), { name }));
@@ -7959,7 +7976,11 @@
   // The whole chapter, one image per open page
   const exportAllPages = async (type) => {
     if (!ui.editor.hidden) endEdit();
-    const extension = type === "image/png" ? ".png" : ".jpg";
+    if (type === "image/webp" && !canWriteWebp) {
+      toast(T("This browser can't write WebP."), true);
+      return;
+    }
+    const extension = IMAGE_EXTENSIONS[type];
     const entries = [];
     working(T("Exporting…"));
     await nextPaint();
@@ -7977,15 +7998,18 @@
   };
 
   // Batch Save: Photoshop's Image Processor, made simpler. The open pages or a folder of them,
-  // in JPEG, PNG and PSD at once. Each format gets its own folder, as in Photoshop, next to the
+  // in JPEG, PNG, WebP and PSD at once. Each format gets its own folder, as in Photoshop, next to the
   // images or in another folder; a browser that can't write to a folder downloads them.
   const BATCH_STORE = "typer.web.batchSave";
   const BATCH_FORMATS = [
     { id: "jpeg", label: "JPEG", folder: "JPEG", extension: ".jpg", type: "image/jpeg", fits: true },
     { id: "png", label: "PNG", folder: "PNG", extension: ".png", type: "image/png", fits: true },
+    { id: "webp", label: "WebP", folder: "WebP", extension: ".webp", type: "image/webp", fits: true },
     { id: "psd", label: "PSD", folder: "PSD" },
   ];
-  const FORMAT_FOLDERS = new Set(BATCH_FORMATS.map((format) => format.folder));
+  // Each lossy format keeps its own quality
+  const QUALITY_KEYS = { jpeg: "quality", webp: "webpQuality" };
+  const FORMAT_FOLDERS = new Set(BATCH_FORMATS.map((format) => format.folder.toUpperCase()));
   const canPickFolder = () => typeof window.showDirectoryPicker === "function";
 
   const batchSettings = () => {
@@ -8002,14 +8026,16 @@
       const kept = (saved.fit && saved.fit[id]) || {};
       return { on: Boolean(kept.on), width: side(kept.width), height: side(kept.height) };
     };
+    const quality = (value) => Math.max(1, Math.min(100, Math.round(Number(value)) || 92));
     return {
       source: saved.source === "folder" ? "folder" : "open",
       subfolders: Boolean(saved.subfolders),
       target: saved.target === "other" ? "other" : "same",
       keepTree: saved.keepTree !== false,
-      formats: { jpeg: Boolean(formats.jpeg), png: Boolean(formats.png), psd: Boolean(formats.psd) },
-      quality: Math.max(1, Math.min(100, Math.round(Number(saved.quality)) || 92)),
-      fit: { jpeg: fit("jpeg"), png: fit("png") },
+      formats: { jpeg: Boolean(formats.jpeg), png: Boolean(formats.png), webp: Boolean(formats.webp) && canWriteWebp, psd: Boolean(formats.psd) },
+      quality: quality(saved.quality),
+      webpQuality: quality(saved.webpQuality),
+      fit: { jpeg: fit("jpeg"), png: fit("png"), webp: fit("webp") },
     };
   };
 
@@ -8178,19 +8204,26 @@
       const card = make("div", "bsave__format", three);
       const main = check(card, format.label, () => settings.formats[format.id], (on) => { settings.formats[format.id] = on; });
       main.row.classList.add("bsave__name");
+      if (format.id === "webp" && !canWriteWebp) {
+        main.input.disabled = true;
+        card.classList.add("is-off");
+        make("p", "bsave__note", card, T("This browser can't write WebP."));
+        return { format, card, sync: main.sync };
+      }
       const options = make("div", "bsave__options", card);
-      if (format.id === "jpeg") {
+      const qualityKey = QUALITY_KEYS[format.id];
+      if (qualityKey) {
         const row = make("label", "bsave__quality", options);
         make("span", "", row, T("Quality"));
         const slider = make("input", "", row);
         slider.type = "range";
         slider.min = 1;
         slider.max = 100;
-        slider.value = settings.quality;
+        slider.value = settings[qualityKey];
         showSliderFill(slider);
-        const shown = make("output", "", row, String(settings.quality));
+        const shown = make("output", "", row, String(settings[qualityKey]));
         slider.addEventListener("input", () => {
-          settings.quality = Number(slider.value);
+          settings[qualityKey] = Number(slider.value);
           shown.textContent = slider.value;
         });
       }
@@ -8390,7 +8423,7 @@
             continue;
           }
           const canvas = fittedCanvas(flattened(doc, format.id === "jpeg" ? "#fff" : null), settings.fit[format.id]);
-          const blob = await PS.withResolution(await new Promise((done) => canvas.toBlob(done, format.type, settings.quality / 100)), doc.resolution);
+          const blob = await PS.withResolution(await new Promise((done) => canvas.toBlob(done, format.type, settings[QUALITY_KEYS[format.id] || "quality"] / 100)), doc.resolution);
           if (!blob) throw new Error(`the browser could not make the ${format.label}`);
           await keep(blob, output);
         }
@@ -9665,6 +9698,7 @@
       { label: "Save As…", keys: "Shift+Cmd+S", enabled: hasDoc, action: () => saveAs() },
       { label: "Export as PNG…", enabled: hasDoc, action: () => exportImage("image/png") },
       { label: "Export as JPEG…", enabled: hasDoc, action: () => exportImage("image/jpeg") },
+      { label: "Export as WebP…", enabled: () => hasDoc() && canWriteWebp, action: () => exportImage("image/webp") },
       { label: "Export for InDesign (IDML)…", enabled: hasDoc, action: exportInDesign },
       { label: "Batch Save…", action: batchSave },
       null,
@@ -11269,6 +11303,7 @@
     saveAs,
     exportImage,
     exportAllPages,
+    canWriteWebp,
     batchSave,
     closeDoc,
     switchDoc,

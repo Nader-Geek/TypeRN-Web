@@ -709,12 +709,14 @@
       row(T("Save"), after(() => App.save()), !doc, "share"),
       row(T("Export as PNG…"), after(() => App.exportImage("image/png")), !doc),
       row(T("Export as JPEG…"), after(() => App.exportImage("image/jpeg")), !doc),
+      row(T("Export as WebP…"), after(() => App.exportImage("image/webp")), !doc || !App.canWriteWebp),
     );
     if (app.docs.length > 1) {
       view.append(
         el("p", "tview__label", { textContent: fill(T("All {count} pages"), { count: app.docs.length }) }),
         row("PNG", after(() => App.exportAllPages("image/png"))),
         row("JPEG", after(() => App.exportAllPages("image/jpeg"))),
+        ...(App.canWriteWebp ? [row("WebP", after(() => App.exportAllPages("image/webp")))] : []),
         row(T("Batch Save…"), after(() => App.batchSave())),
       );
     }
