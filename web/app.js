@@ -68,6 +68,8 @@
     wand: SVG('<path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/> <path d="m14 7 3 3"/> <path d="M5 6v4"/> <path d="M19 14v4"/> <path d="M10 2v2"/> <path d="M7 8H3"/> <path d="M21 16h-4"/> <path d="M11 3H9"/>'),
     brush: SVG('<path d="m11 10 3 3"/> <path d="M6.5 21A3.5 3.5 0 1 0 3 17.5a2.62 2.62 0 0 1-.708 1.792A1 1 0 0 0 3 21z"/> <path d="M9.969 17.031 21.378 5.624a1 1 0 0 0-3.002-3.002L6.967 14.031"/>'),
     eraser: SVG('<path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21"/> <path d="m5.082 11.09 8.828 8.828"/>'),
+    // Lucide's eraser, with the sparkles of its wand-sparkles in the corner left free
+    magicEraser: SVG('<path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21"/> <path d="m5.082 11.09 8.828 8.828"/> <path d="M4 2v4"/> <path d="M6 4H2"/> <path d="M9 1v2"/> <path d="M10 2H8"/>'),
     crop: SVG('<path d="M6 2v14a2 2 0 0 0 2 2h14"/> <path d="M18 22V8a2 2 0 0 0-2-2H2"/>'),
     stamp: SVG('<path d="M14 13V8.5C14 7 15 7 15 5a3 3 0 0 0-6 0c0 2 1 2 1 3.5V13"/> <path d="M20 15.5a2.5 2.5 0 0 0-2.5-2.5h-11A2.5 2.5 0 0 0 4 15.5V17a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1z"/> <path d="M5 22h14"/>'),
     clean: SVG('<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.290a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/><path d="M12 7.500l.9 2.600 2.600.9-2.600.9L12 14.500l-.9-2.600L8.500 11l2.600-.9Z"/>'),
@@ -1735,6 +1737,7 @@
     null,
     ["brush", "Brush", "B"],
     ["eraser", "Eraser", "E"],
+    ["magicEraser", "Magic Eraser", "Shift+E"],
     ["stamp", "Clone Stamp", "S"],
     ["clean", "Bubble Cleaner", "J"],
     ["eyedropper", "Eyedropper", "I"],
@@ -1755,6 +1758,7 @@
     crop: "Drag the edges, or draw a new frame. Shift: keep the proportions. Alt: from the centre. Enter: crop. Esc: cancel.",
     brush: "Paints on the active pixel layer. [ ]: size. Alt: eyedropper. Alt + right-drag: size / hardness.",
     eraser: "Erases on the active pixel layer. [ ]: size. Alt + right-drag: size / hardness.",
+    magicEraser: "Click: the area of that colour on the active pixel layer goes transparent, as the Magic Wand would select it. A Background becomes a normal layer.",
     stamp: "Alt + click: where to clone from. Then paint. [ and ] change the size. Alt + right-drag: size / hardness.",
     clean: "Click a bubble: its text goes, painted over in the bubble's own colours, whatever they are. Drag a box: only inside it, for text on a plain background.",
     eyedropper: "Click to pick the foreground colour. Alt: the background colour.",
@@ -2615,6 +2619,12 @@
       bar.appendChild(checkbox(T("Contiguous"), app.contiguous !== false, (on) => { app.contiguous = on; }));
       bar.appendChild(checkbox(T("Sample all layers"), app.sampleAll, (on) => { app.sampleAll = on; }));
     }
+    if (tool === "magicEraser") {
+      bar.appendChild(scrubbed(T("Tolerance"), numberInput(app.magicTolerance, 0, 255, (value) => { app.magicTolerance = Math.max(0, Math.min(255, value)); })));
+      bar.appendChild(checkbox(T("Anti-alias"), app.magicAntiAlias !== false, (on) => { app.magicAntiAlias = on; }));
+      bar.appendChild(checkbox(T("Contiguous"), app.magicContiguous !== false, (on) => { app.magicContiguous = on; }));
+      bar.appendChild(checkbox(T("Sample all layers"), app.magicSampleAll, (on) => { app.magicSampleAll = on; }));
+    }
     if (tool === "clean") {
       bar.appendChild(scrubbed(T("Tolerance"), numberInput(app.cleanTolerance, 0, 255, (value) => { app.cleanTolerance = Math.max(0, Math.min(255, value)); })));
       bar.appendChild(scrubbed(T("Margin"), numberInput(app.cleanMargin, 0, 20, (value) => { app.cleanMargin = Math.max(0, Math.min(20, value)); })));
@@ -2976,6 +2986,14 @@
     nothing: "There is no text to clean here.",
     plain: "This box has no plain background to clean.",
   };
+  const magicEraseAt = (point) => {
+    const layer = activeLayer();
+    if (!layer || layer.kind !== "raster" || layer.adjustment) {
+      toast(T("Select a pixel layer first."));
+      return;
+    }
+    ops.magicErase(point[0], point[1]);
+  };
   const cleanAt = (current, point, event) => {
     let where = { x: point[0], y: point[1] };
     if (current.moved) {
@@ -3217,6 +3235,13 @@
       gesture = Object.assign(base, { kind: "pick", background: tool === "eyedropper" && event.altKey, slop: 0 });
       ui.stage.setPointerCapture(event.pointerId);
       pickAt(point, gesture.background);
+      return;
+    }
+    if (tool === "magicEraser") {
+      // On release, so that two fingers coming to zoom erase nothing
+      gesture = Object.assign(base, { kind: "magicErase" });
+      ui.stage.setPointerCapture(event.pointerId);
+      event.preventDefault();
       return;
     }
     if (tool === "clean") {
@@ -3723,6 +3748,8 @@
       else if (current.tapWand) ops.wandAt(point[0], point[1], current.tapWand);
     } else if (kind === "clean") {
       cleanAt(current, point, event);
+    } else if (kind === "magicErase") {
+      if (!current.moved) magicEraseAt(point);
     } else if (kind === "textBox") {
       const doc = app.doc;
       if (current.moved) {
@@ -7317,9 +7344,9 @@
 
   /* ---- the shortcuts: every tool, every menu command, a few more ---- */
 
-  // Rectangle and Ellipse share M and Shift+M, as in Photoshop, until they get keys of their own
-  // and Lasso and Polygonal Lasso share L and Shift+L
-  const TOOL_PAIRS = [["rectangle", "ellipse", "M"], ["lasso", "polygon", "L"]];
+  // Rectangle and Ellipse share M and Shift+M, as in Photoshop, until they get keys of their own,
+  // Lasso and Polygonal Lasso share L and Shift+L, Eraser and Magic Eraser E and Shift+E
+  const TOOL_PAIRS = [["rectangle", "ellipse", "M"], ["lasso", "polygon", "L"], ["eraser", "magicEraser", "E"]];
   const pickTool = (id) => {
     const keyOf = (tool) => (TOOLS.find((entry) => entry && entry[0] === tool) || [])[2];
     const pair = TOOL_PAIRS.find(([first, second, key]) => (id === first || id === second) && keyOf(first) === key && keyOf(second) === `Shift+${key}`);

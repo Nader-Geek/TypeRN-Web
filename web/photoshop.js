@@ -2010,6 +2010,67 @@
     return doc.state.layers.find((layer) => layer.id === id && layer.kind === "raster") || null;
   };
 
+  // The pixels a click takes, as the Magic Wand finds them: the ones `similar` to the clicked
+  // one, joined to it, or anywhere on the page when not contiguous. A byte per pixel, and the box
+  // they fill (right < 0 when none).
+  const floodMarks = (w, h, sx, sy, similar, contiguous) => {
+    const seen = new Uint8Array(w * h);
+    let left = w;
+    let right = -1;
+    let top = h;
+    let bottom = -1;
+    if (!contiguous) {
+      for (let py = 0; py < h; py++) {
+        for (let px = 0; px < w; px++) {
+          if (!similar(py * w + px)) continue;
+          seen[py * w + px] = 1;
+          if (px < left) left = px;
+          if (px > right) right = px;
+          if (py < top) top = py;
+          if (py > bottom) bottom = py;
+        }
+      }
+      return { seen, left, top, right, bottom };
+    }
+    const stack = [sx, sy];
+    while (stack.length) {
+      const py = stack.pop();
+      let px = stack.pop();
+      while (px >= 0 && !seen[py * w + px] && similar(py * w + px)) px--;
+      px++;
+      let up = false;
+      let down = false;
+      for (; px < w; px++) {
+        const index = py * w + px;
+        if (seen[index] || !similar(index)) break;
+        seen[index] = 1;
+        if (px < left) left = px;
+        if (px > right) right = px;
+        if (py < top) top = py;
+        if (py > bottom) bottom = py;
+        if (py > 0) {
+          const above = index - w;
+          if (!seen[above] && similar(above)) {
+            if (!up) {
+              stack.push(px, py - 1);
+              up = true;
+            }
+          } else up = false;
+        }
+        if (py < h - 1) {
+          const below = index + w;
+          if (!seen[below] && similar(below)) {
+            if (!down) {
+              stack.push(px, py + 1);
+              down = true;
+            }
+          } else down = false;
+        }
+      }
+    }
+    return { seen, left, top, right, bottom };
+  };
+
   // Flood fill from a click, as the Magic Wand: within the tolerance of the
   // clicked pixel, on the page and the clean layer (never on the text layers,
   // so a bubble can be clicked again after it got its text)
@@ -2023,71 +2084,11 @@
     const r0 = data[start];
     const g0 = data[start + 1];
     const b0 = data[start + 2];
-    const close = (i) => Math.abs(data[i] - r0) <= tolerance && Math.abs(data[i + 1] - g0) <= tolerance && Math.abs(data[i + 2] - b0) <= tolerance;
-    const seen = new Uint8Array(w * h);
-    if (app.contiguous === false) {
-      let l = w;
-      let t = h;
-      let r = -1;
-      let b = -1;
-      for (let py = 0; py < h; py++) {
-        for (let px = 0; px < w; px++) {
-          if (!close((py * w + px) * 4)) continue;
-          seen[py * w + px] = 1;
-          if (px < l) l = px;
-          if (px > r) r = px;
-          if (py < t) t = py;
-          if (py > b) b = py;
-        }
-      }
-      const width = r - l + 1;
-      const height = b - t + 1;
-      const whole = new Uint8Array(width * height);
-      for (let yy = 0; yy < height; yy++) {
-        for (let xx = 0; xx < width; xx++) whole[yy * width + xx] = seen[(t + yy) * w + l + xx];
-      }
-      return makeSelection({ source: "wand", mask: whole, boxW: width, boxH: height, left: l, top: t });
-    }
-    const stack = [sx, sy];
-    let left = sx;
-    let right = sx;
-    let top = sy;
-    let bottom = sy;
-    while (stack.length) {
-      const py = stack.pop();
-      let px = stack.pop();
-      while (px >= 0 && !seen[py * w + px] && close((py * w + px) * 4)) px--;
-      px++;
-      let up = false;
-      let down = false;
-      for (; px < w; px++) {
-        const index = py * w + px;
-        if (seen[index] || !close(index * 4)) break;
-        seen[index] = 1;
-        if (px < left) left = px;
-        if (px > right) right = px;
-        if (py < top) top = py;
-        if (py > bottom) bottom = py;
-        if (py > 0) {
-          const above = index - w;
-          if (!seen[above] && close(above * 4)) {
-            if (!up) {
-              stack.push(px, py - 1);
-              up = true;
-            }
-          } else up = false;
-        }
-        if (py < h - 1) {
-          const below = index + w;
-          if (!seen[below] && close(below * 4)) {
-            if (!down) {
-              stack.push(px, py + 1);
-              down = true;
-            }
-          } else down = false;
-        }
-      }
-    }
+    const similar = (p) => {
+      const i = p * 4;
+      return Math.abs(data[i] - r0) <= tolerance && Math.abs(data[i + 1] - g0) <= tolerance && Math.abs(data[i + 2] - b0) <= tolerance;
+    };
+    const { seen, left, top, right, bottom } = floodMarks(w, h, sx, sy, similar, app.contiguous !== false);
     const boxW = right - left + 1;
     const boxH = bottom - top + 1;
     const mask = new Uint8Array(boxW * boxH);
@@ -2095,6 +2096,75 @@
       for (let xx = 0; xx < boxW; xx++) mask[yy * boxW + xx] = seen[(top + yy) * w + left + xx];
     }
     return makeSelection({ source: "wand", mask, boxW, boxH, left, top });
+  };
+
+  // What the Magic Eraser reads without Sample All Layers: the active layer's own pixels,
+  // transparent where it has none
+  const layerPixels = (doc, layer) => {
+    const canvas = newCanvas(doc.width, doc.height);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const visual = visualOf(layer, doc);
+    if (visual) ctx.drawImage(visual.canvas, visual.x, visual.y);
+    return ctx.getImageData(0, 0, doc.width, doc.height).data;
+  };
+
+  // The Magic Eraser's region from a click: an alpha mask on the page, with a pixel of soft edge
+  // when anti-aliased (an edge pixel takes the mean of its 3×3, inside pixels at least half,
+  // outside ones at most half, as photocraft does it). Colours are compared with their alpha,
+  // and every fully transparent pixel is alike, whatever colour it hides.
+  const magicRegion = (doc, layer, x, y) => {
+    const w = doc.width;
+    const h = doc.height;
+    const sx = Math.floor(x);
+    const sy = Math.floor(y);
+    if (sx < 0 || sy < 0 || sx >= w || sy >= h) return null;
+    const data = app.magicSampleAll ? sampleData(doc, true) : layerPixels(doc, layer);
+    const tolerance = app.magicTolerance;
+    const start = (sy * w + sx) * 4;
+    const seed = [data[start], data[start + 1], data[start + 2], data[start + 3]];
+    const similar = (p) => {
+      const i = p * 4;
+      if (seed[3] === 0 && data[i + 3] === 0) return true;
+      return Math.abs(data[i] - seed[0]) <= tolerance && Math.abs(data[i + 1] - seed[1]) <= tolerance && Math.abs(data[i + 2] - seed[2]) <= tolerance && Math.abs(data[i + 3] - seed[3]) <= tolerance;
+    };
+    const { seen, left, top, right, bottom } = floodMarks(w, h, sx, sy, similar, app.magicContiguous !== false);
+    if (right < 0) return null;
+    const soft = app.magicAntiAlias !== false;
+    const pad = soft ? 1 : 0;
+    const x0 = Math.max(0, left - pad);
+    const y0 = Math.max(0, top - pad);
+    const x1 = Math.min(w, right + 1 + pad);
+    const y1 = Math.min(h, bottom + 1 + pad);
+    const canvas = newCanvas(x1 - x0, y1 - y0);
+    const ctx = canvas.getContext("2d");
+    const image = ctx.createImageData(canvas.width, canvas.height);
+    for (let py = y0; py < y1; py++) {
+      for (let px = x0; px < x1; px++) {
+        const v = seen[py * w + px];
+        let alpha = v ? 255 : 0;
+        if (soft) {
+          let sum = 0;
+          let edge = false;
+          for (let ny = py - 1; ny <= py + 1; ny++) {
+            for (let nx = px - 1; nx <= px + 1; nx++) {
+              const n = nx < 0 || ny < 0 || nx >= w || ny >= h ? v : seen[ny * w + nx];
+              if (n !== v) edge = true;
+              sum += n;
+            }
+          }
+          if (edge) alpha = Math.round((v ? 0.5 + sum / 18 : sum / 18) * 255);
+        }
+        image.data[((py - y0) * canvas.width + (px - x0)) * 4 + 3] = alpha;
+      }
+    }
+    ctx.putImageData(image, 0, 0);
+    // Only inside the selection, if there is one
+    const selection = doc.state.selection;
+    if (selection) {
+      ctx.globalCompositeOperation = "destination-in";
+      ctx.drawImage(selectionCanvas(selection), selection.bounds.left - x0, selection.bounds.top - y0);
+    }
+    return { canvas, x: x0, y: y0 };
   };
 
   const makeSelection = ({ source, mask, boxW, boxH, left, top, polygon, rect, trigger }) => {
@@ -2880,6 +2950,10 @@
     cleanMargin: 6,
     contiguous: true,
     sampleAll: true,
+    magicTolerance: 32,
+    magicAntiAlias: true,
+    magicContiguous: true,
+    magicSampleAll: false,
     autoSelect: true,
     selectionMode: "new",
     fg: { r: 0, g: 0, b: 0 },
@@ -3773,6 +3847,24 @@
         return layer.kind === "raster" && (sx !== 1 || sy !== 1) ? scaledRaster(layer, doc, sx, sy) : layer;
       });
       resizeDoc(doc, "Image Size", { width, height, resolution }, layers);
+    },
+    // The Magic Eraser: what a click on the active pixel layer takes, as the Magic Wand would,
+    // goes transparent. A Background becomes Layer 0 first, as in Photoshop: it can't be.
+    magicErase(x, y) {
+      const doc = app.doc;
+      const layer = doc && activeRaster(doc);
+      if (!layer || layer.adjustment) return false;
+      if (layer.locked) {
+        emit("layer-locked");
+        return false;
+      }
+      const region = magicRegion(doc, layer, x, y);
+      if (!region) return false;
+      const op = { t: "fill", erase: true, clip: { canvas: region.canvas, x: region.x - (layer.dx || 0), y: region.y - (layer.dy || 0) } };
+      const changes = { paint: (layer.paint || NONE).concat([op]) };
+      if (layer.isBackground) Object.assign(changes, { isBackground: false, name: `${(app.names && app.names.layer) || "Layer"} 0` });
+      commitState(doc, "Magic Eraser", { layers: replaceLayer(doc, layer, changes) });
+      return true;
     },
     wandAt(x, y, mode) {
       const doc = app.doc;
@@ -5658,7 +5750,7 @@
     smartPasteSelectionProbe() {
       const doc = app.doc;
       if (!doc) return JSON.stringify({ error: "doc" });
-      const toolId = { wand: "magicWandTool", rectangle: "marqueeRectTool", ellipse: "marqueeEllipTool", lasso: "lassoTool", polygon: "polySelTool", move: "moveTool", brush: "paintbrushTool", eraser: "eraserTool", text: "typeCreateOrEditTool" }[app.tool] || "";
+      const toolId = { wand: "magicWandTool", rectangle: "marqueeRectTool", ellipse: "marqueeEllipTool", lasso: "lassoTool", polygon: "polySelTool", move: "moveTool", brush: "paintbrushTool", eraser: "eraserTool", magicEraser: "magicEraserTool", text: "typeCreateOrEditTool" }[app.tool] || "";
       const selection = doc.state.selection;
       const b = selection && selection.bounds;
       return JSON.stringify({ documentId: doc.id, tool: toolId, bounds: b ? { left: b.left, top: b.top, right: b.right, bottom: b.bottom } : null });
