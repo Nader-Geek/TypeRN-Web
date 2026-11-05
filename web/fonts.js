@@ -401,6 +401,8 @@
     removeFile,
     loadedFiles: () => Array.from(fonts.values()).filter((font) => font.source === "file").sort((a, b) => a.name.localeCompare(b.name)),
     restore,
+    // Draws the text again, for what changes its layout besides a font (hyphenation patterns)
+    refresh: () => changed(),
     onChange(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
