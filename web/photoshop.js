@@ -607,6 +607,10 @@
 
   const rgbCss = (color) => (color ? `rgb(${color.red},${color.green},${color.blue})` : "#000");
 
+  // Photoshop's Fill: how much of a layer's own pixels show, its stroke left whole. 0 is the
+  // hollow text of an SFX (`knockout`); a value between, `fill`.
+  const fillOf = (layer) => (!layer ? 1 : layer.knockout ? 0 : layer.fill === undefined ? 1 : Math.max(0, Math.min(1, layer.fill)));
+
   // How far a stroke reaches past the letters: its own size, plus the stroke around it if any
   const strokeReach = (stroke) => (stroke ? stroke.size + (stroke.outer && stroke.outer.size > 0 ? stroke.outer.size : 0) : 0);
 
@@ -644,12 +648,10 @@
         });
       });
     });
-    // A hollow text (Photoshop's Fill at 0%) keeps its stroke: the letters let the page through
-    if (layer.knockout) ctx.globalCompositeOperation = "destination-out";
-    lines.forEach((line) => {
+    const letters = (hollow) => lines.forEach((line) => {
       line.m.placed.forEach((item) => {
         place(line, item, () => {
-          ctx.fillStyle = layer.knockout ? "#000" : rgbCss(item.run.style.color);
+          ctx.fillStyle = hollow ? "#000" : rgbCss(item.run.style.color);
           ctx.fillText(item.shown, 0, 0);
           if (bolder) {
             // In the run's own units, which its width and height scale
@@ -660,6 +662,18 @@
         });
       });
     });
+    // Photoshop's Fill: the letters at that much, their stroke whole. At 0% (a hollow text)
+    // the letters let the page through the stroke.
+    const fill = fillOf(layer);
+    if (fill < 1 && stroke) {
+      ctx.globalCompositeOperation = "destination-out";
+      letters(true);
+      ctx.globalCompositeOperation = "source-over";
+    }
+    if (fill > 0) {
+      ctx.globalAlpha = fill;
+      letters(false);
+    }
     ctx.restore();
   };
 
@@ -987,12 +1001,17 @@
     const pixels = clonedPixels(op, box, (c) => c.drawImage(live.coverage, entry.cx0, entry.cy0));
     entry.ctx.clearRect(box.left, box.top, box.width, box.height);
     entry.ctx.drawImage(live.base, box.left - entry.cx0, box.top - entry.cy0, box.width, box.height, box.left, box.top, box.width, box.height);
+    entry.ctx.globalCompositeOperation = op.atop ? "source-atop" : "source-over";
     entry.ctx.drawImage(pixels, box.left, box.top);
+    entry.ctx.globalCompositeOperation = "source-over";
   };
 
   // One painted thing on a layer, in the layer's own coordinates
   const drawOp = (ctx, op, points) => {
     ctx.save();
+    // On a layer whose transparent pixels are locked, paint goes only where there are pixels
+    const over = op.atop ? "source-atop" : "source-over";
+    ctx.globalCompositeOperation = over;
     if (op.t === "poly") {
       const xs = op.polygon.map((p) => p[0]);
       const ys = op.polygon.map((p) => p[1]);
@@ -1041,10 +1060,10 @@
           c.fillStyle = colorCss(op.color);
           c.fillRect(0, 0, shape.width, shape.height);
         }
-        ctx.globalCompositeOperation = op.erase ? "destination-out" : "source-over";
+        ctx.globalCompositeOperation = op.erase ? "destination-out" : over;
         ctx.drawImage(shape, left, top);
       } else {
-        ctx.globalCompositeOperation = op.erase ? "destination-out" : "source-over";
+        ctx.globalCompositeOperation = op.erase ? "destination-out" : over;
         ctx.strokeStyle = op.erase ? "#000" : colorCss(op.color);
         paintStroke(ctx, op, list);
       }
@@ -1061,7 +1080,7 @@
       }
       ctx.drawImage(shape, op.source.x, op.source.y);
     } else if (op.t === "fill" && !op.clip.canvas) {
-      ctx.globalCompositeOperation = op.erase ? "destination-out" : "source-over";
+      ctx.globalCompositeOperation = op.erase ? "destination-out" : over;
       ctx.fillStyle = op.erase ? "#000" : colorCss(op.color);
       ctx.fillRect(op.clip.x, op.clip.y, op.clip.width, op.clip.height);
     } else if (op.t === "fill") {
@@ -1081,18 +1100,20 @@
     ctx.restore();
   };
 
-  // Layer masks read from a PSD hold their value in the colour channels
+  // Layer masks read from a PSD hold their value in the colour channels: as alpha, a canvas
+  // can cut a picture with them. Kept by picture, which a moved mask still shares.
   const maskAlphas = new WeakMap();
   const maskAlpha = (mask) => {
-    let canvas = maskAlphas.get(mask);
+    const source = mask.canvas;
+    let canvas = maskAlphas.get(source);
     if (canvas) return canvas;
-    canvas = newCanvas(mask.canvas.width, mask.canvas.height);
+    canvas = newCanvas(source.width, source.height);
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(mask.canvas, 0, 0);
+    ctx.drawImage(source, 0, 0);
     const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
     for (let i = 0; i < image.data.length; i += 4) image.data[i + 3] = image.data[i];
     ctx.putImageData(image, 0, 0);
-    maskAlphas.set(mask, canvas);
+    maskAlphas.set(source, canvas);
     return canvas;
   };
 
@@ -1162,7 +1183,7 @@
       const previous = rasterCache.get(layer.id);
       if (previous) forgetRaster(layer.id, previous);
       const marks = entry ? entry.marks.filter((item) => item.bitmap === layer.bitmap && item.count <= paint.length && item.ops.every((op, i) => op === paint[i])) : [];
-      entry = { canvas, ctx, cx0, cy0, cx1, cy1, bitmap: layer.bitmap, paint: mark ? paint.slice(0, mark.count) : NONE, masked: null, docId: doc.id, marks, bytes: canvas.width * canvas.height * 4 * (1 + marks.length) };
+      entry = { canvas, ctx, cx0, cy0, cx1, cy1, bitmap: layer.bitmap, paint: mark ? paint.slice(0, mark.count) : NONE, version: 0, docId: doc.id, marks, bytes: canvas.width * canvas.height * 4 * (1 + marks.length) };
       rasterCache.set(layer.id, entry);
       rasterBytes += entry.bytes;
       keepRasterInBudget();
@@ -1173,42 +1194,23 @@
         if ((i + 1) % MARK_EVERY === 0) markRaster(entry, paint.slice(0, i + 1));
       }
       entry.paint = paint;
-      entry.masked = null;
+      entry.version++;
     }
     return entry;
   };
 
+  // Its mask is laid on it by visualOf, as on any layer. `version` tells a canvas painted on in
+  // place from the one it was.
   const rasterVisual = (layer, doc) => {
     const paint = layer.paint || NONE;
     const dx = layer.dx || 0;
     const dy = layer.dy || 0;
-    const live = doc.liveStroke && doc.liveStroke.layerId === layer.id;
-    const mask = layer.mask && layer.mask.canvas && !layer.mask.disabled ? layer.mask : null;
-    if (!paint.length && !mask && !live) {
+    const live = doc.liveStroke && doc.liveStroke.layerId === layer.id && !doc.liveStroke.target;
+    if (!paint.length && !live) {
       return layer.bitmap ? { canvas: layer.bitmap, x: (layer.left || 0) + dx, y: (layer.top || 0) + dy } : null;
     }
     const entry = rasterEntry(layer, doc);
-    if (!mask) return { canvas: entry.canvas, x: entry.cx0 + dx, y: entry.cy0 + dy };
-    if (!entry.masked) {
-      const final = newCanvas(entry.canvas.width, entry.canvas.height);
-      const c = final.getContext("2d");
-      c.drawImage(entry.canvas, 0, 0);
-      const alpha = newCanvas(final.width, final.height);
-      const a = alpha.getContext("2d");
-      if (mask.defaultColor) a.fillRect(0, 0, alpha.width, alpha.height);
-      a.translate(-entry.cx0, -entry.cy0);
-      a.clearRect(mask.left || 0, mask.top || 0, mask.canvas.width, mask.canvas.height);
-      a.drawImage(maskAlpha(mask), mask.left || 0, mask.top || 0);
-      c.globalCompositeOperation = "destination-in";
-      c.drawImage(alpha, 0, 0);
-      if (!entry.masked) {
-        entry.bytes += final.width * final.height * 4;
-        rasterBytes += final.width * final.height * 4;
-      }
-      entry.masked = final;
-      keepRasterInBudget();
-    }
-    return { canvas: entry.masked, x: entry.cx0 + dx, y: entry.cy0 + dy };
+    return { canvas: entry.canvas, x: entry.cx0 + dx, y: entry.cy0 + dy, version: entry.version };
   };
 
   // Photoshop's anti-aliasing methods, as curves on the coverage the browser draws.
@@ -1445,8 +1447,27 @@
     }
   };
 
+  const mixedTexts = new WeakMap();
   const textVisual = (layer, doc) => {
     if (layer.raster) return { canvas: layer.raster.display || layer.raster.bitmap, x: layer.raster.displayLeft !== undefined ? layer.raster.left + layer.raster.displayLeft : layer.raster.left, y: layer.raster.displayTop !== undefined ? layer.raster.top + layer.raster.displayTop : layer.raster.top };
+    // Fill between 0 and 100 %: the hollow text, then its letters at that much. Mixed after
+    // the anti-aliasing, which would bend a faded edge.
+    const amount = fillOf(layer);
+    if (amount > 0 && amount < 1) {
+      const hollow = textVisual(Object.assign({}, layer, { knockout: true, fill: undefined }), doc);
+      const solid = textVisual(Object.assign({}, layer, { knockout: false, fill: undefined, stroke: null }), doc);
+      const kept = mixedTexts.get(solid.canvas);
+      if (kept && kept.hollow === hollow.canvas && kept.amount === amount && kept.dx === solid.x - hollow.x && kept.dy === solid.y - hollow.y) return { canvas: kept.canvas, x: Math.min(hollow.x, solid.x), y: Math.min(hollow.y, solid.y) };
+      const x = Math.min(hollow.x, solid.x);
+      const y = Math.min(hollow.y, solid.y);
+      const canvas = newCanvas(Math.max(hollow.x + hollow.canvas.width, solid.x + solid.canvas.width) - x, Math.max(hollow.y + hollow.canvas.height, solid.y + solid.canvas.height) - y);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(hollow.canvas, hollow.x - x, hollow.y - y);
+      ctx.globalAlpha = amount;
+      ctx.drawImage(solid.canvas, solid.x - x, solid.y - y);
+      mixedTexts.set(solid.canvas, { hollow: hollow.canvas, amount, dx: solid.x - hollow.x, dy: solid.y - hollow.y, canvas });
+      return { canvas, x, y };
+    }
     const layout = layoutLayer(layer, doc);
     const relative = layout.relative;
     const stroke = layer.stroke && layer.stroke.enabled && layer.stroke.size > 0 ? layer.stroke : null;
@@ -1498,10 +1519,503 @@
     return { canvas: entry.canvas, x: Math.round(layout.anchor[0]) + entry.x, y: Math.round(layout.anchor[1]) + entry.y };
   };
 
+  /* ================================ masks ================================ */
+
+  // A layer mask shows a layer where it is white and hides it where it is black, as in
+  // Photoshop. It is kept as the file has it: grey in `canvas` (or no picture at all), with its
+  // top left at `left`, `top` and `defaultColor` all round it, `disabled`, `userMaskDensity`
+  // and `userMaskFeather`. What is painted on it since is in `paint`, in its own coordinates,
+  // so that moving it moves the strokes too. `unlinked`: it stays put when the layer moves.
+  // A vector mask (`layer.vectorMask`) is Photoshop's own, paths in page pixels.
+  const maskOn = (layer) => Boolean(layer && layer.mask && !layer.mask.disabled);
+  const vectorOn = (layer) => Boolean(layer && layer.vectorMask && !layer.vectorMask.disable && Array.isArray(layer.vectorMask.paths));
+  // A pixel layer carries its masks along when it moves by dx, dy
+  const maskShift = (layer) => (layer.kind === "raster" ? [layer.dx || 0, layer.dy || 0] : [0, 0]);
+  const maskOrigin = (layer, mask = layer.mask) => {
+    const [sx, sy] = maskShift(layer);
+    return [(mask.left || 0) + sx, (mask.top || 0) + sy];
+  };
+  // A grey as Photoshop paints it on a mask, from a colour
+  const grayOf = (color) => {
+    if (!color) return 0;
+    const r = color.red !== undefined ? color.red : color.r;
+    const g = color.green !== undefined ? color.green : color.g;
+    const b = color.blue !== undefined ? color.blue : color.b;
+    return Math.max(0, Math.min(255, Math.round(0.299 * r + 0.587 * g + 0.114 * b)));
+  };
+
+  // A stroke or a fill on a mask, held as alpha: where it passes, the alpha goes towards the
+  // grey it paints, as far as the brush covers. Nothing is ever just erased from a mask.
+  const maskDrawOp = (ctx, op, points) => {
+    let shape = null;
+    let x = 0;
+    let y = 0;
+    if (op.t === "stroke") {
+      if (!points) {
+        op.points.forEach((point, index) => maskDrawOp(ctx, op, index ? [op.points[index - 1], point] : [point]));
+        return;
+      }
+      const box = strokeBox(points, op.size);
+      shape = newCanvas(box.width, box.height);
+      const c = shape.getContext("2d");
+      c.translate(-box.left, -box.top);
+      c.strokeStyle = "#000";
+      paintStroke(c, op, points);
+      if (op.clip) {
+        c.globalCompositeOperation = "destination-in";
+        if (op.clip.canvas) c.drawImage(op.clip.canvas, op.clip.x, op.clip.y);
+        else c.fillRect(op.clip.x, op.clip.y, op.clip.width, op.clip.height);
+      }
+      x = box.left;
+      y = box.top;
+    } else if (op.t === "fill" && op.clip && op.clip.canvas) {
+      shape = op.clip.canvas;
+      x = op.clip.x;
+      y = op.clip.y;
+    } else if (op.t === "fill") {
+      ctx.save();
+      const r = op.clip;
+      const rect = r ? [r.x, r.y, r.width, r.height] : null;
+      if (!rect) ctx.setTransform(1, 0, 0, 1, 0, 0);
+      const area = rect || [0, 0, ctx.canvas.width, ctx.canvas.height];
+      ctx.clearRect(...area);
+      ctx.globalAlpha = op.gray / 255;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(...area);
+      ctx.restore();
+      return;
+    } else return;
+    ctx.save();
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.drawImage(shape, x, y);
+    if (op.gray > 0) {
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = op.gray / 255;
+      ctx.drawImage(shape, x, y);
+    }
+    ctx.restore();
+  };
+
+  // Something that holds a mask: a layer, or the Quick Mask (a page's own, at 0, 0)
+  const maskHolder = (doc, target, layerId) => {
+    if (target === "quick") return doc.state.quickMask ? { id: `quick:${doc.id}`, kind: "quick", mask: doc.state.quickMask } : null;
+    const layer = doc.state.layers.find((item) => item.id === layerId);
+    return layer && layer.mask ? layer : null;
+  };
+
+  // A painted mask keeps one canvas of alpha, over the page and its picture, and only draws
+  // what is new, as a painted layer does
+  const maskCache = new Map();
+  const maskEntry = (holder, doc) => {
+    const mask = holder.mask;
+    const paint = mask.paint || NONE;
+    const [ox, oy] = maskOrigin(holder);
+    const base = mask.canvas || null;
+    let entry = maskCache.get(holder.id);
+    const x0 = Math.floor(Math.min(-ox, base ? 0 : Infinity));
+    const y0 = Math.floor(Math.min(-oy, base ? 0 : Infinity));
+    const x1 = Math.ceil(Math.max(doc.width - ox, base ? base.width : -Infinity));
+    const y1 = Math.ceil(Math.max(doc.height - oy, base ? base.height : -Infinity));
+    const covers = entry && entry.x0 <= x0 && entry.y0 <= y0 && entry.x1 >= x1 && entry.y1 >= y1;
+    const usable = covers && entry.docId === doc.id && entry.base === base && entry.defaultColor === Boolean(mask.defaultColor) && entry.paint.length <= paint.length && entry.paint.every((op, i) => op === paint[i]);
+    if (!usable) {
+      const canvas = newCanvas(x1 - x0, y1 - y0);
+      const ctx = canvas.getContext("2d");
+      if (mask.defaultColor) ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.translate(-x0, -y0);
+      if (base) {
+        ctx.clearRect(0, 0, base.width, base.height);
+        ctx.drawImage(maskAlpha(mask), 0, 0);
+      }
+      entry = { canvas, ctx, x0, y0, x1, y1, base, defaultColor: Boolean(mask.defaultColor), paint: NONE, version: 0, docId: doc.id };
+      maskCache.set(holder.id, entry);
+      if (maskCache.size > 24) maskCache.delete(maskCache.keys().next().value);
+    }
+    if (entry.paint.length < paint.length) {
+      for (let i = entry.paint.length; i < paint.length; i++) maskDrawOp(entry.ctx, paint[i]);
+      entry.paint = paint;
+      entry.version++;
+    }
+    return entry;
+  };
+
+  // A Gaussian blur of `sigma` px on an alpha picture: the canvas's own filter where the
+  // browser has one, three box blurs otherwise
+  const canFilter = (() => {
+    try {
+      return typeof document.createElement("canvas").getContext("2d").filter === "string";
+    } catch (error) {
+      return false;
+    }
+  })();
+  const blurAlpha = (canvas, sigma) => {
+    const out = newCanvas(canvas.width, canvas.height);
+    const ctx = out.getContext("2d", { willReadFrequently: !canFilter });
+    if (canFilter) {
+      ctx.filter = `blur(${sigma}px)`;
+      ctx.drawImage(canvas, 0, 0);
+      ctx.filter = "none";
+      return out;
+    }
+    ctx.drawImage(canvas, 0, 0);
+    const w = out.width;
+    const h = out.height;
+    const image = ctx.getImageData(0, 0, w, h);
+    let a = new Float32Array(w * h);
+    for (let i = 0; i < a.length; i++) a[i] = image.data[i * 4 + 3];
+    let b = new Float32Array(w * h);
+    const r = Math.max(1, Math.round(Math.sqrt((12 * sigma * sigma) / 3 + 1) / 2));
+    const pass = (from, to, horizontal) => {
+      const n = horizontal ? w : h;
+      const lines = horizontal ? h : w;
+      for (let line = 0; line < lines; line++) {
+        const at = (k) => (horizontal ? line * w + k : k * w + line);
+        let sum = 0;
+        for (let k = -r; k <= r; k++) sum += from[at(Math.max(0, Math.min(n - 1, k)))];
+        for (let k = 0; k < n; k++) {
+          to[at(k)] = sum / (2 * r + 1);
+          sum += from[at(Math.min(n - 1, k + r + 1))] - from[at(Math.max(0, k - r))];
+        }
+      }
+    };
+    for (let i = 0; i < 3; i++) {
+      pass(a, b, true);
+      pass(b, a, false);
+    }
+    for (let i = 0; i < a.length; i++) {
+      image.data[i * 4] = image.data[i * 4 + 1] = image.data[i * 4 + 2] = 0;
+      image.data[i * 4 + 3] = Math.round(a[i]);
+    }
+    ctx.putImageData(image, 0, 0);
+    b = null;
+    a = null;
+    return out;
+  };
+
+  // Density and Feather (Properties > Masks): black lets 100 - density % through, and the
+  // edges blur by the feather's width. `outside` is what the mask is all round its picture.
+  const softened = new WeakMap();
+  const softenedMask = (picture, density, feather) => {
+    if (density >= 1 && !(feather > 0)) return picture;
+    const key = [picture.version || 0, picture.x, picture.y, picture.outside, density, feather].join(",");
+    const kept = softened.get(picture.canvas || softened);
+    if (kept && kept.key === key) return kept.picture;
+    const outside = 1 - density * (1 - picture.outside);
+    let result;
+    if (!picture.canvas) result = { canvas: null, x: 0, y: 0, outside };
+    else {
+      const pad = feather > 0 ? Math.ceil(feather * 3) + 2 : 0;
+      const canvas = newCanvas(picture.canvas.width + pad * 2, picture.canvas.height + pad * 2);
+      const c = canvas.getContext("2d");
+      c.globalAlpha = 1 - density;
+      c.fillRect(0, 0, canvas.width, canvas.height);
+      c.globalAlpha = 1;
+      if (pad) {
+        // The edge of the picture blurs into what is round it, not into nothing
+        const ring = newCanvas(canvas.width, canvas.height);
+        const r = ring.getContext("2d");
+        r.globalAlpha = picture.outside;
+        r.fillRect(0, 0, ring.width, ring.height);
+        r.globalAlpha = 1;
+        r.clearRect(pad, pad, picture.canvas.width, picture.canvas.height);
+        r.drawImage(picture.canvas, pad, pad);
+        c.drawImage(ring, 0, 0);
+      } else c.drawImage(picture.canvas, 0, 0);
+      result = { canvas: feather > 0 ? blurAlpha(canvas, feather) : canvas, x: picture.x - pad, y: picture.y - pad, outside };
+    }
+    softened.set(picture.canvas || softened, { key, picture: result });
+    return result;
+  };
+
+  // A pixel mask as alpha on the page: { canvas, x, y, outside, version }
+  const maskPicture = (holder, doc, raw) => {
+    const mask = holder.mask;
+    const [ox, oy] = maskOrigin(holder);
+    const live = doc.liveStroke && doc.liveStroke.target && doc.liveStroke.holderId === holder.id;
+    let picture;
+    if ((mask.paint && mask.paint.length) || live) {
+      const entry = maskEntry(holder, doc);
+      picture = { canvas: entry.canvas, x: ox + entry.x0, y: oy + entry.y0, outside: mask.defaultColor ? 1 : 0, version: entry.version };
+    } else if (mask.canvas && mask.canvas.width && mask.canvas.height) picture = { canvas: maskAlpha(mask), x: ox, y: oy, outside: mask.defaultColor ? 1 : 0, version: 0 };
+    else picture = { canvas: null, x: 0, y: 0, outside: mask.defaultColor ? 1 : 0, version: 0 };
+    if (raw) return picture;
+    const density = mask.userMaskDensity === undefined ? 1 : mask.userMaskDensity;
+    return softenedMask(picture, density, mask.userMaskFeather || 0);
+  };
+
+  // A vector mask's paths, each a Bézier outline. Components follow one another as Photoshop's
+  // path operations: combine, subtract, intersect, exclude.
+  const tracePaths = (target, paths, dx, dy) => {
+    paths.forEach((path) => {
+      const knots = path.knots || [];
+      if (!knots.length) return;
+      const point = (k, i) => [k.points[i] + dx, k.points[i + 1] + dy];
+      target.moveTo(...point(knots[0], 2));
+      for (let i = 1; i <= knots.length; i++) {
+        if (i === knots.length && path.open) break;
+        const a = knots[i - 1];
+        const b = knots[i % knots.length];
+        target.bezierCurveTo(...point(a, 4), ...point(b, 0), ...point(b, 2));
+      }
+      if (!path.open) target.closePath();
+    });
+  };
+  const vectorComponents = (vm) => {
+    const out = [];
+    (vm.paths || []).forEach((path) => {
+      if (path.operation || !out.length) out.push({ operation: path.operation || "combine", paths: [path] });
+      else out[out.length - 1].paths.push(path);
+    });
+    return out;
+  };
+  const vectorBounds = (vm, dx, dy) => {
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    (vm.paths || []).forEach((path) => (path.knots || []).forEach((knot) => {
+      for (let i = 0; i < 6; i += 2) {
+        left = Math.min(left, knot.points[i] + dx);
+        right = Math.max(right, knot.points[i] + dx);
+        top = Math.min(top, knot.points[i + 1] + dy);
+        bottom = Math.max(bottom, knot.points[i + 1] + dy);
+      }
+    }));
+    return left > right ? null : { left: Math.floor(left) - 2, top: Math.floor(top) - 2, right: Math.ceil(right) + 2, bottom: Math.ceil(bottom) + 2 };
+  };
+  const vectorPictures = new WeakMap();
+  const vectorPicture = (layer) => {
+    const vm = layer.vectorMask;
+    const [dx, dy] = maskShift(layer);
+    const kept = vectorPictures.get(vm);
+    if (kept && kept.dx === dx && kept.dy === dy) return kept.picture;
+    // What the paths make far from them: the page is all there at the start, or nothing
+    let outside = vm.fillStartsWithAllPixels ? 1 : 0;
+    const parts = vectorComponents(vm);
+    parts.forEach(({ operation }) => { if (operation === "intersect") outside = 0; });
+    const box = vectorBounds(vm, dx, dy);
+    let picture;
+    if (!box) picture = { canvas: null, x: 0, y: 0, outside: vm.invert ? 1 - outside : outside, version: 0 };
+    else {
+      const canvas = newCanvas(box.right - box.left, box.bottom - box.top);
+      const c = canvas.getContext("2d");
+      if (vm.fillStartsWithAllPixels) c.fillRect(0, 0, canvas.width, canvas.height);
+      parts.forEach(({ operation, paths }) => {
+        const shape = new Path2D();
+        tracePaths(shape, paths, dx - box.left, dy - box.top);
+        const rule = paths[0].fillRule === "non-zero" ? "nonzero" : "evenodd";
+        c.globalCompositeOperation = operation === "subtract" ? "destination-out" : operation === "intersect" ? "destination-in" : operation === "exclude" ? "xor" : "source-over";
+        c.fill(shape, rule);
+      });
+      if (vm.invert) {
+        c.globalCompositeOperation = "xor";
+        c.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      picture = { canvas, x: box.left, y: box.top, outside: vm.invert ? 1 - outside : outside, version: 0 };
+    }
+    const density = vm.density === undefined ? 1 : vm.density;
+    picture = softenedMask(picture, density, vm.feather || 0);
+    vectorPictures.set(vm, { dx, dy, picture });
+    return picture;
+  };
+
+  // A layer with a mask that stays put when the layer moves
+  const looseMasks = (layer) => Boolean((maskOn(layer) && layer.mask.unlinked) || (vectorOn(layer) && layer.vectorMask.notLink));
+  // Cuts a picture that sits at (x, y) of the page with a mask
+  const cutWith = (ctx, width, height, x, y, picture) => {
+    if (picture.outside >= 1 && !picture.canvas) return;
+    const alpha = newCanvas(width, height);
+    const a = alpha.getContext("2d");
+    if (picture.outside > 0) {
+      a.globalAlpha = picture.outside;
+      a.fillRect(0, 0, width, height);
+      a.globalAlpha = 1;
+    }
+    if (picture.canvas) {
+      a.clearRect(picture.x - x, picture.y - y, picture.canvas.width, picture.canvas.height);
+      a.drawImage(picture.canvas, picture.x - x, picture.y - y);
+    }
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "destination-in";
+    ctx.drawImage(alpha, 0, 0);
+    ctx.restore();
+  };
+  const masksKey = (layer, doc) => {
+    const parts = [];
+    if (maskOn(layer)) {
+      const p = maskPicture(layer, doc);
+      parts.push("m", identity(p.canvas || NONE), p.x, p.y, p.outside, p.version || 0);
+    }
+    if (vectorOn(layer)) {
+      const p = vectorPicture(layer);
+      parts.push("v", identity(p.canvas || NONE), p.x, p.y, p.outside);
+    }
+    return parts.join(",");
+  };
+  // What a layer shows through its masks. The last pictures are kept, keyed by what made them.
+  const maskedVisuals = new Map();
+  const applyMasks = (visual, layer, doc) => {
+    if (!visual || !visual.canvas || (!maskOn(layer) && !vectorOn(layer))) return visual;
+    const key = [identity(visual.canvas), visual.version || 0, visual.x, visual.y, masksKey(layer, doc)].join("|");
+    const kept = maskedVisuals.get(layer.id);
+    if (kept && kept.key === key) return kept.visual;
+    const canvas = newCanvas(visual.canvas.width, visual.canvas.height);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(visual.canvas, 0, 0);
+    if (maskOn(layer)) cutWith(ctx, canvas.width, canvas.height, visual.x, visual.y, maskPicture(layer, doc));
+    if (vectorOn(layer)) cutWith(ctx, canvas.width, canvas.height, visual.x, visual.y, vectorPicture(layer));
+    const masked = { canvas, x: visual.x, y: visual.y };
+    maskedVisuals.delete(layer.id);
+    maskedVisuals.set(layer.id, { key, visual: masked });
+    if (maskedVisuals.size > 32) maskedVisuals.delete(maskedVisuals.keys().next().value);
+    return masked;
+  };
+
+  // A mask's alpha over a part of the page, as a canvas of the part's size
+  const maskOverPage = (picture, left, top, width, height) => {
+    const canvas = newCanvas(width, height);
+    const c = canvas.getContext("2d");
+    if (picture.outside > 0) {
+      c.globalAlpha = picture.outside;
+      c.fillRect(0, 0, width, height);
+      c.globalAlpha = 1;
+    }
+    if (picture.canvas) {
+      c.clearRect(picture.x - left, picture.y - top, picture.canvas.width, picture.canvas.height);
+      c.drawImage(picture.canvas, picture.x - left, picture.y - top);
+    }
+    return canvas;
+  };
+  // Grey, as the Layers panel and Alt + click show a mask: white where it shows the layer
+  const maskAsGray = (alpha) => {
+    const canvas = newCanvas(alpha.width, alpha.height);
+    const c = canvas.getContext("2d");
+    c.drawImage(alpha, 0, 0);
+    c.globalCompositeOperation = "source-in";
+    c.fillStyle = "#fff";
+    c.fillRect(0, 0, canvas.width, canvas.height);
+    c.globalCompositeOperation = "destination-over";
+    c.fillStyle = "#000";
+    c.fillRect(0, 0, canvas.width, canvas.height);
+    return canvas;
+  };
+  // The grey picture a PSD keeps of a mask, cut to where it differs from its colour all round
+  const maskForFile = (picture, defaultColor) => {
+    if (!picture.canvas) return null;
+    const { width, height } = picture.canvas;
+    const data = picture.canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, width, height).data;
+    const around = defaultColor ? 255 : 0;
+    let x0 = width;
+    let y0 = height;
+    let x1 = -1;
+    let y1 = -1;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (data[(y * width + x) * 4 + 3] === around) continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+    if (x1 < 0) return null;
+    const w = x1 - x0 + 1;
+    const h = y1 - y0 + 1;
+    const canvas = newCanvas(w, h);
+    const c = canvas.getContext("2d");
+    const image = c.createImageData(w, h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const v = data[((y + y0) * width + x + x0) * 4 + 3];
+        const i = (y * w + x) * 4;
+        image.data[i] = image.data[i + 1] = image.data[i + 2] = v;
+        image.data[i + 3] = 255;
+      }
+    }
+    c.putImageData(image, 0, 0);
+    return { canvas, left: picture.x + x0, top: picture.y + y0 };
+  };
+  // A mask with everything painted on it made part of its picture, on the page at (0, 0) of a
+  // layer that hasn't moved. Undo keeps the old one.
+  const settledMask = (layer, doc) => {
+    const mask = layer.mask;
+    if (!mask) return null;
+    const [sx, sy] = maskShift(layer);
+    const picture = maskPicture(layer, doc, true);
+    const file = maskForFile(picture, mask.defaultColor);
+    const out = Object.assign({}, mask, { paint: NONE, canvas: file ? file.canvas : null, left: file ? file.left - sx : 0, top: file ? file.top - sy : 0 });
+    out.right = out.left + (file ? file.canvas.width : 0);
+    out.bottom = out.top + (file ? file.canvas.height : 0);
+    return out;
+  };
+  // The same, in page coordinates: for a pixel layer whose pictures start again at dx = dy = 0
+  const pageMask = (layer, doc) => {
+    if (!layer.mask) return null;
+    const m = layer.mask.paint && layer.mask.paint.length ? settledMask(layer, doc) : layer.mask;
+    const [sx, sy] = maskShift(layer);
+    if (!sx && !sy) return m;
+    return Object.assign({}, m, { left: (m.left || 0) + sx, top: (m.top || 0) + sy, right: (m.right || 0) + sx, bottom: (m.bottom || 0) + sy });
+  };
+  // A vector mask with each point of its paths moved by `f`
+  const mappedVector = (vm, f) => Object.assign({}, vm, {
+    paths: (vm.paths || []).map((path) => Object.assign({}, path, {
+      knots: (path.knots || []).map((knot) => {
+        const points = knot.points.slice();
+        for (let i = 0; i < 6; i += 2) [points[i], points[i + 1]] = f(points[i], points[i + 1]);
+        return Object.assign({}, knot, { points });
+      }),
+    })),
+  });
+  const shiftedVector = (vm, dx, dy) => (dx || dy ? mappedVector(vm, (x, y) => [x + dx, y + dy]) : vm);
+  // A layer's masks moved by dx, dy with it, or with the whole page (`all`): unlinked, a mask
+  // stays where it is when only its layer moves
+  const movedMasks = (layer, dx, dy, all) => {
+    const out = {};
+    const raster = layer.kind === "raster";
+    const mask = layer.mask;
+    if (mask && (raster ? !all && mask.unlinked : all || !mask.unlinked)) {
+      const k = raster ? -1 : 1;
+      out.mask = Object.assign({}, mask, { left: (mask.left || 0) + dx * k, top: (mask.top || 0) + dy * k, right: (mask.right || 0) + dx * k, bottom: (mask.bottom || 0) + dy * k });
+    }
+    const vm = layer.vectorMask;
+    if (vm && (raster ? !all && vm.notLink : all || !vm.notLink)) out.vectorMask = raster ? shiftedVector(vm, -dx, -dy) : shiftedVector(vm, dx, dy);
+    return out;
+  };
+  // Both masks at a new size of the page, for a layer drawn again at dx = dy = 0
+  const scaledMasks = (layer, doc, sx, sy) => {
+    const out = {};
+    if (layer.mask) {
+      const m = pageMask(layer, doc);
+      if (m.canvas) {
+        const p = scaledPixels(m.canvas, m.left || 0, m.top || 0, sx, sy);
+        out.mask = Object.assign({}, m, { canvas: p.canvas, left: p.left, top: p.top, right: p.left + p.canvas.width, bottom: p.top + p.canvas.height });
+      } else out.mask = Object.assign({}, m, { left: 0, top: 0 });
+    }
+    if (layer.vectorMask) {
+      const [ax, ay] = maskShift(layer);
+      out.vectorMask = mappedVector(layer.vectorMask, (x, y) => [(x + ax) * sx, (y + ay) * sy]);
+    }
+    return out;
+  };
+
   const visualOf = (layer, doc) => {
-    if (layer.kind === "text") return textVisual(layer, doc);
-    if (layer.kind === "raster") return rasterVisual(layer, doc);
-    return null;
+    const visual = layer.kind === "text" ? textVisual(layer, doc) : layer.kind === "raster" ? fadedVisual(rasterVisual(layer, doc), fillOf(layer)) : null;
+    return applyMasks(visual, layer, doc);
+  };
+  // A pixel layer has no stroke here: its Fill fades its pixels, kept by picture
+  const faded = new WeakMap();
+  const fadedVisual = (visual, fill) => {
+    if (!visual || fill >= 1) return visual;
+    const kept = faded.get(visual.canvas);
+    if (kept && kept.version === (visual.version || 0) && kept.fill === fill) return Object.assign({}, visual, { canvas: kept.canvas });
+    const canvas = newCanvas(visual.canvas.width, visual.canvas.height);
+    const ctx = canvas.getContext("2d");
+    ctx.globalAlpha = fill;
+    ctx.drawImage(visual.canvas, 0, 0);
+    faded.set(visual.canvas, { version: visual.version || 0, fill, canvas });
+    return Object.assign({}, visual, { canvas });
   };
 
   const BLENDS = { normal: "source-over", "pass through": "source-over", dissolve: "source-over", multiply: "multiply", screen: "screen", overlay: "overlay", darken: "darken", lighten: "lighten", "color dodge": "color-dodge", "color burn": "color-burn", "linear dodge": "lighter", "hard light": "hard-light", "soft light": "soft-light", difference: "difference", exclusion: "exclusion", hue: "hue", saturation: "saturation", color: "color", luminosity: "luminosity" };
@@ -1519,18 +2033,41 @@
     return { visible: layer.visible !== false, opacity };
   };
 
+  // Clipping masks: a layer marked `clipping` shows only where the layer under it in the same
+  // folder shows (its base), as do the clipped layers between them. A folder can be a base,
+  // and is then drawn as one picture; a folder itself is never clipped here. A clipped layer
+  // with nothing under it in its folder is drawn as any other, as Photoshop would release it.
+  const clipInfos = new WeakMap();
+  const clippingOf = (layers) => {
+    let info = clipInfos.get(layers);
+    if (info) return info;
+    info = { clipped: new Set(), bases: new Set(), baseOf: new Map() };
+    for (let i = 1; i < layers.length; i++) {
+      const layer = layers[i];
+      const below = layers[i - 1];
+      if (!layer.clipping || layer.kind === "group" || (below.group || null) !== (layer.group || null)) continue;
+      const base = info.clipped.has(below.id) ? info.baseOf.get(below.id) : below;
+      info.clipped.add(layer.id);
+      info.baseOf.set(layer.id, base);
+      if (base.kind === "group") info.bases.add(base.id);
+    }
+    clipInfos.set(layers, info);
+    return info;
+  };
+
   // A folder with a layer style of its own, as an SFX gets: its stroke goes around everything
   // inside it at once, so letters that overlap make one shape. Such a folder is drawn as one
-  // picture, its layers first, then its stroke, its Fill at 0% and its mask.
+  // picture, its layers first, then its stroke, its Fill at 0% and its masks. So is a folder
+  // that is a clipping base.
   const groupStroke = (layer) => (layer.stroke && layer.stroke.enabled && layer.stroke.size > 0 ? layer.stroke : null);
-  const isStyledGroup = (layer) => layer.kind === "group" && Boolean(groupStroke(layer) || layer.knockout || (layer.mask && layer.mask.canvas && !layer.mask.disabled));
+  const isStyledGroup = (layer, layers) => layer.kind === "group" && Boolean(groupStroke(layer) || fillOf(layer) < 1 || maskOn(layer) || vectorOn(layer) || (layers && clippingOf(layers).bases.has(layer.id)));
   // The outermost styled folder a layer is in, if any
-  const styledParentOf = (layer, byId) => {
+  const styledParentOf = (layer, byId, layers) => {
     let found = null;
     for (let id = layer.group; id; ) {
       const parent = byId.get(id);
       if (!parent) break;
-      if (isStyledGroup(parent)) found = parent;
+      if (isStyledGroup(parent, layers)) found = parent;
       id = parent.group;
     }
     return found;
@@ -1552,29 +2089,47 @@
     c.fillRect(0, 0, ring.width, ring.height);
     into.getContext("2d").drawImage(ring, 0, 0);
   };
+  // A base with its clipped layers on it, as one picture of the base's size. A clipped layer
+  // in Normal mode lands on the base's pixels only; in another mode it blends, then what went
+  // past the base is cut off.
+  const withClipped = (base, clips) => {
+    const canvas = newCanvas(base.canvas.width, base.canvas.height);
+    const c = canvas.getContext("2d");
+    c.drawImage(base.canvas, 0, 0);
+    let shape = null;
+    clips.forEach(({ visual, alpha, blend }) => {
+      c.globalAlpha = alpha;
+      if (blend === "source-over") {
+        c.globalCompositeOperation = "source-atop";
+        c.drawImage(visual.canvas, visual.x - base.x, visual.y - base.y);
+        return;
+      }
+      if (!shape) {
+        shape = newCanvas(canvas.width, canvas.height);
+        shape.getContext("2d").drawImage(base.canvas, 0, 0);
+      }
+      c.globalCompositeOperation = blend;
+      c.drawImage(visual.canvas, visual.x - base.x, visual.y - base.y);
+      c.globalAlpha = 1;
+      c.globalCompositeOperation = "destination-in";
+      c.drawImage(shape, 0, 0);
+    });
+    return { canvas, x: base.x, y: base.y };
+  };
   const groupVisuals = new Map();
   // `still`: the folder moves as a whole, so its picture is the one it has at rest
   // `skip`: layers to leave out (the Magic Wand reads the page without its text)
   const groupVisual = (group, doc, still, skip) => {
-    const layers = doc.state.layers;
+    const layers = doc.orderPreview || doc.state.layers;
+    const blendOf = (layer) => BLENDS[doc.blendPreview && doc.blendPreview.ids.has(layer.id) ? doc.blendPreview.blend : layer.blend] || "source-over";
     const byId = new Map(layers.map((layer) => [layer.id, layer]));
     const members = familyOf(layers, group.id);
+    const clip = clippingOf(layers);
     const live = !still && doc.live ? doc.live : null;
     const parts = [];
-    const nested = new Set();
-    layers.forEach((layer) => {
-      if (layer.id === group.id || !members.has(layer.id)) return;
-      const styled = styledParentOf(layer, byId);
-      if (layer.kind === "group") {
-        if (styled === group && isStyledGroup(layer) && chainOf(layer, byId).visible) {
-          nested.add(layer.id);
-          const visual = groupVisual(layer, doc, still, skip);
-          if (visual) parts.push({ visual, alpha: layer.opacity === undefined ? 1 : layer.opacity, blend: BLENDS[layer.blend] || "source-over", key: "g" + layer.id });
-        }
-        return;
-      }
-      if (styled !== group || layer.clipping || (skip && skip(layer))) return;
-      // Its visibility inside the folder: the folder's own opacity is applied to the whole
+    const partOf = new Map();
+    // Its visibility inside the folder: the folder's own opacity is applied to the whole
+    const inside = (layer) => {
       let visible = layer.visible !== false;
       let opacity = layer.opacity === undefined ? 1 : layer.opacity;
       for (let id = layer.group; id && id !== group.id; ) {
@@ -1584,17 +2139,49 @@
         opacity *= parent.opacity === undefined ? 1 : parent.opacity;
         id = parent.group;
       }
+      return { visible, opacity };
+    };
+    const shown = (layer) => {
+      const moving = live && live.ids.has(layer.id);
+      const loose = moving && looseMasks(layer);
+      const visual = visualOf(loose ? shifted(layer, Math.round(live.dx), Math.round(live.dy), doc) : doc.preview && doc.preview.id === layer.id ? doc.preview : layer, doc);
+      if (!visual || !visual.canvas || !visual.canvas.width) return null;
+      const dx = moving && !loose ? Math.round(live.dx) : 0;
+      const dy = moving && !loose ? Math.round(live.dy) : 0;
+      return { canvas: visual.canvas, x: visual.x + dx, y: visual.y + dy, key: identity(visual.canvas) + "." + (visual.version || 0) };
+    };
+    layers.forEach((layer) => {
+      if (layer.id === group.id || !members.has(layer.id)) return;
+      const styled = styledParentOf(layer, byId, layers);
+      if (layer.kind === "group") {
+        if (styled === group && isStyledGroup(layer, layers) && chainOf(layer, byId).visible && inside(layer).visible) {
+          const visual = groupVisual(layer, doc, still, skip);
+          if (visual) {
+            const part = { visual, alpha: layer.opacity === undefined ? 1 : layer.opacity, blend: blendOf(layer), key: "g" + layer.id + "." + identity(visual.canvas), clips: [] };
+            parts.push(part);
+            partOf.set(layer.id, part);
+          }
+        }
+        return;
+      }
+      if (styled !== group || (skip && skip(layer))) return;
+      const { visible, opacity } = inside(layer);
       if (!visible) return;
-      const visual = visualOf(doc.preview && doc.preview.id === layer.id ? doc.preview : layer, doc);
-      if (!visual || !visual.canvas || !visual.canvas.width) return;
-      const dx = live && live.ids.has(layer.id) ? Math.round(live.dx) : 0;
-      const dy = live && live.ids.has(layer.id) ? Math.round(live.dy) : 0;
-      parts.push({ visual: { canvas: visual.canvas, x: visual.x + dx, y: visual.y + dy }, alpha: opacity, blend: BLENDS[layer.blend] || "source-over", key: identity(visual.canvas) });
+      const visual = shown(layer);
+      if (!visual) return;
+      const blend = blendOf(layer);
+      if (clip.clipped.has(layer.id)) {
+        const base = partOf.get(clip.baseOf.get(layer.id).id);
+        if (base) base.clips.push({ visual, alpha: layer.opacity === undefined ? 1 : layer.opacity, blend });
+        return;
+      }
+      const part = { visual, alpha: opacity, blend, key: visual.key, clips: [] };
+      parts.push(part);
+      partOf.set(layer.id, part);
     });
     if (!parts.length) return null;
     const stroke = groupStroke(group);
-    const mask = group.mask && group.mask.canvas && !group.mask.disabled ? group.mask : null;
-    const key = parts.map((part) => [part.key, part.visual.x, part.visual.y, part.alpha, part.blend].join(",")).join(";") + "|" + JSON.stringify(stroke) + "|" + Boolean(group.knockout) + "|" + identity(mask);
+    const key = parts.map((part) => [part.key, part.visual.x, part.visual.y, part.alpha, part.blend, part.clips.map((item) => [item.visual.key, item.visual.x, item.visual.y, item.alpha, item.blend].join(":")).join("/")].join(",")).join(";") + "|" + JSON.stringify(stroke) + "|" + fillOf(group) + "|" + masksKey(group, doc);
     const kept = skip ? null : groupVisuals.get(group.id);
     if (kept && kept.key === key) return kept.visual;
     let left = Infinity;
@@ -1610,37 +2197,38 @@
     const pad = Math.ceil(strokeReach(stroke)) + 2;
     const fill = newCanvas(right - left + pad * 2, bottom - top + pad * 2);
     const f = fill.getContext("2d");
-    parts.forEach(({ visual, alpha, blend }) => {
+    parts.forEach(({ visual, alpha, blend, clips }) => {
+      const drawn = clips.length ? withClipped(visual, clips) : visual;
       f.globalAlpha = alpha;
       f.globalCompositeOperation = blend;
-      f.drawImage(visual.canvas, visual.x - left + pad, visual.y - top + pad);
+      f.drawImage(drawn.canvas, drawn.x - left + pad, drawn.y - top + pad);
     });
     f.globalAlpha = 1;
     f.globalCompositeOperation = "source-over";
     let out = fill;
-    if (stroke || group.knockout) {
+    const amount = fillOf(group);
+    if (stroke || amount < 1) {
       out = newCanvas(fill.width, fill.height);
       const o = out.getContext("2d");
       if (stroke) {
         if (stroke.outer && stroke.outer.size > 0) ringOf(fill, 0, strokeReach(stroke), stroke.outer.color, out);
         ringOf(fill, 0, stroke.size, stroke.color, out);
       }
-      o.globalCompositeOperation = group.knockout ? "destination-out" : "source-over";
-      o.drawImage(fill, 0, 0);
-      o.globalCompositeOperation = "source-over";
+      // Fill: what the folder holds at that much over its stroke, which stays whole
+      if (amount < 1 && stroke) {
+        o.globalCompositeOperation = "destination-out";
+        o.drawImage(fill, 0, 0);
+        o.globalCompositeOperation = "source-over";
+      }
+      if (amount > 0) {
+        o.globalAlpha = amount;
+        o.drawImage(fill, 0, 0);
+        o.globalAlpha = 1;
+      }
     }
-    if (mask) {
-      const alpha = newCanvas(out.width, out.height);
-      const a = alpha.getContext("2d");
-      if (mask.defaultColor) a.fillRect(0, 0, alpha.width, alpha.height);
-      a.translate(pad - left, pad - top);
-      a.clearRect(mask.left || 0, mask.top || 0, mask.canvas.width, mask.canvas.height);
-      a.drawImage(maskAlpha(mask), mask.left || 0, mask.top || 0);
-      const o = out.getContext("2d");
-      o.globalCompositeOperation = "destination-in";
-      o.drawImage(alpha, 0, 0);
-      o.globalCompositeOperation = "source-over";
-    }
+    const o = out.getContext("2d");
+    if (maskOn(group)) cutWith(o, out.width, out.height, left - pad, top - pad, maskPicture(group, doc));
+    if (vectorOn(group)) cutWith(o, out.width, out.height, left - pad, top - pad, vectorPicture(group));
     const visual = { canvas: out, x: left - pad, y: top - pad };
     if (skip) return visual;
     if (groupVisuals.size > 200) groupVisuals.clear();
@@ -1648,19 +2236,77 @@
     return visual;
   };
 
+  // On screen only: a mask shown alone in grey (Alt + click on it), or in red over the page
+  // (\), and the Quick Mask in red where the selection isn't
+  const MASK_RED = "rgb(255,0,0)";
+  const drawMaskViews = (doc, ctx, rect) => {
+    const area = rect ? { left: Math.max(0, Math.floor(rect.left)), top: Math.max(0, Math.floor(rect.top)), right: Math.min(doc.width, Math.ceil(rect.right)), bottom: Math.min(doc.height, Math.ceil(rect.bottom)) } : { left: 0, top: 0, right: doc.width, bottom: doc.height };
+    const width = area.right - area.left;
+    const height = area.bottom - area.top;
+    if (width <= 0 || height <= 0) return;
+    const red = (picture) => {
+      const alpha = maskOverPage(picture, area.left, area.top, width, height);
+      const tint = newCanvas(width, height);
+      const t = tint.getContext("2d");
+      t.fillStyle = MASK_RED;
+      t.fillRect(0, 0, width, height);
+      t.globalCompositeOperation = "destination-out";
+      t.drawImage(alpha, 0, 0);
+      ctx.globalAlpha = 0.5;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.drawImage(tint, area.left, area.top);
+      ctx.globalAlpha = 1;
+    };
+    // Shown while its mask stays the one the brushes work on
+    const target = ops.maskTarget(doc);
+    const view = doc.maskView && target && target.id === doc.maskView.id && target.part === doc.maskView.part ? doc.maskView : null;
+    const layer = view && target.layer;
+    if (layer && (view.part === "vector" ? layer.vectorMask : layer.mask)) {
+      const picture = view.part === "vector" ? vectorPicture(Object.assign({}, layer, { vectorMask: Object.assign({}, layer.vectorMask, { disable: false }) })) : maskPicture(layer, doc, true);
+      if (view.mode === "alone") {
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+        ctx.drawImage(maskAsGray(maskOverPage(picture, area.left, area.top, width, height)), area.left, area.top);
+      } else red(picture);
+    }
+    const quick = maskHolder(doc, "quick");
+    if (quick) red(maskPicture(quick, doc, true));
+  };
+
+  // On screen only: a layer that isn't one yet, such as the Bubble Reshaper's bubble being
+  // shaped. It goes in place of the layer it `replaces`, or under the layer `before`.
+  const withExtra = (doc) => {
+    const { layer, before, replaces } = doc.extra;
+    const list = doc.state.layers.slice();
+    let at = replaces ? list.findIndex((item) => item.id === replaces) : -1;
+    if (at >= 0) list.splice(at, 1);
+    else at = before ? list.findIndex((item) => item.id === before) : -1;
+    list.splice(at < 0 ? list.length : at, 0, layer);
+    return list;
+  };
+
   let scratch = null;
+  let scratchShape = null;
   // `rect` redoes only that part of a canvas that already shows this document: what a drag
   // changes on a page 10000 pixels tall is small, and the rest of the page costs nothing.
+  // `screen`: the canvas the user sees, with the mask views on it.
   const paintDoc = (doc, ctx, options = {}) => {
-    const layers = doc.state.layers;
+    // On screen, layers being dragged in the panel show where they would land
+    const layers = options.screen && doc.orderPreview ? doc.orderPreview : options.screen && doc.extra ? withExtra(doc) : doc.state.layers;
+    const blendOf = (layer) => BLENDS[doc.blendPreview && doc.blendPreview.ids.has(layer.id) ? doc.blendPreview.blend : layer.blend] || "source-over";
     const byId = new Map(layers.map((layer) => [layer.id, layer]));
     const live = doc.live;
     const rect = options.rect || null;
+    const clip = clippingOf(layers);
     const place = (layer, target, alpha, blend) => {
-      const visual = visualOf(doc.preview && doc.preview.id === layer.id ? doc.preview : layer, doc);
+      // A layer whose mask isn't linked moves under its mask, which stays
+      const moving = live && live.ids.has(layer.id);
+      const loose = moving && looseMasks(layer);
+      const shown = loose ? shifted(layer, Math.round(live.dx), Math.round(live.dy), doc) : doc.preview && doc.preview.id === layer.id ? doc.preview : layer;
+      const visual = visualOf(shown, doc);
       if (!visual || !visual.canvas || !visual.canvas.width) return;
       let { x, y } = visual;
-      if (live && live.ids.has(layer.id)) {
+      if (moving && !loose) {
         x += Math.round(live.dx);
         y += Math.round(live.dy);
       }
@@ -1684,6 +2330,27 @@
       target.drawImage(visual.canvas, x, y);
       target.restore();
     };
+    // A styled folder, drawn as one picture
+    const placeGroup = (layer, target, alpha, blend) => {
+      // Moved whole, it keeps its picture: the stroke isn't drawn again at every step
+      const family = Array.from(familyOf(layers, layer.id)).filter((id) => byId.get(id).kind !== "group");
+      const whole = (set) => set && family.length && family.every((id) => set.has(id));
+      const moving = whole(live && live.ids);
+      const turning = whole(doc.liveTransform && doc.liveTransform.ids);
+      const visual = groupVisual(layer, doc, moving, options.skip);
+      if (!visual) return;
+      const x = visual.x + (moving ? Math.round(live.dx) : 0);
+      const y = visual.y + (moving ? Math.round(live.dy) : 0);
+      if (rect && !turning && (x >= rect.right || y >= rect.bottom || x + visual.canvas.width <= rect.left || y + visual.canvas.height <= rect.top)) return;
+      target.globalAlpha = alpha;
+      target.globalCompositeOperation = blend;
+      if (turning) {
+        target.save();
+        target.transform(...doc.liveTransform.matrix);
+        target.drawImage(visual.canvas, x, y);
+        target.restore();
+      } else target.drawImage(visual.canvas, x, y);
+    };
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, options.x || 0, options.y || 0);
     if (rect) {
@@ -1692,56 +2359,65 @@
       ctx.clip();
       if (!options.keep) ctx.clearRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
     } else if (!options.keep) ctx.clearRect(0, 0, doc.width, doc.height);
-    const anyStyled = layers.some(isStyledGroup);
+    const anyStyled = layers.some((layer) => isStyledGroup(layer, layers));
     for (let i = 0; i < layers.length; i++) {
       const layer = layers[i];
-      if (anyStyled && layer.kind === "group" && isStyledGroup(layer) && !styledParentOf(layer, byId)) {
-        const chain = chainOf(layer, byId);
-        if (!chain.visible) continue;
-        // Moved whole, it keeps its picture: the stroke isn't drawn again at every step
-        const family = Array.from(familyOf(layers, layer.id)).filter((id) => byId.get(id).kind !== "group");
-        const whole = (set) => set && family.length && family.every((id) => set.has(id));
-        const moving = whole(live && live.ids);
-        const turning = whole(doc.liveTransform && doc.liveTransform.ids);
-        const visual = groupVisual(layer, doc, moving, options.skip);
-        if (!visual) continue;
-        const x = visual.x + (moving ? Math.round(live.dx) : 0);
-        const y = visual.y + (moving ? Math.round(live.dy) : 0);
-        if (rect && !turning && (x >= rect.right || y >= rect.bottom || x + visual.canvas.width <= rect.left || y + visual.canvas.height <= rect.top)) continue;
-        ctx.globalAlpha = (layer.opacity === undefined ? 1 : layer.opacity) * chain.opacity;
-        ctx.globalCompositeOperation = BLENDS[layer.blend] || "source-over";
-        if (turning) {
-          ctx.save();
-          ctx.transform(...doc.liveTransform.matrix);
-          ctx.drawImage(visual.canvas, x, y);
-          ctx.restore();
-        } else ctx.drawImage(visual.canvas, x, y);
-        continue;
+      const styledTop = anyStyled && layer.kind === "group" && isStyledGroup(layer, layers) && !styledParentOf(layer, byId, layers);
+      if (!styledTop) {
+        if (layer.kind === "group" || clip.clipped.has(layer.id)) continue;
+        if (options.skip && options.skip(layer)) continue;
+        if (anyStyled && styledParentOf(layer, byId, layers)) continue;
       }
-      if (layer.kind === "group" || layer.clipping) continue;
-      if (options.skip && options.skip(layer)) continue;
-      if (anyStyled && styledParentOf(layer, byId)) continue;
       const chain = chainOf(layer, byId);
       if (!chain.visible) continue;
       const alpha = (layer.opacity === undefined ? 1 : layer.opacity) * chain.opacity;
-      const blend = BLENDS[layer.blend] || "source-over";
+      const blend = blendOf(layer);
+      const drawBase = (target, a, b) => (styledTop ? placeGroup(layer, target, a, b) : place(layer, target, a, b));
       const clipped = [];
-      for (let j = i + 1; j < layers.length && layers[j].clipping && layers[j].kind !== "group"; j++) clipped.push(layers[j]);
-      if (clipped.length) {
-        if (!scratch || scratch.width !== doc.width || scratch.height !== doc.height) scratch = newCanvas(doc.width, doc.height);
-        const c = scratch.getContext("2d");
+      for (let j = i + 1; j < layers.length && clip.clipped.has(layers[j].id) && clip.baseOf.get(layers[j].id) === layer; j++) {
+        if (!(options.skip && options.skip(layers[j])) && chainOf(layers[j], byId).visible) clipped.push(layers[j]);
+      }
+      if (!clipped.length) {
+        drawBase(ctx, alpha, blend);
+        continue;
+      }
+      if (!scratch || scratch.width !== doc.width || scratch.height !== doc.height) scratch = newCanvas(doc.width, doc.height);
+      const c = scratch.getContext("2d");
+      c.globalAlpha = 1;
+      c.globalCompositeOperation = "source-over";
+      if (rect) c.clearRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
+      else c.clearRect(0, 0, doc.width, doc.height);
+      drawBase(c, 1, "source-over");
+      let shaped = false;
+      clipped.forEach((item) => {
+        const itemAlpha = item.opacity === undefined ? 1 : item.opacity;
+        const itemBlend = blendOf(item);
+        if (itemBlend === "source-over") {
+          place(item, c, itemAlpha, "source-atop");
+          return;
+        }
+        // Another mode blends over the base, then what went past its pixels is cut off
+        if (!shaped) {
+          if (!scratchShape || scratchShape.width !== doc.width || scratchShape.height !== doc.height) scratchShape = newCanvas(doc.width, doc.height);
+          const s = scratchShape.getContext("2d");
+          s.globalCompositeOperation = "copy";
+          s.drawImage(scratch, 0, 0);
+          s.globalCompositeOperation = "source-over";
+          shaped = true;
+        }
+        place(item, c, itemAlpha, itemBlend);
         c.globalAlpha = 1;
-        c.globalCompositeOperation = "source-over";
-        if (rect) c.clearRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
-        else c.clearRect(0, 0, doc.width, doc.height);
-        place(layer, c, 1, "source-over");
-        clipped.forEach((item) => {
-          if (chainOf(item, byId).visible) place(item, c, item.opacity === undefined ? 1 : item.opacity, "source-atop");
-        });
-        ctx.globalAlpha = alpha;
-        ctx.globalCompositeOperation = blend;
-        ctx.drawImage(scratch, 0, 0);
-      } else place(layer, ctx, alpha, blend);
+        c.globalCompositeOperation = "destination-in";
+        c.drawImage(scratchShape, 0, 0);
+      });
+      ctx.globalAlpha = alpha;
+      ctx.globalCompositeOperation = blend;
+      ctx.drawImage(scratch, 0, 0);
+    }
+    if (options.screen) {
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = "source-over";
+      drawMaskViews(doc, ctx, rect);
     }
     ctx.restore();
   };
@@ -2066,7 +2742,7 @@
   const sampleData = (doc, everyLayer) => {
     const onlyActive = !everyLayer && !app.sampleAll && activeRaster(doc);
     // Pixels are never drawn on again once made: the same objects are the same picture
-    const key = doc.state.layers.filter((layer) => layer.kind !== "text").map((layer) => [layer.id, layer.visible, layer.opacity, layer.blend, layer.group, layer.clipping, layer.dx, layer.dy, layer.left, layer.top, identity(layer.bitmap), identity(layer.mask), identity((layer.paint || NONE)[(layer.paint || NONE).length - 1]), (layer.paint || NONE).length].join(",")).join(";") + "|" + (onlyActive ? onlyActive.id : "all");
+    const key = doc.state.layers.filter((layer) => layer.kind !== "text").map((layer) => [layer.id, layer.visible, layer.opacity, layer.blend, layer.group, layer.clipping, layer.dx, layer.dy, layer.left, layer.top, identity(layer.bitmap), identity(layer.mask), identity(layer.vectorMask), identity((layer.paint || NONE)[(layer.paint || NONE).length - 1]), (layer.paint || NONE).length].join(",")).join(";") + "|" + (onlyActive ? onlyActive.id : "all");
     if (doc.sampleCache && doc.sampleKey === key) return doc.sampleCache;
     const canvas = newCanvas(doc.width, doc.height);
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -2520,6 +3196,8 @@
       push(y * w);
       push(y * w + w - 1);
     }
+    // Past a lasso's outline is outside too, wherever the outline goes
+    if (region.fence) for (let i = 0; i < w * h; i++) if (region.fence[i]) push(i);
     while (head < tail) {
       const index = queue[head++];
       const x = index % w;
@@ -2714,7 +3392,7 @@
   };
 
   // The plan of a clean: what gets painted, in which colours. `at` is a click, `box` a dragged
-  // box. Returns { left, top, width, height, pixels (RGBA) } or { error }.
+  // box, `points` a lasso's outline. Returns { left, top, width, height, pixels (RGBA) } or { error }.
   const planBubbleClean = (doc, options) => {
     const data = sampleData(doc, true);
     const pageW = doc.width;
@@ -2725,16 +3403,41 @@
     let region;
     let labels;
     let holeLimit;
+    let fence = null;
+    if (options.points) {
+      // A lasso works as a box would, only what is past its outline is left out
+      const xs = options.points.map((p) => p[0]);
+      const ys = options.points.map((p) => p[1]);
+      options = Object.assign({}, options, { box: { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) } });
+    }
     if (options.box) {
       const b = options.box;
       win = { left: Math.max(0, Math.floor(b.left)), top: Math.max(0, Math.floor(b.top)), right: Math.min(pageW, Math.ceil(b.right)), bottom: Math.min(pageH, Math.ceil(b.bottom)) };
       const w = win.right - win.left;
       const h = win.bottom - win.top;
       if (w < 4 || h < 4) return { error: "nothing" };
+      let inside = w * h;
+      if (options.points) {
+        const shape = newCanvas(w, h);
+        const ctx = shape.getContext("2d", { willReadFrequently: true });
+        ctx.beginPath();
+        options.points.forEach((p, n) => (n ? ctx.lineTo : ctx.moveTo).call(ctx, p[0] - win.left, p[1] - win.top));
+        ctx.closePath();
+        ctx.fill();
+        const alpha = ctx.getImageData(0, 0, w, h).data;
+        fence = new Uint8Array(w * h);
+        inside = 0;
+        for (let i = 0; i < w * h; i++) {
+          if (alpha[i * 4 + 3] < 128) fence[i] = 1;
+          else inside++;
+        }
+        if (inside < 16) return { error: "nothing" };
+      }
       // The background is the box's most common colour, and every pixel near it
       const bins = new Map();
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
+          if (fence && fence[y * w + x]) continue;
           const i = ((y + win.top) * pageW + x + win.left) * 4;
           const key = ((data[i] >> 3) << 10) | ((data[i + 1] >> 3) << 5) | (data[i + 2] >> 3);
           bins.set(key, (bins.get(key) || 0) + 1);
@@ -2753,6 +3456,7 @@
       let area = 0;
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
+          if (fence && fence[y * w + x]) continue;
           const i = ((y + win.top) * pageW + x + win.left) * 4;
           if (Math.abs(data[i] - seed[0]) <= tolerance && Math.abs(data[i + 1] - seed[1]) <= tolerance && Math.abs(data[i + 2] - seed[2]) <= tolerance) {
             labels[y * w + x] = 1;
@@ -2760,7 +3464,7 @@
           }
         }
       }
-      if (area < w * h * 0.3) return { error: "plain" };
+      if (area < inside * 0.3) return { error: "plain" };
       region = { id: 1, area, seed, box: { left: 0, top: 0, right: w, bottom: h } };
       holeLimit = Infinity;
     } else {
@@ -2829,7 +3533,8 @@
     for (let y = 0; y < ah; y++) {
       for (let x = 0; x < aw; x++) mask[y * aw + x] = labels[(y + area.top) * w + x + area.left] === region.id ? 1 : 0;
     }
-    const { outside, label, sizes } = cleanHoles({ mask }, aw, ah);
+    // A box's region is the whole box: the fence fits the area as it is
+    const { outside, label, sizes } = cleanHoles({ mask, fence }, aw, ah);
     let filled = region.area;
     for (let i = 1; i < sizes.length; i++) filled += sizes[i];
     if (!options.box && filled > pageW * pageH * 0.2) return { error: "open" };
@@ -3021,6 +3726,8 @@
     tolerance: 32,
     cleanTolerance: 32,
     cleanMargin: 6,
+    // The Bubble Cleaner's drag: "rectangle", "lasso" or "polygon"
+    cleanShape: "rectangle",
     contiguous: true,
     sampleAll: true,
     magicTolerance: 32,
@@ -3254,7 +3961,8 @@
   };
 
   // A layer moved by (dx, dy): its anchor, and Photoshop's pixels if it still shows them
-  const shifted = (layer, dx, dy, doc) => {
+  // `all`: the whole page moved, unlinked masks with it
+  const shifted = (layer, dx, dy, doc, all) => {
     if (layer.kind === "text") {
       const params = clone(layer.params);
       params.layerText.textClickPoint.horizontal += (dx / doc.width) * 100;
@@ -3262,9 +3970,10 @@
       const moved = Object.assign({}, layer, { params });
       if (layer.warp) moved.warp = Object.assign({}, layer.warp, { corners: layer.warp.corners.map(([x, y]) => [x + dx, y + dy]) });
       if (layer.raster) moved.raster = Object.assign({}, layer.raster, { left: layer.raster.left + dx, top: layer.raster.top + dy });
-      return moved;
+      return Object.assign(moved, movedMasks(layer, dx, dy, all));
     }
-    if (layer.kind === "raster") return Object.assign({}, layer, { dx: (layer.dx || 0) + dx, dy: (layer.dy || 0) + dy });
+    if (layer.kind === "raster") return Object.assign({}, layer, { dx: (layer.dx || 0) + dx, dy: (layer.dy || 0) + dy }, movedMasks(layer, dx, dy, all));
+    if (layer.mask || layer.vectorMask) return Object.assign({}, layer, movedMasks(layer, dx, dy, all));
     return layer;
   };
 
@@ -3342,12 +4051,89 @@
     return out;
   };
 
+  // Photoshop's locks: `locked` is Lock All, `locks` holds the others (transparency, pixels,
+  // position), which Lock All takes in
+  const lockOf = (layer, kind) => Boolean(layer && (layer.locked || (layer.locks && layer.locks[kind])));
+  // Linked layers (Photoshop's Link Layers) move with each other
+  const withLinked = (layers, ids) => {
+    const links = new Set();
+    layers.forEach((layer) => { if (layer.link && ids.includes(layer.id)) links.add(layer.link); });
+    return links.size ? ids.concat(layers.filter((layer) => layer.link && links.has(layer.link) && !ids.includes(layer.id)).map((layer) => layer.id)) : ids;
+  };
+  // Where layers land when moved (or copied) beside, above, below or into another: the new
+  // list and what becomes active, or null when nothing would move
+  const reorderPlan = (all, ids, targetId, position, copy) => {
+    const byId = new Map(all.map((layer) => [layer.id, layer]));
+    const insideChosen = (layer) => {
+      for (let up = layer.group; up && byId.get(up); up = byId.get(up).group) if (ids.includes(up)) return true;
+      return false;
+    };
+    // The Background stays where it is, and a layer goes with its chosen folder
+    const chosen = ids.filter((id) => byId.get(id) && (copy || !byId.get(id).isBackground) && !insideChosen(byId.get(id)));
+    if (!chosen.length) return null;
+    const family = new Set();
+    chosen.forEach((id) => familyOf(all, id).forEach((member) => family.add(member)));
+    if (!copy && family.has(targetId)) return null;
+    const moved = all.filter((layer) => family.has(layer.id));
+    const rest = copy ? all.slice() : all.filter((layer) => !family.has(layer.id));
+    const target = rest.find((layer) => layer.id === targetId);
+    if (!target) return null;
+    let at = rest.indexOf(target);
+    let parent = target.group || null;
+    if (position === "inside" && target.kind === "group") parent = target.id;
+    else if (position === "above") at += 1;
+    else if (target.kind === "group") {
+      // Below a folder: under everything it holds
+      const members = familyOf(rest, target.id);
+      at = rest.findIndex((layer) => members.has(layer.id));
+    }
+    // Nothing goes under the Background
+    if (rest[0] && rest[0].isBackground && at < 1) {
+      at = 1;
+      parent = null;
+    }
+    // Dropped inside a clipping mask, a layer joins it; a clipped one dropped outside its
+    // own is let go, as in Photoshop. A base moved with its clipped layers keeps them.
+    const same = (layer) => Boolean(layer) && (layer.group || null) === parent && layer.kind !== "group";
+    const above = rest[at];
+    const intoClip = same(above) && Boolean(above.clipping);
+    const siblingBelow = (layer) => {
+      for (let index = all.indexOf(layer) - 1; index >= 0; index--) if ((all[index].group || null) === (layer.group || null)) return all[index];
+      return null;
+    };
+    let below = rest[at - 1];
+    let belowOriginal = null;
+    const placed = moved.map((layer) => {
+      if (family.has(layer.group)) return layer;
+      const block = Boolean(belowOriginal) && siblingBelow(layer) === belowOriginal;
+      const clipping = layer.kind !== "group" && (intoClip || (Boolean(layer.clipping) && (block || (same(below) && Boolean(below.clipping)))));
+      const next = Object.assign({}, layer, { group: parent, isBackground: false, clipping });
+      below = next;
+      belowOriginal = layer;
+      return next;
+    });
+    if (!copy) {
+      const layers = rest.slice(0, at).concat(placed, rest.slice(at));
+      return layers.every((layer, index) => layer === all[index]) ? null : { layers, activeIds: null };
+    }
+    const fresh = new Map(placed.map((layer) => [layer.id, newId()]));
+    const copies = placed.map((layer) => Object.assign({}, layer, {
+      id: fresh.get(layer.id),
+      group: fresh.get(layer.group) || layer.group,
+      name: chosen.includes(layer.id) ? `${layer.name} copy` : layer.name,
+      clean: false,
+      link: undefined,
+      raw: layer.raw ? Object.assign({}, layer.raw) : undefined,
+    }));
+    return { layers: rest.slice(0, at).concat(copies, rest.slice(at)), activeIds: chosen.map((id) => fresh.get(id)) };
+  };
+
   const movableIds = (doc, ids) => {
     const out = new Set();
-    ids.forEach((id) => familyOf(doc.state.layers, id).forEach((member) => out.add(member)));
+    withLinked(doc.state.layers, ids).forEach((id) => familyOf(doc.state.layers, id).forEach((member) => out.add(member)));
     return Array.from(out).filter((id) => {
       const layer = doc.state.layers.find((item) => item.id === id);
-      return layer && !layer.locked && !layer.isBackground && layer.kind !== "group";
+      return layer && !lockOf(layer, "position") && !layer.isBackground && layer.kind !== "group";
     });
   };
 
@@ -3377,6 +4163,7 @@
   // A layer's new pixels replace what it had, painted things included, in Photoshop's file too
   const withPixels = (layer, bitmap, left, top, mask) => {
     const next = Object.assign({}, layer, { bitmap, left, top, dx: 0, dy: 0, paint: NONE, mask });
+    if (layer.vectorMask) next.vectorMask = shiftedVector(layer.vectorMask, layer.dx || 0, layer.dy || 0);
     if (layer.raw) {
       next.raw = Object.assign({}, layer.raw, { canvas: bitmap, left, top, right: left + bitmap.width, bottom: top + bitmap.height });
       if (mask) next.raw.mask = mask;
@@ -3398,15 +4185,11 @@
   };
 
   const scaledRaster = (layer, doc, sx, sy) => {
-    let mask = layer.mask;
-    if (mask && mask.canvas) {
-      const m = scaledPixels(mask.canvas, (mask.left || 0) + (layer.dx || 0), (mask.top || 0) + (layer.dy || 0), sx, sy);
-      mask = Object.assign({}, mask, { canvas: m.canvas, left: m.left, top: m.top, right: m.left + m.canvas.width, bottom: m.top + m.canvas.height });
-    }
-    const visual = visualOf(Object.assign({}, layer, { mask: null }), doc);
-    if (!visual) return mask === layer.mask ? layer : Object.assign({}, layer, { mask, dx: 0, dy: 0, raw: layer.raw && Object.assign({}, layer.raw, { mask }) });
+    const masks = scaledMasks(layer, doc, sx, sy);
+    const visual = visualOf(Object.assign({}, layer, { mask: null, vectorMask: null }), doc);
+    if (!visual) return layer.mask || layer.vectorMask ? Object.assign({}, layer, masks, { dx: 0, dy: 0 }) : layer;
     const p = scaledPixels(visual.canvas, visual.x, visual.y, sx, sy);
-    return withPixels(layer, p.canvas, p.left, p.top, mask);
+    return Object.assign(withPixels(layer, p.canvas, p.left, p.top, masks.mask || null), masks.vectorMask ? { vectorMask: masks.vectorMask } : null);
   };
 
   // Where a pixel layer really has pixels, without its mask. A painted layer's picture covers
@@ -3560,12 +4343,12 @@
       if (visual) ctx.drawImage(visual.canvas, visual.x + ox, visual.y + oy);
       return withPixels(layer, bitmap, 0, 0, null);
     }
-    if (layer.kind !== "text") return shifted(layer, ox, oy);
+    if (layer.kind !== "text") return shifted(layer, ox, oy, doc, true);
     // An anchor is a share of the page: the same place is another share of a new page
     const params = clone(layer.params);
     params.layerText.textClickPoint.horizontal *= doc.width / width;
     params.layerText.textClickPoint.vertical *= doc.height / height;
-    return shifted(Object.assign({}, layer, { params }), ox, oy, { width, height });
+    return shifted(Object.assign({}, layer, { params }), ox, oy, { width, height }, true);
   });
 
   const pageRect = (doc, left, top, right, bottom) => ({
@@ -3621,6 +4404,7 @@
   const levelsForget = (session) => {
     const entry = rasterCache.get(session.id);
     if (entry && entry.bitmap === session.canvas) forgetRaster(session.id, entry);
+    maskedVisuals.delete(session.id);
   };
 
   // Edit > Auto-Align Layers works in align-worker.js, away from the page: one worker per run
@@ -3678,6 +4462,175 @@
     const canvas = newCanvas(width, height);
     canvas.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(data), width, height), 0, 0);
     return canvas;
+  };
+
+  /* ---------------------- Generative Fill: laying it back ---------------------- */
+
+  // 3 × 3 matrices, row by row
+  const mul3 = (a, b) => [0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c]));
+  const inv3 = (m) => {
+    const [a, b, c, d, e, f, g, h, i] = m;
+    const A = e * i - f * h;
+    const B = -(d * i - f * g);
+    const C = d * h - e * g;
+    const det = a * A + b * B + c * C;
+    if (!det) return null;
+    return [A, -(b * i - c * h), b * f - c * e, B, a * i - c * g, -(a * f - c * d), C, -(a * h - b * g), a * e - b * d].map((v) => v / det);
+  };
+  // The page around a selection and a model's picture of it, made small and grey, to judge
+  // where the picture goes. `m` takes the picture's page places to the page's (null: as it came).
+  const fitGround = (page, picture, hole, x0, y0) => {
+    const level = (longest) => {
+      const k = Math.min(1, longest / Math.max(page.width, page.height));
+      const w = Math.max(8, Math.round(page.width * k));
+      const h = Math.max(8, Math.round(page.height * k));
+      const canvas = newCanvas(w, h);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.imageSmoothingQuality = "high";
+      const grey = (source) => {
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(source, 0, 0, w, h);
+        const d = ctx.getImageData(0, 0, w, h).data;
+        const g = new Float32Array(w * h);
+        for (let i = 0; i < g.length; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+        return { g, a: d };
+      };
+      const ref = grey(page);
+      const pic = grey(picture);
+      ctx.clearRect(0, 0, w, h);
+      ctx.drawImage(hole, 0, 0, w, h);
+      const m = ctx.getImageData(0, 0, w, h).data;
+      const valid = new Uint8Array(w * h);
+      let count = 0;
+      for (let i = 0; i < valid.length; i++) if (!m[i * 4 + 3]) {
+        valid[i] = 1;
+        count++;
+      }
+      // A small pixel's centre on the page, and back
+      const kx = w / page.width;
+      const ky = h / page.height;
+      const toPage = [1 / kx, 0, x0 + 0.5 / kx - 0.5, 0, 1 / ky, y0 + 0.5 / ky - 0.5, 0, 0, 1];
+      return { w, h, ref: ref.g, pic: pic.g, valid, count, toPage, toSmall: inv3(toPage) };
+    };
+    const coarse = level(96);
+    const fine = level(320);
+    // Mean difference where the page counts, through `h`: the page's small places to the picture's
+    const errorAt = (L, h) => {
+      const { w, ref, pic, valid } = L;
+      const H = L.h;
+      let sum = 0;
+      let n = 0;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          if (!valid[i]) continue;
+          const z = h[6] * x + h[7] * y + h[8];
+          const gx = (h[0] * x + h[1] * y + h[2]) / z;
+          const gy = (h[3] * x + h[4] * y + h[5]) / z;
+          if (!(gx >= 0 && gy >= 0 && gx <= w - 1 && gy <= H - 1)) continue;
+          const ix = Math.min(w - 2, Math.floor(gx));
+          const iy = Math.min(H - 2, Math.floor(gy));
+          const fx = gx - ix;
+          const fy = gy - iy;
+          const j = iy * w + ix;
+          const value = (pic[j] * (1 - fx) + pic[j + 1] * fx) * (1 - fy) + (pic[j + w] * (1 - fx) + pic[j + w + 1] * fx) * fy;
+          sum += Math.abs(value - ref[i]);
+          n++;
+        }
+      }
+      // Too little of the page left to compare: no judgement
+      return n >= Math.max(40, L.count * 0.6) ? sum / n : Infinity;
+    };
+    const smallOf = (L, m) => (m ? mul3(L.toSmall, mul3(inv3(m), L.toPage)) : [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    const pageOf = (L, h) => inv3(mul3(L.toPage, mul3(h, L.toSmall)));
+    // Resized by s (sx, sy) around the middle, and moved by (tx, ty): the page's small places to the picture's
+    const scaled = (L, sx, sy, tx, ty) => {
+      const cx = (L.w - 1) / 2;
+      const cy = (L.h - 1) / 2;
+      return [1 / sx, 0, cx - (cx + tx) / sx, 0, 1 / sy, cy - (cy + ty) / sy, 0, 0, 1];
+    };
+    return {
+      error: (m) => {
+        const h = smallOf(fine, m);
+        return h ? errorAt(fine, h) : Infinity;
+      },
+      // Coarse first, every size from 90 to 110 % and every move up to 8 %, then finer, one
+      // number at a time
+      search: () => {
+        if (coarse.count < 40) return null;
+        let best = { e: Infinity };
+        const reach = Math.ceil(Math.max(coarse.w, coarse.h) * 0.08);
+        for (let s = 0.9; s <= 1.1001; s += 0.02) {
+          for (let ty = -reach; ty <= reach; ty++) {
+            for (let tx = -reach; tx <= reach; tx++) {
+              const e = errorAt(coarse, scaled(coarse, s, s, tx, ty));
+              if (e < best.e) best = { e, s, tx, ty };
+            }
+          }
+        }
+        if (!Number.isFinite(best.e)) return null;
+        const r = fine.w / coarse.w;
+        let p = [best.s, best.s, best.tx * r, best.ty * r];
+        let e = errorAt(fine, scaled(fine, ...p));
+        const steps = [0.01, 0.01, r, r];
+        for (let round = 0; round < 40 && steps[2] > 0.1; round++) {
+          let better = false;
+          for (let k = 0; k < 4; k++) {
+            for (const sign of [1, -1]) {
+              const q = p.slice();
+              q[k] += sign * steps[k];
+              const eq = errorAt(fine, scaled(fine, ...q));
+              if (eq < e) {
+                e = eq;
+                p = q;
+                better = true;
+              }
+            }
+          }
+          if (!better) for (let k = 0; k < 4; k++) steps[k] /= 2;
+        }
+        return pageOf(fine, scaled(fine, ...p));
+      },
+    };
+  };
+  // Each channel of `picture`'s levels mapped so that, where `hole` is empty, they spread as
+  // `page`'s do (histogram matching), smoothed so no step shows
+  const matchLevels = (picture, page, hole) => {
+    for (let c = 0; c < 3; c++) {
+      const from = new Float64Array(256);
+      const to = new Float64Array(256);
+      let n = 0;
+      for (let i = 0; i < picture.length; i += 4) {
+        if (hole[i + 3]) continue;
+        from[picture[i + c]]++;
+        to[page[i + c]]++;
+        n++;
+      }
+      if (n < 500) return;
+      for (let v = 1; v < 256; v++) {
+        from[v] += from[v - 1];
+        to[v] += to[v - 1];
+      }
+      const lut = new Float64Array(256);
+      let u = 0;
+      for (let v = 0; v < 256; v++) {
+        // The middle of the levels v stands for, in the page's levels
+        const at = (from[v] - (v ? (from[v] - from[v - 1]) / 2 : from[0] / 2));
+        while (u < 255 && to[u] < at) u++;
+        lut[v] = u;
+      }
+      const smooth = new Uint8ClampedArray(256);
+      for (let v = 0; v < 256; v++) {
+        let sum = 0;
+        let count = 0;
+        for (let k = Math.max(0, v - 2); k <= Math.min(255, v + 2); k++) {
+          sum += lut[k];
+          count++;
+        }
+        smooth[v] = Math.round(sum / count);
+      }
+      for (let i = 0; i < picture.length; i += 4) picture[i + c] = smooth[picture[i + c]];
+    }
   };
 
   /* -------------------------- Content-Aware Fill -------------------------- */
@@ -3757,8 +4710,8 @@
       const doc = app.doc;
       if (!doc) return [];
       const out = new Set();
-      doc.state.activeIds.forEach((id) => familyOf(doc.state.layers, id).forEach((member) => out.add(member)));
-      return doc.state.layers.filter((layer) => out.has(layer.id) && layer.kind === "raster" && !layer.adjustment && !layer.locked && visualOf(layer, doc)).map((layer) => layer.id);
+      withLinked(doc.state.layers, doc.state.activeIds).forEach((id) => familyOf(doc.state.layers, id).forEach((member) => out.add(member)));
+      return doc.state.layers.filter((layer) => out.has(layer.id) && layer.kind === "raster" && !layer.adjustment && !lockOf(layer, "position") && !lockOf(layer, "pixels") && visualOf(layer, doc)).map((layer) => layer.id);
     },
     pixelBox(layer) {
       return app.doc ? trimmedBox(layer, app.doc) : null;
@@ -3777,16 +4730,22 @@
         if (!set.has(layer.id)) return layer;
         const part = trimmedBox(layer, doc);
         if (!part) return layer;
-        const visual = visualOf(Object.assign({}, layer, { mask: null }), doc);
+        const visual = visualOf(Object.assign({}, layer, { mask: null, vectorMask: null }), doc);
         const p = transformedPixels(visual.canvas, visual.x, visual.y, part, matrix);
-        let { mask } = layer;
+        let mask = pageMask(layer, doc);
         if (mask && mask.canvas) {
-          const x = (mask.left || 0) + (layer.dx || 0);
-          const y = (mask.top || 0) + (layer.dy || 0);
+          const x = mask.left || 0;
+          const y = mask.top || 0;
           const m = transformedPixels(mask.canvas, x, y, rectFrom(x, y, x + mask.canvas.width, y + mask.canvas.height), matrix, mask.defaultColor ? "#fff" : "#000");
           mask = Object.assign({}, mask, { canvas: m.canvas, left: m.left, top: m.top, right: m.left + m.canvas.width, bottom: m.top + m.canvas.height });
         }
         const next = withPixels(layer, p.canvas, p.left, p.top, mask);
+        if (layer.vectorMask) {
+          const [a, b, c, d, e, f] = matrix;
+          const ax = layer.dx || 0;
+          const ay = layer.dy || 0;
+          next.vectorMask = mappedVector(layer.vectorMask, (x, y) => [a * (x + ax) + c * (y + ay) + e, b * (x + ax) + d * (y + ay) + f]);
+        }
         // As in Photoshop, a Background that is transformed becomes a layer like any other
         if (layer.isBackground) Object.assign(next, { isBackground: false, name: `${(app.names && app.names.layer) || "Layer"} 0` });
         return next;
@@ -3812,7 +4771,7 @@
       const wanted = new Set(ops.alignableIds());
       const picked = before.filter((layer) => wanted.has(layer.id)).map((layer) => {
         const part = trimmedBox(layer, doc);
-        const visual = part && visualOf(Object.assign({}, layer, { mask: null }), doc);
+        const visual = part && visualOf(Object.assign({}, layer, { mask: null, vectorMask: null }), doc);
         return visual && { layer, part, visual };
       }).filter(Boolean);
       if (picked.length < 2) return { moved: 0, failed: 0, total: picked.length };
@@ -3838,12 +4797,12 @@
             return { canvas: canvasOfBytes(out), left: out.left, top: out.top };
           };
           let p;
-          let { mask } = layer;
+          let mask = pageMask(layer, doc);
           try {
             p = await place(visual.canvas, visual.x, visual.y, part);
             if (mask && mask.canvas) {
-              const x = (mask.left || 0) + (layer.dx || 0);
-              const y = (mask.top || 0) + (layer.dy || 0);
+              const x = mask.left || 0;
+              const y = mask.top || 0;
               const m = await place(mask.canvas, x, y, rectFrom(x, y, x + mask.canvas.width, y + mask.canvas.height), Boolean(mask.defaultColor));
               mask = Object.assign({}, mask, { canvas: m.canvas, left: m.left, top: m.top, right: m.left + m.canvas.width, bottom: m.top + m.canvas.height });
             }
@@ -3880,13 +4839,11 @@
       if (removeHidden) {
         layers = layers.map((layer) => {
           if (layer.kind !== "raster" || layer.isBackground) return layer;
-          const visual = visualOf(Object.assign({}, layer, { mask: null }), doc);
+          const visual = visualOf(Object.assign({}, layer, { mask: null, vectorMask: null }), doc);
           if (!visual) return layer;
           const bitmap = newCanvas(width, height);
           bitmap.getContext("2d").drawImage(visual.canvas, visual.x, visual.y);
-          const { mask, dx = 0, dy = 0 } = layer;
-          const moved = mask && mask.canvas ? Object.assign({}, mask, { left: (mask.left || 0) + dx, top: (mask.top || 0) + dy, right: (mask.right || 0) + dx, bottom: (mask.bottom || 0) + dy }) : mask;
-          return withPixels(layer, bitmap, 0, 0, moved);
+          return withPixels(layer, bitmap, 0, 0, pageMask(layer, doc));
         });
       }
       resizeDoc(doc, "Crop", { width, height }, layers);
@@ -3916,8 +4873,10 @@
       const sy = height / doc.height;
       const points = (sy * doc.resolution) / resolution;
       const layers = doc.state.layers.map((layer) => {
-        if (layer.kind === "text") return scaledText(layer, sx, sy, points);
-        return layer.kind === "raster" && (sx !== 1 || sy !== 1) ? scaledRaster(layer, doc, sx, sy) : layer;
+        if (sx === 1 && sy === 1) return layer.kind === "text" ? scaledText(layer, sx, sy, points) : layer;
+        if (layer.kind === "text") return Object.assign(scaledText(layer, sx, sy, points), scaledMasks(layer, doc, sx, sy));
+        if (layer.kind === "group") return layer.mask || layer.vectorMask ? Object.assign({}, layer, scaledMasks(layer, doc, sx, sy)) : layer;
+        return scaledRaster(layer, doc, sx, sy);
       });
       resizeDoc(doc, "Image Size", { width, height, resolution }, layers);
     },
@@ -3927,7 +4886,7 @@
       const doc = app.doc;
       const layer = doc && activeRaster(doc);
       if (!layer || layer.adjustment) return false;
-      if (layer.locked) {
+      if (lockOf(layer, "pixels") || lockOf(layer, "transparency")) {
         emit("layer-locked");
         return false;
       }
@@ -4118,6 +5077,11 @@
       const list = movableIds(doc, ids);
       if (!list.length) return;
       const set = new Set(list);
+      // A folder that moves whole takes its masks along
+      ids.forEach((id) => familyOf(doc.state.layers, id).forEach((member) => {
+        const layer = doc.state.layers.find((item) => item.id === member);
+        if (layer && layer.kind === "group" && !layer.locked && (layer.mask || layer.vectorMask)) set.add(member);
+      }));
       commitState(doc, "Move", { layers: doc.state.layers.map((layer) => (set.has(layer.id) ? shifted(layer, dx, dy, doc) : layer)) }, coalesce);
       firePanelEvent(EVENT_MOVE);
     },
@@ -4187,7 +5151,11 @@
       const layers = doc.state.layers.slice();
       if (at >= 0) {
         layer.group = layers[at].kind === "group" ? layers[at].id : layers[at].group;
-        layers.splice(layers[at].kind === "group" ? at : at + 1, 0, layer);
+        const slot = layers[at].kind === "group" ? at : at + 1;
+        layers.splice(slot, 0, layer);
+        // Inside a clipping mask, it joins it, as in Photoshop: clipped when the layer above is
+        const over = layers[slot + 1];
+        if (!pasted && over && over.clipping && over.kind !== "group" && (over.group || null) === (layer.group || null)) layer.clipping = true;
       } else layers.push(layer);
       const hadSelection = Boolean(doc.state.selection);
       commitState(doc, pasted ? "Paste" : "New Layer", pasted ? { layers, activeIds: [layer.id], selection: null } : { layers, activeIds: [layer.id] });
@@ -4412,26 +5380,87 @@
     },
     // New place in the stack: before the index in the list without the moved rows
     reorderLayer(id, targetId, position) {
+      ops.reorderLayers([id], targetId, position);
+    },
+    // Several layers at once, as the Layers panel drags them: each with what its folder holds,
+    // in their order. With `copy` (Alt in Photoshop), copies go there and the layers stay.
+    reorderLayers(ids, targetId, position, copy) {
       const doc = app.doc;
       if (!doc) return;
-      const family = familyOf(doc.state.layers, id);
-      const moved = doc.state.layers.filter((layer) => family.has(layer.id));
-      const rest = doc.state.layers.filter((layer) => !family.has(layer.id));
-      const target = rest.find((layer) => layer.id === targetId);
-      if (!target) return;
-      let at = rest.indexOf(target);
-      let parent = target.group || null;
-      if (position === "inside" && target.kind === "group") parent = target.id;
-      else if (position === "above") at += 1;
-      else if (target.kind === "group") {
-        // Below a folder: under everything it holds
-        const members = familyOf(rest, target.id);
-        at = rest.findIndex((layer) => members.has(layer.id));
+      const plan = reorderPlan(doc.state.layers, ids, targetId, position, copy);
+      if (!plan) return;
+      if (!copy) {
+        commitState(doc, "Reorder Layer", { layers: plan.layers });
+        return;
       }
-      const head = moved.find((layer) => layer.id === id);
-      const updated = moved.map((layer) => (layer === head ? Object.assign({}, layer, { group: parent, isBackground: false }) : layer));
-      const layers = rest.slice(0, at).concat(updated, rest.slice(at));
-      commitState(doc, "Reorder Layer", { layers });
+      commitState(doc, "Duplicate Layer", { layers: plan.layers, activeIds: plan.activeIds });
+      firePanelEvent(EVENT_SELECT);
+    },
+    // While layers are dragged in the panel, the page shows them where they would land
+    previewOrder(ids, targetId, position) {
+      const doc = app.doc;
+      if (!doc) return;
+      const plan = ids ? reorderPlan(doc.state.layers, ids, targetId, position, false) : null;
+      const layers = plan ? plan.layers : null;
+      if (layers === doc.orderPreview || (!layers && !doc.orderPreview)) return;
+      doc.orderPreview = layers;
+      emit("render");
+    },
+    // A blend mode tried from the Layers panel's list, shown before it is picked
+    previewBlend(ids, blend) {
+      const doc = app.doc;
+      if (!doc) return;
+      const next = blend ? { ids: new Set(ids), blend } : null;
+      if (!next && !doc.blendPreview) return;
+      if (next && doc.blendPreview && doc.blendPreview.blend === blend) return;
+      doc.blendPreview = next;
+      emit("render");
+    },
+    // Layers dragged from another page's panel: copied here, where they were dropped, or on top
+    pasteLayersFrom(source, ids, targetId, position) {
+      const doc = app.doc;
+      if (!doc || !source || source === doc) return 0;
+      const chosen = new Set();
+      ids.forEach((id) => familyOf(source.state.layers, id).forEach((member) => chosen.add(member)));
+      const held = source.state.layers.filter((layer) => chosen.has(layer.id));
+      if (!held.length) return 0;
+      const fresh = new Map(held.map((layer) => [layer.id, newId()]));
+      const copies = held.map((layer) => {
+        const copy = Object.assign({}, layer, { id: fresh.get(layer.id), group: fresh.get(layer.group) || null, isBackground: false, clean: false, link: undefined, raw: layer.raw ? Object.assign({}, layer.raw) : undefined });
+        if (layer.kind === "text") {
+          copy.params = clone(layer.params);
+          const point = copy.params.layerText.textClickPoint;
+          point.horizontal = ((point.horizontal / 100) * source.width / doc.width) * 100;
+          point.vertical = ((point.vertical / 100) * source.height / doc.height) * 100;
+        }
+        return copy;
+      });
+      const heads = copies.filter((layer) => !layer.group).map((layer) => layer.id);
+      let layers = doc.state.layers.concat(copies);
+      const target = targetId !== undefined && doc.state.layers.find((layer) => layer.id === targetId);
+      if (target) {
+        const plan = reorderPlan(layers, heads, target.id, position, false);
+        if (plan) layers = plan.layers;
+      }
+      commitState(doc, "Paste Layers", { layers, activeIds: heads });
+      firePanelEvent(EVENT_SELECT);
+      return copies.length;
+    },
+    // Cmd + click on the New Layer button: under the active layer, as in Photoshop. Under a
+    // clipped layer, it joins the clipping mask.
+    newLayerBelow(name) {
+      const doc = app.doc;
+      if (!doc) return null;
+      const active = doc.state.layers.find((layer) => layer.id === doc.state.activeIds[doc.state.activeIds.length - 1]);
+      if (!active || active.isBackground) return ops.newLayer(name);
+      const members = familyOf(doc.state.layers, active.id);
+      const at = doc.state.layers.findIndex((layer) => members.has(layer.id));
+      const layer = newRaster(name, { group: active.group || null, clipping: active.kind !== "group" && Boolean(active.clipping) });
+      const layers = doc.state.layers.slice();
+      layers.splice(at, 0, layer);
+      commitState(doc, "New Layer", { layers, activeIds: [layer.id] });
+      firePanelEvent(EVENT_SELECT);
+      return layer;
     },
     mergeDown() {
       const doc = app.doc;
@@ -4450,9 +5479,12 @@
         emit("layer-locked");
         return;
       }
-      // The merged pixels already have each layer's opacity in them
-      const merged = newRaster(below.name, { group: below.group, isBackground: below.isBackground, blend: below.blend, opacity: 1 });
-      merged.bitmap = flattenLayers(doc, [below, top]);
+      // The merged pixels already have each layer's opacity in them. Two layers clipped to the
+      // same base merge as they are, and the result stays clipped to it.
+      const info = clippingOf(doc.state.layers);
+      const bothClipped = info.clipped.has(top.id) && info.clipped.has(below.id);
+      const merged = newRaster(below.name, { group: below.group, isBackground: below.isBackground, blend: below.blend, opacity: 1, clipping: bothClipped });
+      merged.bitmap = paintAlone(doc, bothClipped ? [Object.assign({}, below, { clipping: false }), Object.assign({}, top, { clipping: false })] : [below, top]);
       const layers = doc.state.layers.slice();
       layers.splice(at - 1, 2, merged);
       commitState(doc, "Merge Layers", { layers, activeIds: [merged.id] });
@@ -4550,15 +5582,532 @@
       const doc = app.doc;
       const layer = doc && doc.state.layers.find((item) => item.id === id && item.kind === "text");
       if (!layer) return;
-      const raster = newRaster(layer.name, { group: layer.group, opacity: layer.opacity, blend: layer.blend, bitmap: flattenLayers(doc, [Object.assign({}, layer, { opacity: 1 })]) });
+      const raster = newRaster(layer.name, { group: layer.group, opacity: layer.opacity, blend: layer.blend, visible: layer.visible, clipping: layer.clipping, mask: layer.mask || null, vectorMask: layer.vectorMask || null, bitmap: flattenLayers(doc, [Object.assign({}, layer, { opacity: 1, blend: "normal", mask: null, vectorMask: null })]) });
       commitState(doc, "Rasterize Layer", { layers: doc.state.layers.map((item) => (item.id === id ? raster : item)), activeIds: [raster.id] });
     },
-    /* ---- painting ---- */
-    beginStroke(layerId, fields) {
+    /* ---- masks ---- */
+    // What the brushes work on: the active layer's pixel or vector mask when its thumbnail is
+    // targeted in the Layers panel, as in Photoshop. Not part of the history.
+    maskTarget(doc = app.doc) {
+      const t = doc && doc.maskTarget;
+      if (!t || doc.state.activeIds.length !== 1 || doc.state.activeIds[0] !== t.id) return null;
+      const layer = doc.state.layers.find((item) => item.id === t.id);
+      if (!layer || !(t.part === "vector" ? layer.vectorMask : layer.mask)) return null;
+      return { id: t.id, part: t.part, layer };
+    },
+    setMaskTarget(id, part) {
       const doc = app.doc;
-      const layer = doc && doc.state.layers.find((item) => item.id === layerId && item.kind === "raster");
+      if (!doc) return;
+      const before = ops.maskTarget(doc);
+      doc.maskTarget = part ? { id, part } : null;
+      const after = ops.maskTarget(doc);
+      if (doc.maskView && (!after || after.id !== doc.maskView.id || after.part !== doc.maskView.part)) doc.maskView = null;
+      if (Boolean(before) !== Boolean(after) || (before && after && (before.id !== after.id || before.part !== after.part))) {
+        emit("mask-target", after);
+        emit("render");
+      }
+    },
+    // Alt + click on a mask's thumbnail shows it alone, in grey; \ shows it in red over the page
+    setMaskView(mode) {
+      const doc = app.doc;
+      const target = ops.maskTarget(doc);
+      doc.maskView = mode && target ? { id: target.id, part: target.part, mode } : null;
+      emit("mask-view", doc.maskView);
+      emit("render");
+    },
+    canHaveMask(layer) {
+      return Boolean(layer) && !layer.adjustment && (layer.kind === "raster" || layer.kind === "text" || layer.kind === "group");
+    },
+    // Layer > Layer Mask > Reveal All, Hide All, Reveal Selection, Hide Selection, From Transparency.
+    // A Background becomes Layer 0 first: it can't have a mask.
+    addMask(kind, ids) {
+      const doc = app.doc;
+      if (!doc) return false;
+      const selection = doc.state.selection;
+      if (!selection && (kind === "revealSelection" || kind === "hideSelection")) kind = kind === "revealSelection" ? "revealAll" : "hideAll";
+      const wanted = new Set(ids || doc.state.activeIds);
+      const chosen = doc.state.layers.filter((layer) => wanted.has(layer.id) && ops.canHaveMask(layer) && !layer.mask);
+      if (!chosen.length) return false;
+      if (chosen.some((layer) => layer.locked)) {
+        emit("layer-locked");
+        return false;
+      }
+      const made = new Map();
+      chosen.forEach((layer) => {
+        const [sx, sy] = maskShift(layer);
+        let mask;
+        if (kind === "revealSelection" || kind === "hideSelection") {
+          const b = selection.bounds;
+          const left = Math.floor(b.left);
+          const top = Math.floor(b.top);
+          const alpha = newCanvas(Math.ceil(b.right) - left, Math.ceil(b.bottom) - top);
+          const clip = clipOf(selection, 0, 0);
+          const a = alpha.getContext("2d");
+          if (clip.canvas) a.drawImage(clip.canvas, clip.x - left, clip.y - top);
+          else a.fillRect(clip.x - left, clip.y - top, clip.width, clip.height);
+          const gray = maskAsGray(alpha);
+          if (kind === "hideSelection") {
+            const g = gray.getContext("2d");
+            g.globalCompositeOperation = "difference";
+            g.fillStyle = "#fff";
+            g.fillRect(0, 0, gray.width, gray.height);
+          }
+          mask = { canvas: gray, left: left - sx, top: top - sy, defaultColor: kind === "hideSelection" ? 255 : 0 };
+        } else if (kind === "transparency") {
+          const visual = visualOf(Object.assign({}, layer, { mask: null, vectorMask: null }), doc);
+          if (!visual) mask = { canvas: null, left: -sx, top: -sy, defaultColor: 0 };
+          else mask = { canvas: maskAsGray(visual.canvas), left: visual.x - sx, top: visual.y - sy, defaultColor: 0 };
+        } else mask = { canvas: null, left: -sx, top: -sy, defaultColor: kind === "hideAll" ? 0 : 255 };
+        mask.right = mask.left + (mask.canvas ? mask.canvas.width : 0);
+        mask.bottom = mask.top + (mask.canvas ? mask.canvas.height : 0);
+        mask.paint = NONE;
+        const next = Object.assign({}, layer, { mask });
+        if (layer.isBackground) Object.assign(next, { isBackground: false, name: `${(app.names && app.names.layer) || "Layer"} 0` });
+        made.set(layer.id, next);
+      });
+      const change = { layers: doc.state.layers.map((layer) => made.get(layer.id) || layer) };
+      if (kind === "revealSelection" || kind === "hideSelection") change.selection = null;
+      commitState(doc, "Add Layer Mask", change);
+      if (change.selection === null) emit("selection", null);
+      const last = chosen[chosen.length - 1];
+      if (doc.state.activeIds.length === 1) ops.setMaskTarget(last.id, "mask");
+      firePanelEvent(EVENT_HISTORY);
+      return true;
+    },
+    // Layer > Vector Mask > Reveal All, Hide All, Current Selection (its outline, as paths)
+    addVectorMask(kind, ids) {
+      const doc = app.doc;
+      if (!doc) return false;
+      const selection = doc.state.selection;
+      if (kind === "selection" && !selection) return false;
+      const wanted = new Set(ids || doc.state.activeIds);
+      const chosen = doc.state.layers.filter((layer) => wanted.has(layer.id) && ops.canHaveMask(layer) && !layer.vectorMask);
+      if (!chosen.length) return false;
+      if (chosen.some((layer) => layer.locked)) {
+        emit("layer-locked");
+        return false;
+      }
+      const corner = (x, y) => ({ linked: false, points: [x, y, x, y, x, y] });
+      let paths = [];
+      if (kind === "selection" && selection.ellipse) {
+        // An ellipse is four curves, as Photoshop draws it
+        const { left, top, right, bottom } = selection.ellipse;
+        const cx = (left + right) / 2;
+        const cy = (top + bottom) / 2;
+        const rx = (right - left) / 2;
+        const ry = (bottom - top) / 2;
+        const k = 0.5522847498;
+        const smooth = (x, y, hx, hy) => ({ linked: true, points: [x - hx, y - hy, x, y, x + hx, y + hy] });
+        paths = [{ open: false, operation: "combine", fillRule: "even-odd", knots: [smooth(cx, top, -rx * k, 0), smooth(right, cy, 0, -ry * k), smooth(cx, bottom, rx * k, 0), smooth(left, cy, 0, ry * k)] }];
+      } else if (kind === "selection") {
+        paths = selection.rings.map((ring, index) => ({ open: false, operation: index ? undefined : "combine", fillRule: "even-odd", knots: ring.map(([x, y]) => corner(x, y)) }));
+      }
+      const made = new Map();
+      chosen.forEach((layer) => {
+        const [sx, sy] = maskShift(layer);
+        const vectorMask = shiftedVector({ paths, fillStartsWithAllPixels: kind === "revealAll" }, -sx, -sy);
+        const next = Object.assign({}, layer, { vectorMask });
+        if (layer.isBackground) Object.assign(next, { isBackground: false, name: `${(app.names && app.names.layer) || "Layer"} 0` });
+        made.set(layer.id, next);
+      });
+      const change = { layers: doc.state.layers.map((layer) => made.get(layer.id) || layer) };
+      if (kind === "selection") change.selection = null;
+      commitState(doc, "Add Vector Mask", change);
+      if (kind === "selection") emit("selection", null);
+      if (doc.state.activeIds.length === 1) ops.setMaskTarget(chosen[chosen.length - 1].id, "vector");
+      firePanelEvent(EVENT_HISTORY);
+      return true;
+    },
+    // Layer > Layer Mask > Delete (or Vector Mask > Delete). `apply`: its pixels go into the layer first.
+    deleteMask(id, part = "mask", apply) {
+      const doc = app.doc;
+      const layer = doc && doc.state.layers.find((item) => item.id === id);
+      if (!layer || !(part === "vector" ? layer.vectorMask : layer.mask)) return false;
+      if (layer.locked) {
+        emit("layer-locked");
+        return false;
+      }
+      if (apply && part === "mask") return ops.applyMask(id);
+      commitState(doc, part === "vector" ? "Delete Vector Mask" : "Delete Layer Mask", { layers: replaceLayer(doc, layer, part === "vector" ? { vectorMask: null } : { mask: null }) });
+      if (doc.maskView && doc.maskView.id === id) doc.maskView = null;
+      emit("mask-target", ops.maskTarget(doc));
+      firePanelEvent(EVENT_HISTORY);
+      return true;
+    },
+    canApplyMask(layer) {
+      return Boolean(layer && layer.mask && layer.kind === "raster" && !layer.adjustment);
+    },
+    // Layer > Layer Mask > Apply: what it hides is gone from the pixels, and so is the mask
+    applyMask(id) {
+      const doc = app.doc;
+      const layer = doc && doc.state.layers.find((item) => item.id === id);
+      if (!ops.canApplyMask(layer)) return false;
+      if (layer.locked) {
+        emit("layer-locked");
+        return false;
+      }
+      const visual = visualOf(Object.assign({}, layer, { vectorMask: null }), doc);
+      let next;
+      if (!visual) next = Object.assign({}, layer, { mask: null });
+      else {
+        const canvas = newCanvas(visual.canvas.width, visual.canvas.height);
+        canvas.getContext("2d").drawImage(visual.canvas, 0, 0);
+        next = withPixels(layer, canvas, visual.x, visual.y, null);
+      }
+      if (next.raw) next.raw = Object.assign({}, next.raw);
+      commitState(doc, "Apply Layer Mask", { layers: replaceLayer(doc, layer, next) });
+      if (doc.maskView && doc.maskView.id === id) doc.maskView = null;
+      emit("mask-target", ops.maskTarget(doc));
+      firePanelEvent(EVENT_HISTORY);
+      return true;
+    },
+    // Enabled, linked, Density, Feather. `part`: "vector" for the vector mask.
+    setMaskProps(id, changes, name, coalesce, part = "mask") {
+      const doc = app.doc;
+      const layer = doc && doc.state.layers.find((item) => item.id === id);
+      const mask = layer && (part === "vector" ? layer.vectorMask : layer.mask);
+      if (!mask) return false;
+      commitState(doc, name || "Mask Properties", { layers: replaceLayer(doc, layer, { [part === "vector" ? "vectorMask" : "mask"]: Object.assign({}, mask, changes) }) }, coalesce);
+      return true;
+    },
+    // Image > Adjustments > Invert, on a mask: what it hid shows, and the other way round
+    invertMask(id, target = "mask") {
+      const doc = app.doc;
+      const layer = doc && maskHolder(doc, target, id);
       if (!layer) return false;
       if (layer.locked) {
+        emit("layer-locked");
+        return false;
+      }
+      const settled = settledMask(layer, doc);
+      let canvas = null;
+      if (settled.canvas) {
+        canvas = newCanvas(settled.canvas.width, settled.canvas.height);
+        const c = canvas.getContext("2d");
+        c.drawImage(settled.canvas, 0, 0);
+        c.globalCompositeOperation = "difference";
+        c.fillStyle = "#fff";
+        c.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      const mask = Object.assign({}, settled, { canvas, defaultColor: settled.defaultColor ? 0 : 255 });
+      if (target === "quick") commitState(doc, "Invert", { quickMask: mask });
+      else commitState(doc, "Invert", { layers: replaceLayer(doc, layer, { mask }) });
+      return true;
+    },
+    // A mask's alpha over the page, a byte per pixel: 1 where it shows the layer more than half
+    maskPixels(layer, part) {
+      const doc = app.doc;
+      const picture = part === "vector" ? vectorPicture(Object.assign({}, layer, { vectorMask: Object.assign({}, layer.vectorMask, { disable: false }) })) : maskPicture(layer, doc, true);
+      const alpha = maskOverPage(picture, 0, 0, doc.width, doc.height);
+      const data = alpha.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, doc.width, doc.height).data;
+      const full = new Uint8Array(doc.width * doc.height);
+      for (let i = 0; i < full.length; i++) full[i] = data[i * 4 + 3] > 127 ? 1 : 0;
+      return full;
+    },
+    // Cmd + click on a mask's thumbnail: it becomes the selection (Shift adds, Alt takes away)
+    maskToSelection(id, mode, part = "mask") {
+      const doc = app.doc;
+      const layer = doc && doc.state.layers.find((item) => item.id === id);
+      if (!layer || !(part === "vector" ? layer.vectorMask : layer.mask)) return null;
+      const selection = fromFullMask(doc, ops.maskPixels(layer, part), "layer");
+      if (!selection) {
+        if (!mode || mode === "intersect") ops.deselect();
+        return null;
+      }
+      return mode ? ops.userSelection(selection, "Load Selection", mode) : ops.quietSelection(selection, "Load Selection");
+    },
+    // The Move tool on an unlinked mask: it moves alone
+    moveMask(id, dx, dy, coalesce, part = "mask") {
+      const doc = app.doc;
+      const layer = doc && doc.state.layers.find((item) => item.id === id);
+      const mask = layer && (part === "vector" ? layer.vectorMask : layer.mask);
+      if (!mask || (!dx && !dy)) return false;
+      if (layer.locked) {
+        emit("layer-locked");
+        return false;
+      }
+      const moved = part === "vector" ? { vectorMask: shiftedVector(mask, dx, dy) } : { mask: Object.assign({}, mask, { left: (mask.left || 0) + dx, top: (mask.top || 0) + dy, right: (mask.right || 0) + dx, bottom: (mask.bottom || 0) + dy }) };
+      commitState(doc, "Move", { layers: replaceLayer(doc, layer, moved) }, coalesce);
+      return true;
+    },
+    // A mask's thumbnail dragged onto another layer: it goes there, or a copy with Alt
+    transferMask(fromId, toId, copy, part = "mask") {
+      const doc = app.doc;
+      if (!doc || fromId === toId) return false;
+      const from = doc.state.layers.find((item) => item.id === fromId);
+      const to = doc.state.layers.find((item) => item.id === toId);
+      const key = part === "vector" ? "vectorMask" : "mask";
+      if (!from || !from[key] || !ops.canHaveMask(to)) return false;
+      if (from.locked || to.locked) {
+        emit("layer-locked");
+        return false;
+      }
+      const [fx, fy] = maskShift(from);
+      const [tx, ty] = maskShift(to);
+      const moved = part === "vector" ? shiftedVector(from.vectorMask, fx - tx, fy - ty) : Object.assign({}, from.mask, { left: (from.mask.left || 0) + fx - tx, top: (from.mask.top || 0) + fy - ty, right: (from.mask.right || 0) + fx - tx, bottom: (from.mask.bottom || 0) + fy - ty });
+      const layers = doc.state.layers.map((layer) => {
+        if (layer.id === toId) return Object.assign({}, layer, { [key]: moved }, layer.isBackground ? { isBackground: false, name: `${(app.names && app.names.layer) || "Layer"} 0` } : null);
+        if (layer.id === fromId && !copy) return Object.assign({}, layer, { [key]: null });
+        return layer;
+      });
+      commitState(doc, copy ? "Duplicate Layer Mask" : "Move Layer Mask", { layers, activeIds: [toId] });
+      ops.setMaskTarget(toId, part);
+      firePanelEvent(EVENT_SELECT);
+      return true;
+    },
+    // Layer > Rasterize > Vector Mask: its shape goes into the pixel mask, made if need be
+    rasterizeVectorMask(id) {
+      const doc = app.doc;
+      const layer = doc && doc.state.layers.find((item) => item.id === id);
+      if (!layer || !layer.vectorMask) return false;
+      if (layer.locked) {
+        emit("layer-locked");
+        return false;
+      }
+      const [sx, sy] = maskShift(layer);
+      const vector = vectorPicture(Object.assign({}, layer, { vectorMask: Object.assign({}, layer.vectorMask, { disable: false }) }));
+      let mask;
+      if (!layer.mask) {
+        const file = maskForFile(vector, vector.outside >= 0.5);
+        mask = { canvas: file ? file.canvas : null, left: (file ? file.left : 0) - sx, top: (file ? file.top : 0) - sy, defaultColor: vector.outside >= 0.5 ? 255 : 0, paint: NONE };
+      } else {
+        // Both: what each one hides stays hidden
+        const own = maskPicture(layer, doc, true);
+        const left = Math.min(own.canvas ? own.x : Infinity, vector.canvas ? vector.x : Infinity, 0);
+        const top = Math.min(own.canvas ? own.y : Infinity, vector.canvas ? vector.y : Infinity, 0);
+        const right = Math.max(own.canvas ? own.x + own.canvas.width : -Infinity, vector.canvas ? vector.x + vector.canvas.width : -Infinity, doc.width);
+        const bottom = Math.max(own.canvas ? own.y + own.canvas.height : -Infinity, vector.canvas ? vector.y + vector.canvas.height : -Infinity, doc.height);
+        const alpha = maskOverPage(own, left, top, right - left, bottom - top);
+        cutWith(alpha.getContext("2d"), alpha.width, alpha.height, left, top, vector);
+        const outside = own.outside * vector.outside >= 0.5;
+        const file = maskForFile({ canvas: alpha, x: left, y: top }, outside);
+        mask = Object.assign({}, layer.mask, { canvas: file ? file.canvas : null, left: (file ? file.left : 0) - sx, top: (file ? file.top : 0) - sy, defaultColor: outside ? 255 : 0, paint: NONE });
+      }
+      mask.right = mask.left + (mask.canvas ? mask.canvas.width : 0);
+      mask.bottom = mask.top + (mask.canvas ? mask.canvas.height : 0);
+      commitState(doc, "Rasterize Vector Mask", { layers: replaceLayer(doc, layer, { mask, vectorMask: null }) });
+      ops.setMaskTarget(id, "mask");
+      return true;
+    },
+    // A layer's masks as Photoshop's file keeps them: the pixel mask in `mask`, or in
+    // `realMask` with the vector mask's shape in `mask` when it has both
+    masksForFile(layer, doc) {
+      const [sx, sy] = maskShift(layer);
+      let pixel = null;
+      if (layer.mask) {
+        const m = layer.mask;
+        let canvas = m.canvas || null;
+        let left = (m.left || 0) + sx;
+        let top = (m.top || 0) + sy;
+        if (m.paint && m.paint.length) {
+          const file = maskForFile(maskPicture(layer, doc, true), m.defaultColor);
+          canvas = file ? file.canvas : null;
+          left = file ? file.left : 0;
+          top = file ? file.top : 0;
+        }
+        if (!canvas) {
+          left = 0;
+          top = 0;
+        }
+        pixel = { left, top, right: left + (canvas ? canvas.width : 0), bottom: top + (canvas ? canvas.height : 0), defaultColor: m.defaultColor ? 255 : 0, disabled: Boolean(m.disabled) };
+        if (canvas) pixel.canvas = canvas;
+        if (m.userMaskDensity !== undefined && m.userMaskDensity < 1) pixel.userMaskDensity = m.userMaskDensity;
+        if (m.userMaskFeather > 0) pixel.userMaskFeather = m.userMaskFeather;
+      }
+      if (!layer.vectorMask) return pixel ? { mask: pixel } : {};
+      const vm = layer.vectorMask;
+      const vectorMask = shiftedVector(vm, sx, sy);
+      delete vectorMask.density;
+      delete vectorMask.feather;
+      const shape = vectorPicture(Object.assign({}, layer, { vectorMask: Object.assign({}, vm, { disable: false, density: undefined, feather: undefined }) }));
+      const file = maskForFile(shape, shape.outside >= 0.5);
+      const drawn = { left: file ? file.left : 0, top: file ? file.top : 0, defaultColor: shape.outside >= 0.5 ? 255 : 0, disabled: Boolean(vm.disable), fromVectorData: true };
+      drawn.right = drawn.left + (file ? file.canvas.width : 0);
+      drawn.bottom = drawn.top + (file ? file.canvas.height : 0);
+      if (file) drawn.canvas = file.canvas;
+      if (vm.density !== undefined && vm.density < 1) drawn.vectorMaskDensity = vm.density;
+      if (vm.feather > 0) drawn.vectorMaskFeather = vm.feather;
+      if (!pixel) return { mask: drawn, vectorMask };
+      if (pixel.userMaskDensity !== undefined) drawn.userMaskDensity = pixel.userMaskDensity;
+      if (pixel.userMaskFeather !== undefined) drawn.userMaskFeather = pixel.userMaskFeather;
+      return { mask: drawn, realMask: pixel, vectorMask };
+    },
+    // The thumbnail of a mask, in grey, as the Layers panel shows it
+    maskThumb(layer, part, width, height) {
+      const doc = app.doc;
+      const canvas = newCanvas(width, height);
+      if (!doc) return canvas;
+      const scale = Math.min(width / doc.width, height / doc.height);
+      const picture = part === "vector" ? vectorPicture(Object.assign({}, layer, { vectorMask: Object.assign({}, layer.vectorMask, { disable: false, density: undefined, feather: undefined }) })) : maskPicture(layer, doc, true);
+      const alpha = newCanvas(width, height);
+      const a = alpha.getContext("2d");
+      if (picture.outside > 0) {
+        a.globalAlpha = picture.outside;
+        a.fillRect(0, 0, width, height);
+        a.globalAlpha = 1;
+      }
+      if (picture.canvas) {
+        a.save();
+        a.scale(scale, scale);
+        a.clearRect(picture.x, picture.y, picture.canvas.width, picture.canvas.height);
+        a.imageSmoothingQuality = "high";
+        a.drawImage(picture.canvas, picture.x, picture.y);
+        a.restore();
+      }
+      canvas.getContext("2d").drawImage(maskAsGray(alpha), 0, 0);
+      return canvas;
+    },
+    /* ---- clipping masks ---- */
+    // Whether a layer is clipped to the one under it, and whether one is a base
+    clipping(doc = app.doc) {
+      return doc ? clippingOf(doc.state.layers) : { clipped: new Set(), bases: new Set(), baseOf: new Map() };
+    },
+    // What Layer > Create Clipping Mask (Alt + Cmd + G) would do with the active layers:
+    // "release" when one of them is clipped or a base, "create" when they can be, else null
+    clippingPlan(doc = app.doc) {
+      if (!doc || !doc.state.activeIds.length) return null;
+      const layers = doc.state.layers;
+      const info = clippingOf(layers);
+      const active = layers.filter((layer) => doc.state.activeIds.includes(layer.id));
+      if (active.some((layer) => info.clipped.has(layer.id) || layers.some((item) => info.baseOf.get(item.id) === layer))) return "release";
+      const lowest = active[0];
+      const at = layers.indexOf(lowest);
+      if (active.length === 1) {
+        const below = layers[at - 1];
+        return lowest.kind !== "group" && below && (below.group || null) === (lowest.group || null) ? "create" : null;
+      }
+      return active.slice(1).some((layer) => layer.kind !== "group" && (layer.group || null) === (lowest.group || null)) ? "create" : null;
+    },
+    // Create Clipping Mask, or Release it: Photoshop's one command
+    toggleClipping() {
+      const doc = app.doc;
+      const plan = ops.clippingPlan(doc);
+      if (!plan) return false;
+      const layers = doc.state.layers;
+      const info = clippingOf(layers);
+      const active = layers.filter((layer) => doc.state.activeIds.includes(layer.id));
+      const change = new Set();
+      if (plan === "release") {
+        // A clipped layer goes with those clipped above it; a base lets all of its own go
+        active.forEach((layer) => {
+          const at = layers.indexOf(layer);
+          const base = info.clipped.has(layer.id) ? info.baseOf.get(layer.id) : layer;
+          for (let j = info.clipped.has(layer.id) ? at : at + 1; j < layers.length && info.clipped.has(layers[j].id) && info.baseOf.get(layers[j].id) === base; j++) change.add(layers[j].id);
+        });
+        commitState(doc, "Release Clipping Mask", { layers: layers.map((layer) => (change.has(layer.id) ? Object.assign({}, layer, { clipping: false }) : layer)) });
+      } else {
+        const lowest = active[0];
+        const from = layers.indexOf(lowest);
+        const to = layers.indexOf(active[active.length - 1]);
+        if (active.length === 1) change.add(lowest.id);
+        // The lowest is the base; those between it and the highest go with it
+        else for (let j = from + 1; j <= to; j++) if (layers[j].kind !== "group" && (layers[j].group || null) === (lowest.group || null)) change.add(layers[j].id);
+        commitState(doc, "Create Clipping Mask", { layers: layers.map((layer) => (change.has(layer.id) ? Object.assign({}, layer, { clipping: true }) : layer)) });
+      }
+      firePanelEvent(EVENT_HISTORY);
+      return true;
+    },
+    // Alt + click between two layers in the Layers panel: the upper one is clipped to the lower
+    // one, or let go with those above it
+    clipToBelow(id) {
+      const doc = app.doc;
+      if (!doc) return false;
+      const layers = doc.state.layers;
+      const info = clippingOf(layers);
+      const at = layers.findIndex((layer) => layer.id === id);
+      const layer = layers[at];
+      if (!layer || layer.kind === "group") return false;
+      if (info.clipped.has(id)) {
+        const base = info.baseOf.get(id);
+        const change = new Set();
+        for (let j = at; j < layers.length && info.clipped.has(layers[j].id) && info.baseOf.get(layers[j].id) === base; j++) change.add(layers[j].id);
+        commitState(doc, "Release Clipping Mask", { layers: layers.map((item) => (change.has(item.id) ? Object.assign({}, item, { clipping: false }) : item)) });
+      } else {
+        const below = layers[at - 1];
+        if (!below || (below.group || null) !== (layer.group || null)) return false;
+        commitState(doc, "Create Clipping Mask", { layers: replaceLayer(doc, layer, { clipping: true }) });
+      }
+      firePanelEvent(EVENT_HISTORY);
+      return true;
+    },
+    /* ---- Quick Mask (Q) ---- */
+    // The selection becomes a mask the brushes paint on, red where nothing is selected; going
+    // back, what is more white than black becomes the selection
+    toggleQuickMask() {
+      const doc = app.doc;
+      if (!doc) return false;
+      if (doc.state.quickMask) {
+        const holder = maskHolder(doc, "quick");
+        const full = ops.maskPixels(holder, "mask");
+        let all = true;
+        for (let i = 0; i < full.length && all; i++) all = full[i] === 1;
+        const selection = all ? null : fromFullMask(doc, full, "mixed");
+        commitState(doc, "Exit Quick Mask", { quickMask: null, selection: selection || null });
+        maskCache.delete(holder.id);
+        emit("selection", selection || null);
+        emit("quick-mask", false);
+        return true;
+      }
+      const selection = doc.state.selection;
+      let quickMask;
+      if (selection) {
+        const b = selection.bounds;
+        const left = Math.floor(b.left);
+        const top = Math.floor(b.top);
+        const alpha = newCanvas(Math.ceil(b.right) - left, Math.ceil(b.bottom) - top);
+        const clip = clipOf(selection, 0, 0);
+        const a = alpha.getContext("2d");
+        if (clip.canvas) a.drawImage(clip.canvas, clip.x - left, clip.y - top);
+        else a.fillRect(clip.x - left, clip.y - top, clip.width, clip.height);
+        quickMask = { canvas: maskAsGray(alpha), left, top, defaultColor: 0, paint: NONE };
+      } else quickMask = { canvas: null, left: 0, top: 0, defaultColor: 255, paint: NONE };
+      commitState(doc, "Quick Mask", { quickMask, selection: null });
+      emit("selection", null);
+      emit("quick-mask", true);
+      return true;
+    },
+    // Alt + Backspace and the others on a mask or the Quick Mask: a grey within the selection,
+    // or all over it when nothing is selected, as in Photoshop
+    fillMask(target, layerId, gray) {
+      const doc = app.doc;
+      if (!doc) return false;
+      const holder = maskHolder(doc, target, layerId);
+      if (!holder) return false;
+      if (holder.locked) {
+        emit("layer-locked");
+        return true;
+      }
+      const [ox, oy] = maskOrigin(holder);
+      const op = { t: "fill", gray, clip: doc.state.selection ? clipOf(doc.state.selection, ox, oy) : null };
+      // Black or white all over: the mask is that colour, round the page too
+      const plain = !op.clip && (gray === 0 || gray === 255);
+      const mask = plain ? Object.assign({}, holder.mask, { canvas: null, defaultColor: gray, paint: NONE, right: holder.mask.left || 0, bottom: holder.mask.top || 0 }) : Object.assign({}, holder.mask, { paint: (holder.mask.paint || NONE).concat([op]) });
+      if (target === "quick") commitState(doc, "Fill", { quickMask: mask });
+      else commitState(doc, "Fill", { layers: replaceLayer(doc, holder, { mask }) });
+      return true;
+    },
+    /* ---- painting ---- */
+    // `fields.target`: "mask" paints the layer's mask, "quick" the Quick Mask, in `fields.gray`
+    beginStroke(layerId, fields) {
+      const doc = app.doc;
+      if (doc && fields.target) {
+        const holder = maskHolder(doc, fields.target, layerId);
+        if (!holder) return false;
+        if (holder.locked) {
+          emit("layer-locked");
+          return false;
+        }
+        const [ox, oy] = maskOrigin(holder);
+        const op = { t: "stroke", points: [], size: fields.size, hardness: fields.hardness, gray: fields.gray };
+        if (fields.erase) op.erase = true;
+        if (doc.state.selection) op.clip = clipOf(doc.state.selection, ox, oy);
+        doc.liveStroke = { layerId, holderId: holder.id, target: fields.target, op, dx: ox, dy: oy };
+        maskEntry(holder, doc);
+        return true;
+      }
+      const layer = doc && doc.state.layers.find((item) => item.id === layerId && item.kind === "raster");
+      if (!layer) return false;
+      if (lockOf(layer, "pixels")) {
         emit("layer-locked");
         return false;
       }
@@ -4567,6 +6116,15 @@
       const dy = layer.dy || 0;
       const { clone, ...rest } = fields;
       const op = Object.assign({ t: "stroke", points: [] }, rest);
+      // Transparent pixels locked: paint only on what is there, and the Eraser paints the
+      // background colour, as in Photoshop
+      if (lockOf(layer, "transparency")) {
+        op.atop = true;
+        if (op.erase) {
+          delete op.erase;
+          op.color = Object.assign({}, app.bg);
+        }
+      }
       if (clone) {
         const shot = cloneSource(doc, layer, clone.sample);
         op.source = { canvas: shot.canvas, x: shot.x - clone.ox - dx, y: shot.y - clone.oy - dy };
@@ -4580,14 +6138,23 @@
       const doc = app.doc;
       const live = doc && doc.liveStroke;
       if (!live) return;
-      const layer = doc.state.layers.find((item) => item.id === live.layerId);
       const point = [x - live.dx, y - live.dy];
       const previous = live.op.points[live.op.points.length - 1];
       live.op.points.push(point);
-      const entry = rasterEntry(layer, doc);
       const segment = previous ? [previous, point] : [point];
-      if (live.op.source) cloneSegment(entry, live, segment);
-      else drawOp(entry.ctx, live.op, segment);
+      if (live.target) {
+        const holder = maskHolder(doc, live.target, live.layerId);
+        if (!holder) return;
+        const entry = maskEntry(holder, doc);
+        maskDrawOp(entry.ctx, live.op, segment);
+        entry.version++;
+      } else {
+        const layer = doc.state.layers.find((item) => item.id === live.layerId);
+        const entry = rasterEntry(layer, doc);
+        if (live.op.source) cloneSegment(entry, live, segment);
+        else drawOp(entry.ctx, live.op, segment);
+        entry.version++;
+      }
       const from = previous || point;
       const reach = (live.op.size || 1) + 2;
       emit("render", pageRect(doc, Math.min(from[0], point[0]) + live.dx - reach, Math.min(from[1], point[1]) + live.dy - reach, Math.max(from[0], point[0]) + live.dx + reach, Math.max(from[1], point[1]) + live.dy + reach));
@@ -4597,6 +6164,21 @@
       const live = doc && doc.liveStroke;
       if (!live) return;
       doc.liveStroke = null;
+      if (live.target) {
+        const holder = maskHolder(doc, live.target, live.layerId);
+        if (!holder || !live.op.points.length) {
+          emit("render");
+          return;
+        }
+        const paint = (holder.mask.paint || NONE).concat([live.op]);
+        const entry = maskCache.get(holder.id);
+        if (entry) entry.paint = paint;
+        const mask = Object.assign({}, holder.mask, { paint });
+        const name = live.target === "quick" ? "Quick Mask" : live.op.erase ? "Eraser" : "Brush";
+        if (live.target === "quick") commitState(doc, name, { quickMask: mask });
+        else commitState(doc, name, { layers: replaceLayer(doc, holder, { mask }) });
+        return;
+      }
       const layer = doc.state.layers.find((item) => item.id === live.layerId);
       if (!live.op.points.length) return;
       if (live.op.source) cropCloneSource(live.op);
@@ -4617,7 +6199,7 @@
         if (!color) return false;
         layer = ops.newLayer();
       }
-      if (layer.locked) {
+      if (lockOf(layer, "pixels")) {
         emit("layer-locked");
         return true;
       }
@@ -4625,6 +6207,13 @@
       const op = { t: "fill", clip: clipOf(selection, layer.dx || 0, layer.dy || 0) };
       if (color) op.color = color;
       else op.erase = true;
+      if (lockOf(layer, "transparency")) {
+        op.atop = true;
+        if (op.erase) {
+          delete op.erase;
+          op.color = Object.assign({}, app.bg);
+        }
+      }
       commitState(doc, color ? "Fill" : "Clear", { layers: replaceLayer(doc, layer, { paint: (layer.paint || NONE).concat([op]) }) });
       return true;
     },
@@ -4638,7 +6227,79 @@
       canvas.getContext("2d").putImageData(new ImageData(plan.pixels, plan.width, plan.height), 0, 0);
       const layers = paintOnCleanLayer(doc.state.layers, (layer) => ({ t: "image", canvas, x: plan.left - (layer.dx || 0), y: plan.top - (layer.dy || 0) }));
       commitState(doc, "Bubble Cleaner", { layers });
-      return { ok: true, painted: plan.painted, colour: plan.colour };
+      // Painted on a hidden layer, or in a hidden folder, the clean happens but can't be seen
+      const clean = layers.find((layer) => layer.clean);
+      const hidden = !chainOf(clean, new Map(layers.map((layer) => [layer.id, layer]))).visible;
+      return { ok: true, painted: plan.painted, colour: plan.colour, hidden };
+    },
+    /* ---- the Bubble Reshaper (reshape-tool.js) ---- */
+    // The page as the Reshaper reads it: every pixel layer on white, never the text, and
+    // without the bubble layer being shaped again
+    reshapePage(without) {
+      const doc = app.doc;
+      if (!doc) return null;
+      const shown = without ? Object.assign({}, doc, { state: Object.assign({}, doc.state, { layers: doc.state.layers.filter((layer) => layer.id !== without) }) }) : doc;
+      return { data: sampleData(shown, true), width: doc.width, height: doc.height };
+    },
+    // The bubble layer under a point: the topmost one shown there that remembers its shape
+    reshapedAt(x, y) {
+      const doc = app.doc;
+      if (!doc) return null;
+      const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
+      for (let i = doc.state.layers.length - 1; i >= 0; i--) {
+        const layer = doc.state.layers[i];
+        if (layer.kind !== "raster" || !layer.bubble || !layer.bitmap || layer.visible === false || !chainOf(layer, byId).visible) continue;
+        const lx = Math.floor(x - layer.left - (layer.dx || 0));
+        const ly = Math.floor(y - layer.top - (layer.dy || 0));
+        if (lx < 0 || ly < 0 || lx >= layer.bitmap.width || ly >= layer.bitmap.height) continue;
+        if (layer.bitmap.getContext("2d", { willReadFrequently: true }).getImageData(lx, ly, 1, 1).data[3] > 0) return layer;
+      }
+      return null;
+    },
+    // The bubble being shaped, on screen only; null takes it off
+    reshapeShow(extra, area) {
+      const doc = app.doc;
+      if (!doc) return;
+      doc.extra = extra;
+      emit("render", area ? pageRect(doc, area.left, area.top, area.right, area.bottom) : undefined);
+    },
+    // The bubble becomes a layer: a new one under the texts, or the one it was shaped from
+    reshapeCommit({ canvas, left, top, bubble, replaces, name }) {
+      const doc = app.doc;
+      if (!doc) return null;
+      doc.extra = null;
+      const old = replaces && doc.state.layers.find((layer) => layer.id === replaces);
+      let layers;
+      let id;
+      if (old) {
+        id = old.id;
+        layers = replaceLayer(doc, old, { bitmap: canvas, left, top, dx: 0, dy: 0, paint: NONE, bubble });
+      } else {
+        const made = newRaster(name || "Bubble", { bitmap: canvas, left, top, bubble });
+        id = made.id;
+        layers = doc.state.layers.slice();
+        // Where TypeR Clean goes: above the page, under the texts and their folders
+        let at = layers.findIndex((layer) => layer.kind === "text");
+        const rootOf = (layer) => {
+          let root = layer;
+          while (root && root.group) root = layers.find((item) => item.id === root.group);
+          return root;
+        };
+        if (at >= 0 && layers[at].group) {
+          const root = rootOf(layers[at]);
+          while (at > 0 && rootOf(layers[at - 1]) === root) at--;
+        }
+        layers.splice(at < 0 ? layers.length : at, 0, made);
+      }
+      commitState(doc, "Bubble Reshaper", { layers, activeIds: [id] });
+      firePanelEvent(EVENT_HISTORY);
+      return id;
+    },
+    // A selection from a mask on the page (one byte a pixel), without TypeR pasting into it
+    selectMask(mask, width, height, left, top, name) {
+      const doc = app.doc;
+      if (!doc) return null;
+      return ops.quietSelection(makeSelection({ source: "mask", mask, boxW: width, boxH: height, left, top }), name || "Select");
     },
     // Edit > Content-Aware Fill: the selection is painted over with what surrounds it, read
     // from every pixel layer and never from the text, onto the active pixel layer or a new
@@ -4648,7 +6309,7 @@
       const selection = doc && doc.state.selection;
       if (!selection) return "none";
       let layer = options.output === "new" ? null : activeRaster(doc);
-      if (layer && layer.locked) {
+      if (layer && lockOf(layer, "pixels")) {
         emit("layer-locked");
         return "locked";
       }
@@ -4711,6 +6372,183 @@
       } else layers.push(made);
       commitState(doc, "Content-Aware Fill", { layers, activeIds: [made.id] });
       return "done";
+    },
+    // Edit > Generative Fill: the selection and what surrounds it, read from every pixel layer
+    // and never from the text, go to an image model through `draw(canvas, { ratio, size })`,
+    // which resolves with the model's picture. Such a picture comes back a little moved or
+    // resized: Auto-Align Layers' engine lays it back on the page by what lies around the
+    // selection, and only the selection is kept, on a new layer above the active one.
+    // `ratios`: the shapes the model draws, as { label, value }. Long: progress goes 0 to 1.
+    // It runs alongside the person's work: the page, the selection and the active layer are the
+    // ones of the moment it starts, and `settle(doc)` resolves when the page may take the layer
+    // (no gesture under way). The new layer becomes the active one only if the active layers
+    // are still those of the start.
+    // A generation that waited its turn passes its own `doc`, `selection` and `activeIds`.
+    async generativeFill({ draw, ratios, name, settle, doc: wanted, selection: chosen, activeIds, hide }, progress = () => {}) {
+      const doc = wanted || app.doc;
+      if (!doc || !app.docs.includes(doc)) return { outcome: "gone" };
+      const selection = chosen || doc.state.selection;
+      if (!selection || (!chosen && doc.state.quickMask)) return { outcome: "none" };
+      const b = selection.bounds;
+      const activeAtStart = (activeIds || doc.state.activeIds).slice();
+      const sizeAtStart = [doc.width, doc.height];
+      // Enough around the selection for the model to see the art it continues
+      const reach = Math.max(48, Math.round(Math.max(b.width, b.height) * 0.4));
+      let x0 = b.left - reach;
+      let y0 = b.top - reach;
+      let x1 = b.right + reach;
+      let y1 = b.bottom + reach;
+      // Grown to the model's nearest shape, then slid inside the page, then cut by it
+      const shape = (ratios || [{ label: "1:1", value: 1 }]).reduce((best, one) => (Math.abs(Math.log(one.value / ((x1 - x0) / (y1 - y0)))) < Math.abs(Math.log(best.value / ((x1 - x0) / (y1 - y0)))) ? one : best));
+      if ((x1 - x0) / (y1 - y0) < shape.value) {
+        const grow = (y1 - y0) * shape.value - (x1 - x0);
+        x0 -= grow / 2;
+        x1 += grow / 2;
+      } else {
+        const grow = (x1 - x0) / shape.value - (y1 - y0);
+        y0 -= grow / 2;
+        y1 += grow / 2;
+      }
+      const inside = (a, z, limit) => {
+        const length = z - a;
+        if (length >= limit) return [0, limit];
+        if (a < 0) return [0, Math.round(length)];
+        if (z > limit) return [limit - Math.round(length), limit];
+        return [Math.round(a), Math.round(a) + Math.round(length)];
+      };
+      [x0, x1] = inside(x0, x1, doc.width);
+      [y0, y1] = inside(y0, y1, doc.height);
+      const width = x1 - x0;
+      const height = y1 - y0;
+      if (width <= 0 || height <= 0) return { outcome: "none" };
+      // The page as the model sees it: on white, without the text layers, nor the layers a
+      // tool leaves out (the Bubble Reshaper's new bubble, so that the old one goes whole)
+      const area = newCanvas(width, height);
+      const actx = area.getContext("2d", { willReadFrequently: true });
+      actx.fillStyle = "#fff";
+      actx.fillRect(0, 0, width, height);
+      const drawn = newCanvas(width, height);
+      paintDoc(doc, drawn.getContext("2d"), { x: -x0, y: -y0, skip: (item) => item.kind === "text" || Boolean(hide && hide.includes(item.id)) });
+      actx.drawImage(drawn, 0, 0);
+      // A big area goes smaller, a small one bigger: the models draw at one to four megapixels
+      // anyway, and some refuse a picture under 256 pixels a side
+      const LONGEST = 2048;
+      const SHORTEST = 512;
+      const scale = Math.min(LONGEST / Math.max(width, height), Math.max(1, SHORTEST / Math.min(width, height)));
+      let sent = area;
+      if (scale !== 1) {
+        sent = newCanvas(Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
+        const sctx = sent.getContext("2d");
+        sctx.imageSmoothingQuality = "high";
+        sctx.drawImage(area, 0, 0, sent.width, sent.height);
+      }
+      const size = Math.max(width, height) > 1400 ? "2K" : "1K";
+      const picture = await draw(sent, { ratio: shape.label, size, inside: { left: (b.left - x0) * scale, top: (b.top - y0) * scale, width: b.width * scale, height: b.height * scale } });
+      // Meanwhile the page may have closed
+      if (!app.docs.includes(doc)) return { outcome: "gone" };
+      progress(0.05);
+      // First laid over the area as it is, stretched to it
+      const made = newCanvas(width, height);
+      const mctx = made.getContext("2d", { willReadFrequently: true });
+      mctx.imageSmoothingQuality = "high";
+      mctx.drawImage(picture, 0, 0, width, height);
+      if (picture.close) picture.close();
+      // Then aligned on what surrounds the selection: the selection itself, a little grown,
+      // differs on purpose (its text is gone) and says nothing about where the picture goes
+      const hole = newCanvas(width, height);
+      const hctx = hole.getContext("2d", { willReadFrequently: true });
+      const clip = selectionCanvas(selection);
+      const grow = Math.max(3, Math.round(Math.max(b.width, b.height) * 0.02));
+      for (let step = 0; step < 16; step++) {
+        const turn = (step / 16) * Math.PI * 2;
+        hctx.drawImage(clip, b.left - x0 + Math.round(Math.cos(turn) * grow), b.top - y0 + Math.round(Math.sin(turn) * grow));
+      }
+      hctx.drawImage(clip, b.left - x0, b.top - y0);
+      const holeData = hctx.getImageData(0, 0, width, height).data;
+      const holed = (canvas) => {
+        const data = canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, width, height).data;
+        for (let i = 3; i < data.length; i += 4) if (holeData[i]) data[i] = 0;
+        return data;
+      };
+      // Each way of laying it is judged on the same ground: how far its grey levels stay from
+      // the page's around the selection. Kept as it came, moved and resized by a direct search
+      // (enough for the drift of such models), or as Auto-Align Layers' engine finds it.
+      const judge = fitGround(area, made, hole, x0, y0);
+      const candidates = [{ how: "as is", m: null, error: judge.error(null) }];
+      const searched = judge.search();
+      if (searched) candidates.push({ how: "search", m: searched, error: judge.error(searched) });
+      progress(0.2);
+      const reference = holed(area);
+      const moving = holed(made);
+      let aligner = null;
+      try {
+        aligner = await startAligner();
+        const found = await aligner.ask("analyse", {
+          layers: [
+            { id: "page", x: x0, y: y0, width, height, data: reference.buffer, fixed: true },
+            { id: "picture", x: x0, y: y0, width, height, data: moving.buffer, fixed: false },
+          ],
+          projection: "auto",
+        }, [reference.buffer, moving.buffer], (percent) => progress(0.2 + (percent / 100) * 0.6));
+        const move = found.moves.find((one) => one.id === "picture");
+        if (move && !found.failed.includes("picture")) {
+          const m = move.shift ? [1, 0, move.shift[0], 0, 1, move.shift[1], 0, 0, 1] : move.matrix;
+          candidates.push({ how: "details", m, error: judge.error(m) });
+        }
+      } catch (error) {
+        console.warn("TypeR web: Auto-Align Layers' engine couldn't place the generated picture", error);
+      }
+      const best = candidates.reduce((one, other) => (other.error < one.error - 0.05 ? other : one));
+      const aligned = Number.isFinite(best.error);
+      let placed = { canvas: made, left: x0, top: y0 };
+      try {
+        if (best.m && best.m[6] === 0 && best.m[7] === 0) {
+          const m = best.m;
+          placed = transformedPixels(made, x0, y0, rectFrom(x0, y0, x1, y1), [m[0] / m[8], m[3] / m[8], m[1] / m[8], m[4] / m[8], m[2] / m[8], m[5] / m[8]]);
+        } else if (best.m) {
+          const { data } = mctx.getImageData(0, 0, width, height);
+          const out = await aligner.ask("warp", { data: data.buffer, width, height, x: x0, y: y0, matrix: best.m }, [data.buffer]);
+          placed = { canvas: canvasOfBytes(out), left: out.left, top: out.top };
+        }
+      } catch (error) {
+        console.warn("TypeR web: the generated picture could not be moved", error);
+      } finally {
+        if (aligner) aligner.stop();
+      }
+      if (!app.docs.includes(doc)) return { outcome: "gone" };
+      progress(0.9);
+      // The picture laid on the area: the aligned one over the stretched one, so no edge shows through
+      const laid = newCanvas(width, height);
+      const lctx = laid.getContext("2d", { willReadFrequently: true });
+      lctx.drawImage(made, 0, 0);
+      if (placed.canvas !== made) lctx.drawImage(placed.canvas, placed.left - x0, placed.top - y0);
+      // Models shift the tones (a cream paper, a grain, greys a little off): around the selection,
+      // the picture's levels are matched to the page's, and the same levels go inside
+      const laidData = lctx.getImageData(0, 0, width, height);
+      matchLevels(laidData.data, actx.getImageData(0, 0, width, height).data, holeData);
+      lctx.putImageData(laidData, 0, 0);
+      progress(0.95);
+      const pixels = newCanvas(b.width, b.height);
+      pixels.getContext("2d").drawImage(laid, x0 - b.left, y0 - b.top);
+      if (settle) await settle(doc);
+      if (!app.docs.includes(doc)) return { outcome: "gone" };
+      // A page cropped or resized meanwhile has moved its places: the picture would land wrong
+      if (doc.width !== sizeAtStart[0] || doc.height !== sizeAtStart[1]) return { outcome: "resized" };
+      const op = { t: "patch", source: { canvas: pixels, x: b.left, y: b.top }, clip: clipOf(selection, 0, 0) };
+      const layer = newRaster(name || "Generative Fill", { paint: [op] });
+      // Above the layer active at the start, or the one active now, or on top
+      const layers = doc.state.layers.slice();
+      let at = layers.findIndex((item) => item.id === activeAtStart[activeAtStart.length - 1]);
+      if (at < 0) at = layers.findIndex((item) => item.id === doc.state.activeIds[doc.state.activeIds.length - 1]);
+      if (at >= 0) {
+        layer.group = layers[at].kind === "group" ? layers[at].id : layers[at].group;
+        layers.splice(layers[at].kind === "group" ? at : at + 1, 0, layer);
+      } else layers.push(layer);
+      const unchanged = doc.state.activeIds.length === activeAtStart.length && doc.state.activeIds.every((id, i) => id === activeAtStart[i]);
+      commitState(doc, "Generative Fill", unchanged ? { layers, activeIds: [layer.id] } : { layers });
+      if (app.doc === doc) firePanelEvent(EVENT_HISTORY);
+      progress(1);
+      return { outcome: "done", aligned, how: best.how, error: Math.round(best.error * 100) / 100, tried: candidates.map((one) => `${one.how} ${one.error.toFixed(2)}`).join(", "), id: layer.id, doc };
     },
     pickColor(x, y) {
       const doc = app.doc;
@@ -4920,8 +6758,8 @@
       if (!doc) return { error: "none" };
       const layer = activeRaster(doc);
       if (!layer || layer.adjustment) return { error: "none" };
-      if (layer.locked) return { error: "locked" };
-      const visual = visualOf(Object.assign({}, layer, { mask: null }), doc);
+      if (lockOf(layer, "pixels")) return { error: "locked" };
+      const visual = visualOf(Object.assign({}, layer, { mask: null, vectorMask: null }), doc);
       if (!visual || !visual.canvas.width || !visual.canvas.height) return { error: "empty" };
       const width = visual.canvas.width;
       const height = visual.canvas.height;
@@ -5005,9 +6843,7 @@
         return;
       }
       levelsPaint(session, tables);
-      const { mask, dx = 0, dy = 0 } = layer;
-      const moved = mask && mask.canvas ? Object.assign({}, mask, { left: (mask.left || 0) + dx, top: (mask.top || 0) + dy, right: (mask.right || 0) + dx, bottom: (mask.bottom || 0) + dy }) : mask;
-      commitState(doc, "Levels", { layers: replaceLayer(doc, layer, withPixels(layer, session.canvas, session.visual.x, session.visual.y, moved)) });
+      commitState(doc, "Levels", { layers: replaceLayer(doc, layer, withPixels(layer, session.canvas, session.visual.x, session.visual.y, pageMask(layer, doc))) });
       firePanelEvent(EVENT_HISTORY);
     },
     // The text's rectangle becomes a surface, with nothing moved yet
@@ -5668,8 +7504,40 @@
       const base = layer.params.layerText.textStyleRange[0].textStyle;
       const params = paramsFromStyle({ textProps: layer.params }, data.text, data.richTextRuns, base.size);
       params.layerText.textClickPoint = clone(layer.params.layerText.textClickPoint);
-      centreLayer(doc, params, null, box.xMid, box.yMid);
-      commitState(doc, "TyperTools Change", { layers: replaceLayer(doc, layer, { params, raster: null }) });
+      const kept = boxShape(layer.params.layerText);
+      if (!kept || layer.rotated || layer.warp) {
+        centreLayer(doc, params, null, box.xMid, box.yMid);
+        commitState(doc, "TyperTools Change", { layers: replaceLayer(doc, layer, { params, raster: null }) });
+        return "";
+      }
+      // A text box keeps its frame: the new lines are laid in it, and it only grows, around
+      // its middle, when a line is wider than it or the lines need more height
+      const lt = params.layerText;
+      const shape = clone(kept);
+      const before = frameOf(layer, doc);
+      let widest = 0;
+      relativeLayout(Object.assign({}, lt, { textShape: [{ textType: "point" }] }), doc.resolution).lines.forEach((line) => { widest = Math.max(widest, line.m.advance); });
+      if (widest + 1 > shape.box.width) {
+        const grow = widest + 1 - shape.box.width;
+        shape.box.width += grow;
+        lt.textClickPoint.horizontal -= (grow / 2 / doc.width) * 100;
+      }
+      if (!shape.box.autoHeight) {
+        const full = relativeLayout(Object.assign({}, lt, { textShape: [{ textType: "box", box: { width: shape.box.width, height: 1, autoHeight: true } }] }), doc.resolution);
+        if (full.contentHeight > shape.box.height) {
+          const grow = full.contentHeight - shape.box.height;
+          shape.box.height += grow;
+          lt.textClickPoint.vertical -= (grow / 2 / doc.height) * 100;
+        }
+      }
+      lt.textShape = [shape];
+      let next = Object.assign({}, layer, { params, raster: null, manualBreaks: true });
+      // A box that follows its text's height keeps its middle where it was
+      if (shape.box.autoHeight) {
+        const after = frameOf(next, doc);
+        next = shifted(next, 0, (before.top + before.bottom) / 2 - (after.top + after.bottom) / 2, doc);
+      }
+      commitState(doc, "TyperTools Change", { layers: replaceLayer(doc, layer, next) });
       return "";
     },
     setSelectedTextLayers(data) {
@@ -6028,6 +7896,9 @@
   window.TypeRPhotoshop = {
     app,
     ops,
+    grayOf,
+    maskOn,
+    vectorOn,
     host,
     evalScript,
     drawTextLayer,
@@ -6060,6 +7931,8 @@
     paramsFromStyle: (style, text, runs, size) => paramsFromStyle(style, text, runs, size),
     newTextLayer: (doc, params, stroke, name) => newTextLayer(doc, params, stroke, name),
     familyOf: (layers, id) => familyOf(layers, id),
+    fillOf,
+    lockOf,
     groupVisual: (group, doc) => groupVisual(group, doc),
     centredOn,
     get fonts() { return Fonts.list(); },

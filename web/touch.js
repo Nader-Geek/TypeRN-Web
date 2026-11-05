@@ -742,12 +742,16 @@
     );
     App.MENUS.forEach(([group, items], index) => {
       if (group === "Window") return;
-      const shown = items.filter((item) => !item || (!OUT_OF_PLACE.has(item.label) && !(item.label === "Use Installed Fonts…" && !Fonts.canListInstalled())));
+      // A submenu's items come in its place, named after it
+      const flat = items.flatMap((item) => (item && item.submenu ? item.submenu.filter(Boolean).map((sub) => ({ sub, parent: item })) : [item && { sub: item }]));
+      const shown = flat.filter((entry) => !entry || (!OUT_OF_PLACE.has(entry.sub.label) && !(entry.sub.label === "Use Installed Fonts…" && !Fonts.canListInstalled())));
       const list = el("div", "tgroup__list");
-      shown.forEach((item) => {
-        if (!item) return;
+      shown.forEach((entry) => {
+        if (!entry) return;
+        const item = entry.sub;
         const disabled = item.enabled ? !item.enabled() : false;
-        list.appendChild(row(T(item.label), () => {
+        const name = T(item.title ? item.title() : item.label);
+        list.appendChild(row(entry.parent ? `${T(entry.parent.label)} › ${name}` : name, () => {
           closeSheet();
           item.action();
         }, disabled));

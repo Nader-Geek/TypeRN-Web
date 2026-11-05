@@ -10,11 +10,15 @@
   const Recent = window.TypeRRecent || { available: false, list: async () => [], add: async () => {}, remove: async () => {} };
   const Fonts = window.TypeRFonts;
   const Kit = window.TypeRKit;
+  // A page still in a browser's cache may not have loaded this one yet: no Generative Fill then
+  const Gen = window.TypeRGenerative || null;
   const { lang } = window.TYPER_I18N;
   const { ops, app } = PS;
   const $ = (id) => document.getElementById(id);
   const strings = (window.TYPER_WEB_STRINGS && window.TYPER_WEB_STRINGS[lang]) || {};
   const T = (english) => strings[english] || english;
+  // A word that means something else elsewhere: its own key, the English shown without one
+  const TL = (key, english) => strings[key] || english;
   const fill = (text, values) => Object.keys(values).reduce((out, key) => out.split(`{${key}}`).join(values[key]), text);
   const IS_MAC = /mac/i.test(navigator.platform || "");
   const Shell = window.TypeRShell;
@@ -73,6 +77,8 @@
     crop: SVG('<path d="M6 2v14a2 2 0 0 0 2 2h14"/> <path d="M18 22V8a2 2 0 0 0-2-2H2"/>'),
     stamp: SVG('<path d="M14 13V8.5C14 7 15 7 15 5a3 3 0 0 0-6 0c0 2 1 2 1 3.5V13"/> <path d="M20 15.5a2.5 2.5 0 0 0-2.5-2.5h-11A2.5 2.5 0 0 0 4 15.5V17a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1z"/> <path d="M5 22h14"/>'),
     clean: SVG('<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.290a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/><path d="M12 7.500l.9 2.600 2.600.9-2.600.9L12 14.500l-.9-2.600L8.500 11l2.600-.9Z"/>'),
+    // A bubble widened: a speech bubble under a two-way arrow
+    reshape: SVG('<path d="M3 13.5c0-3 3.6-5.5 8-5.5s8 2.5 8 5.5-3.6 5.5-8 5.5c-1 0-2-.1-2.9-.4L4 20l1.200-3.100C3.800 15.900 3 14.800 3 13.500Z"/><path d="M7 4h8"/><path d="m13 2 2 2-2 2"/><path d="m9 2-2 2 2 2"/>'),
     eyedropper: SVG('<path d="m12 9-8.414 8.414A2 2 0 0 0 3 18.828v1.344a2 2 0 0 1-.586 1.414A2 2 0 0 1 3.828 21h1.344a2 2 0 0 0 1.414-.586L15 12"/> <path d="m18 9 .4.4a1 1 0 1 1-3 3l-3.8-3.8a1 1 0 1 1 3-3l.4.4 3.4-3.4a1 1 0 1 1 3 3z"/> <path d="m2 22 .414-.414"/>'),
     text: SVG('<path d="M12 4v16"/> <path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/> <path d="M9 20h6"/>'),
     sfx: SVG('<g transform="rotate(-14 10 14)"><path d="M14.600 15H5.400M3 20 9.600 6.300a.450.450 0 0 1 .800 0L17 20"/></g><path d="M13.38 3.64L14.51 1.52M16.53 6.53L19.01 5.21M17.56 10.79L20.14 11.07"/>'),
@@ -123,7 +129,21 @@
     fill: SVG('<path d="m5 12 7-7 7 7-7 7ZM20 17c.8 1 1 1.700 1 2.300a1.500 1.500 0 0 1-3 0c0-.6.200-1.300 2-2.300ZM5 12h14"/>'),
     paste: SVG('<path d="M12 4v10M8 10l4 4 4-4M4 20h16"/>'),
     tap: SVG('<path d="M10 21.500 6.800 17.700a1.500 1.500 0 0 1 2.300-1.900l1.400 1.400V10a1.500 1.500 0 0 1 3 0v4.500H17a2.500 2.500 0 0 1 2.500 2.500v4.500M12 2.500v2.200M7.500 4.300l1.300 1.300M16.500 4.300l-1.300 1.300"/>'),
+    // A layer mask, as Photoshop's button draws it; dashed, the Quick Mask
+    mask: SVG('<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="4"/>'),
+    quickMask: SVG('<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="4" stroke-dasharray="2.100 2.100"/>'),
+    // Lucide's link and corner-left-down: a mask linked to its layer, a clipped layer
+    link: SVG('<path d="M10 13a5 5 0 0 0 7.540.540l3-3a5 5 0 0 0-7.070-7.070l-1.720 1.710"/><path d="M14 11a5 5 0 0 0-7.540-.540l-3 3a5 5 0 0 0 7.070 7.070l1.710-1.710"/>'),
+    clip: SVG('<path d="m14 15-5 5-5-5"/><path d="M20 4h-7a4 4 0 0 0-4 4v12"/>'),
+    // Lucide's sparkles and key-round, for Generative Fill
+    sparkles: SVG('<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/>'),
+    key: SVG('<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>'),
     heart: SVG('<path d="M12 20s-8-5-8-11a4.500 4.500 0 0 1 8-2.800A4.500 4.500 0 0 1 20 9c0 6-8 11-8 11Z"/>'),
+    // Lock transparent pixels, as Photoshop draws it: a square half filled like a checkerboard
+    lockAlpha: SVG('<rect x="4" y="4" width="16" height="16"/><path d="M4 4h8v8H4ZM12 12h8v8h-8Z" fill="currentColor"/>'),
+    // Lucide's search and image: Find Layers, and its filter for pixel layers
+    search: SVG('<circle cx="11" cy="11" r="8"/><path d="m21 21-4.300-4.300"/>'),
+    image: SVG('<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>'),
   };
 
   /* ------------------------------- notices ------------------------------ */
@@ -696,8 +716,8 @@
         docCanvas.height = doc.height;
         composeAll = true;
       }
-      if (composeAll || composedDoc !== doc || !composeRect) PS.paintDoc(doc, docCanvas.getContext("2d"));
-      else if (composeRect.right > composeRect.left && composeRect.bottom > composeRect.top) PS.paintDoc(doc, docCanvas.getContext("2d"), { rect: composeRect });
+      if (composeAll || composedDoc !== doc || !composeRect) PS.paintDoc(doc, docCanvas.getContext("2d"), { screen: true });
+      else if (composeRect.right > composeRect.left && composeRect.bottom > composeRect.top) PS.paintDoc(doc, docCanvas.getContext("2d"), { rect: composeRect, screen: true });
       composedDoc = doc;
     }
     needCompose = false;
@@ -948,6 +968,7 @@
     const doc = app.doc;
     const v = view();
     ui.overDoc.setAttribute("transform", `translate(${v.x} ${v.y}) scale(${v.zoom})`);
+    drawGenAreas();
     ui.handles.textContent = "";
     handleBoxes = [];
     drawTypeMarks();
@@ -1018,7 +1039,7 @@
     if (!(texts && !typing && !Shell.touch && !settings.transformControls)) ui.box.removeAttribute("hidden");
     if (texts) taskBarBox = { x0, y0, x1, y1 };
     // The move tool's way into Free Transform, for pixel layers
-    if (settings.transformControls && !Shell.touch && !typing && list.every((layer) => layer.kind === "raster" && !layer.locked && !layer.adjustment)) {
+    if (settings.transformControls && !Shell.touch && !typing && list.every((layer) => layer.kind === "raster" && !PS.lockOf(layer, "position") && !PS.lockOf(layer, "pixels") && !layer.adjustment)) {
       const SIZE = handleSize();
       const room = x1 - x0 > 26 && y1 - y0 > 26;
       handleArea = Math.min(x1 - x0, y1 - y0);
@@ -1054,8 +1075,9 @@
     // Show Transform Controls off: the move tool shows neither frame nor handles to scale or
     // turn a text. Typing in it still shows them, as in Photoshop.
     const bare = !typing && !Shell.touch && !settings.transformControls;
-    // Just outside a corner, as in Photoshop, a drag turns the text
-    const turnable = app.tool === "move" && !typing && !bare;
+    // Just outside a corner, as in Photoshop, a drag turns the text: while it's typed in too,
+    // whatever tool opened it, the same controls as the move tool's
+    const turnable = (app.tool === "move" || typing) && !bare;
     if (list[0].rotated) {
       drawTurnedText(list[0], shift, live, turnable, bare);
       return;
@@ -1726,6 +1748,7 @@
 
   /* -------------------------------- tools -------------------------------- */
 
+  const RESHAPER = false;
   const TOOLS = [
     ["move", "Move", "V"],
     ["rectangle", "Rectangular Marquee", "M"],
@@ -1740,6 +1763,9 @@
     ["magicEraser", "Magic Eraser", "Shift+E"],
     ["stamp", "Clone Stamp", "S"],
     ["clean", "Bubble Cleaner", "J"],
+    // The Bubble Reshaper (reshape.js, reshape-tool.js) is off until it is good enough: its files
+    // aren't loaded, and with RESHAPER false it has no button and no key
+    ...(RESHAPER ? [["reshape", "Bubble Reshaper", "Shift+J"]] : []),
     ["eyedropper", "Eyedropper", "I"],
     ["text", "Type", "T"],
     ["sfx", "SFX", "K"],
@@ -1760,7 +1786,8 @@
     eraser: "Erases on the active pixel layer. [ ]: size. Alt + right-drag: size / hardness.",
     magicEraser: "Click: the area of that colour on the active pixel layer goes transparent, as the Magic Wand would select it. A Background becomes a normal layer.",
     stamp: "Alt + click: where to clone from. Then paint. [ and ] change the size. Alt + right-drag: size / hardness.",
-    clean: "Click a bubble: its text goes, painted over in the bubble's own colours, whatever they are. Drag a box: only inside it, for text on a plain background.",
+    clean: "Click a bubble: its text goes, painted over in the bubble's own colours, whatever they are. Drag a box, a lasso or a polygon: only inside it, for text on a plain background. Ctrl: lasso, Alt: polygonal lasso, Shift: box, held or pressed once.",
+    reshape: "Click a bubble, then drag its handles: its line keeps its thickness and its tail keeps pointing. Drag the outline to push or pull it (Alt: a smaller part), the ● at the tail to move its tip. Just outside the frame, or the ● above it: turn it (Shift: 15° steps). Shift: keep the proportions, Alt: from the middle. Enter: apply. Esc: cancel.",
     eyedropper: "Click to pick the foreground colour. Alt: the background colour.",
     text: "Click a text to edit it, click elsewhere to add one, drag to draw a text box. Esc or Cmd+Enter to finish.",
     sfx: "Click: an SFX there. Drag: along a line. Alt + drag: along a path you draw. Shift + click: fill a bubble. On an SFX: drag a letter, its ● turns it, its corner resizes it.",
@@ -1774,6 +1801,44 @@
     if (!polygon) return;
     polygon = null;
     setDrag("");
+    settleShapeHold();
+  };
+
+  // The Bubble Cleaner's drag: a box, a lasso or a polygon. Ctrl (or Cmd) lends the lasso, Alt
+  // the polygonal lasso and Shift the box, as a tool's key lends the tool: held, until let go;
+  // pressed once, for good.
+  const CLEAN_SHAPE_KEYS = { Control: "lasso", Meta: "lasso", Alt: "polygon", Shift: "rectangle" };
+  let shapeHold = null;
+  const setCleanShape = (shape) => {
+    if (app.cleanShape === shape) return;
+    if (polygon && polygon.clean) cancelPolygon();
+    app.cleanShape = shape;
+    renderOptions();
+  };
+  const settleShapeHold = () => {
+    const hold = shapeHold;
+    // A drag or an outline goes to its end before the shape goes back
+    if (!hold || !hold.released || pointers.size || polygon) return;
+    shapeHold = null;
+    if (app.tool === "clean" && app.cleanShape === hold.shape) setCleanShape(hold.previous);
+  };
+  const holdCleanShape = (event) => {
+    if (shapeHold && event.key !== shapeHold.key) shapeHold.other = true;
+    const shape = CLEAN_SHAPE_KEYS[event.key];
+    if (!shape || event.repeat || shapeHold || app.tool !== "clean" || polygon || pointers.size || isField(event.target)) return;
+    shapeHold = { key: event.key, shape, previous: app.cleanShape, time: performance.now(), used: false, other: false, released: false };
+    setCleanShape(shape);
+  };
+  const releaseCleanShape = (event) => {
+    const hold = shapeHold;
+    if (!hold || event.key !== hold.key) return;
+    // A quick press alone keeps the shape
+    if (!hold.used && !hold.other && performance.now() - hold.time < SPRING_HOLD) {
+      shapeHold = null;
+      return;
+    }
+    hold.released = true;
+    settleShapeHold();
   };
 
   const setTool = (tool) => {
@@ -1782,6 +1847,7 @@
     commitTransform();
     hideStampPreview();
     cancelPolygon();
+    shapeHold = null;
     if (app.tool === "crop" && tool !== "crop") {
       if (crop && crop.edited) commitCrop();
       crop = null;
@@ -1796,6 +1862,7 @@
     });
     ui.brushRing.setAttribute("hidden", "");
     if (window.TypeRSFX) window.TypeRSFX.toolChosen(tool);
+    if (window.TypeRReshapeTool) window.TypeRReshapeTool.toolChosen(tool);
     renderOptions();
     renderStatus();
     schedule(false);
@@ -1852,6 +1919,16 @@
     swap.innerHTML = ICON.swap;
     swap.addEventListener("click", swapColors);
     ui.tools.appendChild(swap);
+    const quick = document.createElement("button");
+    quick.type = "button";
+    quick.className = "tool tool--quick";
+    quick.title = `${T("Edit in Quick Mask Mode")} (Q)`;
+    quick.setAttribute("aria-label", T("Edit in Quick Mask Mode"));
+    quick.setAttribute("aria-pressed", "false");
+    quick.innerHTML = ICON.quickMask;
+    quick.addEventListener("click", () => toggleQuickMask());
+    ui.quickMask = quick;
+    ui.tools.appendChild(quick);
     const grow = document.createElement("span");
     grow.className = "tools__grow";
     ui.tools.appendChild(grow);
@@ -1873,10 +1950,17 @@
   const toHex = (c) => `#${hex2(c.r)}${hex2(c.g)}${hex2(c.b)}`;
   const fromHex = (hex) => ({ r: parseInt(hex.slice(1, 3), 16), g: parseInt(hex.slice(3, 5), 16), b: parseInt(hex.slice(5, 7), 16) });
   const toRgb = (c) => ({ red: c.r, green: c.g, blue: c.b });
+  // On a mask the swatches show the greys the brushes will paint, as in Photoshop
   const showColors = () => {
     if (!ui.fg) return;
-    ui.fg.value = toHex(app.fg);
-    ui.bg.value = toHex(app.bg);
+    const gray = maskPainting() ? (c) => { const v = PS.grayOf(toRgb(c)); return { r: v, g: v, b: v }; } : (c) => c;
+    ui.fg.value = toHex(gray(app.fg));
+    ui.bg.value = toHex(gray(app.bg));
+    if (ui.quickMask) {
+      const on = Boolean(app.doc && app.doc.state.quickMask);
+      ui.quickMask.classList.toggle("is-on", on);
+      ui.quickMask.setAttribute("aria-pressed", String(on));
+    }
   };
   const swapColors = () => {
     const held = app.fg;
@@ -2304,26 +2388,31 @@
   const showSettings = async (tab = "general") => {
     const d = app.textDefaults;
     const shortcuts = Shell.touch ? null : shortcutEditor();
+    const generative = Gen ? generativePane() : null;
     const answer = await dialog({
       title: T("Settings"),
       keepOpen: () => Boolean(shortcuts) && shortcuts.stopRecording(),
       ready: (inputs, middle) => {
-        if (!shortcuts) return;
+        if (!shortcuts && !generative) return;
         const general = document.createElement("div");
         general.className = "settings__pane";
         general.append(...Array.from(middle.childNodes));
         const tabs = document.createElement("div");
         tabs.className = "settings__tabs";
-        const panes = { general, shortcuts: shortcuts.pane };
+        const panes = { general };
+        if (generative) panes.generative = generative.pane;
+        if (shortcuts) panes.shortcuts = shortcuts.pane;
         const buttons = {};
         const open = (name) => {
           Object.keys(panes).forEach((key) => {
             panes[key].hidden = key !== name;
             buttons[key].classList.toggle("is-on", key === name);
           });
-          ui.modal.classList.toggle("modal--settings", name === "shortcuts");
+          // One width for every tab: the dialog doesn't jump from one to the other
+          ui.modal.classList.add("modal--settings");
+          if (name === "generative") setTimeout(generative.focusKey);
         };
-        [["general", T("General")], ["shortcuts", T("Keyboard Shortcuts")]].forEach(([name, text]) => {
+        [["general", T("General")], ["generative", T("Generative Fill")], ["shortcuts", T("Keyboard Shortcuts")]].filter(([name]) => panes[name]).forEach(([name, text]) => {
           const button = document.createElement("button");
           button.type = "button";
           button.textContent = text;
@@ -2331,8 +2420,8 @@
           buttons[name] = button;
           tabs.appendChild(button);
         });
-        middle.append(tabs, general, shortcuts.pane);
-        open(tab);
+        middle.append(tabs, ...Object.values(panes));
+        open(panes[tab] ? tab : "general");
       },
       fields: [
         { id: "lang", label: T("Interface language"), value: lang, options: Object.keys(LANGUAGES).map((code) => [code, LANGUAGES[code]]) },
@@ -2347,6 +2436,7 @@
     d.ligature = answer.ligature;
     keepSettings();
     if (shortcuts) shortcuts.save();
+    if (generative) generative.save();
     characterKey = "";
     renderCharacter();
     if (answer.lang !== lang) {
@@ -2548,8 +2638,12 @@
     const box = taskBarBox;
     const texts = box ? activeTexts() : [];
     const moving = (gesture && gesture.moved) || (app.doc && app.doc.live);
-    if (!settings.taskBar || Shell.touch || !texts.length || moving) {
+    if (!settings.taskBar || Shell.touch || moving) {
       taskBar.hidden = true;
+      return;
+    }
+    if (!texts.length) {
+      placeSelectionBar();
       return;
     }
     const layer = texts[0];
@@ -2579,6 +2673,657 @@
   taskBar.addEventListener("wheel", (event) => event.stopPropagation());
   taskBar.addEventListener("contextmenu", (event) => event.stopPropagation());
 
+  /* ----------------------------- Generative Fill ----------------------------- */
+
+  // With a selection and no text picked, the bar offers Generative Fill, as in Photoshop: a
+  // prompt, or none to take the text out and redraw what it hid. The picture comes from the
+  // person's own key, at Google (Gemini) or fal.ai, and lands on a new layer, aligned on the page.
+  const gen = { open: false, prompt: "", focus: false };
+  // Settings > Generative Fill: both services' keys, the model used, and models added by their
+  // slug. Nothing is kept until the dialog's Save.
+  const generativePane = () => {
+    const saved = Gen.load();
+    const keys = Object.assign({}, saved.keys);
+    const models = Object.assign({}, saved.models);
+    const custom = {};
+    Object.keys(Gen.SERVICES).forEach((name) => { custom[name] = (saved.custom[name] || []).slice(); });
+    let service = saved.service;
+    const pane = document.createElement("div");
+    pane.className = "settings__pane gensettings";
+    const field = (text, control) => {
+      const label = document.createElement("label");
+      const name = document.createElement("span");
+      name.textContent = text;
+      label.append(name, control);
+      return label;
+    };
+    const heading = (text) => {
+      const title = document.createElement("p");
+      title.className = "gensettings__heading";
+      title.textContent = text;
+      return title;
+    };
+    const hint = (text) => {
+      const p = document.createElement("p");
+      p.className = "modal__hint";
+      p.textContent = text;
+      return p;
+    };
+    const options = (select, list) => {
+      select.textContent = "";
+      list.forEach(([value, text]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = text;
+        select.appendChild(option);
+      });
+    };
+    // What Generate uses
+    const serviceSelect = document.createElement("select");
+    options(serviceSelect, Object.keys(Gen.SERVICES).map((name) => [name, Gen.SERVICES[name].name]));
+    serviceSelect.value = service;
+    const modelSelect = document.createElement("select");
+    const showModels = () => {
+      options(modelSelect, Gen.modelsOf({ custom }, service));
+      modelSelect.value = Gen.modelOf({ models, custom }, service);
+    };
+    serviceSelect.addEventListener("change", () => {
+      service = serviceSelect.value;
+      showModels();
+    });
+    modelSelect.addEventListener("change", () => { models[service] = modelSelect.value; });
+    showModels();
+    pane.append(hint(T("Generative Fill sends the selection, with what surrounds it, to an image model. Use your own key: it stays on this device and goes only to the service it belongs to, which bills you.")), field(T("Service"), serviceSelect), field(T("Model"), modelSelect));
+    // The keys, one per service
+    pane.appendChild(heading(T("API keys")));
+    const keyInputs = {};
+    Object.keys(Gen.SERVICES).forEach((name) => {
+      const one = Gen.SERVICES[name];
+      const box = document.createElement("span");
+      box.className = "gensettings__key";
+      const input = document.createElement("input");
+      input.type = "password";
+      input.value = keys[name] || "";
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.placeholder = T("Paste the key here");
+      keyInputs[name] = input;
+      const eye = iconButton("eye", T("Show the key"), false, () => {
+        const hidden = input.type === "password";
+        input.type = hidden ? "text" : "password";
+        eye.classList.toggle("is-on", hidden);
+        eye.setAttribute("aria-pressed", String(hidden));
+      });
+      const link = document.createElement("a");
+      link.href = one.keyUrl;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = T("Get a key");
+      box.append(input, eye, link);
+      pane.appendChild(field(one.name, box));
+    });
+    // Other models, by their slug
+    pane.appendChild(heading(T("Other models")));
+    const list = document.createElement("ul");
+    list.className = "gensettings__models";
+    const showCustom = () => {
+      list.textContent = "";
+      Object.keys(custom).forEach((name) => custom[name].forEach((slug) => {
+        const row = document.createElement("li");
+        const text = document.createElement("span");
+        text.textContent = slug;
+        text.title = slug;
+        const where = document.createElement("small");
+        where.textContent = Gen.SERVICES[name].name;
+        const remove = iconButton("close", fill(T("Remove {name}"), { name: slug }), false, () => {
+          custom[name] = custom[name].filter((one) => one !== slug);
+          if (models[name] === slug) delete models[name];
+          showCustom();
+          showModels();
+        });
+        row.append(text, where, remove);
+        list.appendChild(row);
+      }));
+      list.hidden = !list.childNodes.length;
+    };
+    const adder = document.createElement("div");
+    adder.className = "gensettings__add";
+    const addService = document.createElement("select");
+    options(addService, Object.keys(Gen.SERVICES).map((name) => [name, Gen.SERVICES[name].name]));
+    addService.value = service === "google" ? "fal" : service;
+    const slugInput = document.createElement("input");
+    slugInput.type = "text";
+    slugInput.spellcheck = false;
+    slugInput.setAttribute("aria-label", T("Model slug"));
+    const placeholder = () => { slugInput.placeholder = addService.value === "fal" ? "fal-ai/…/edit" : "gemini-…"; };
+    placeholder();
+    addService.addEventListener("change", placeholder);
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "btn btn--small";
+    addButton.textContent = T("Add");
+    const problem = hint("");
+    problem.className = "modal__hint gensettings__problem";
+    problem.hidden = true;
+    const add = () => {
+      const name = addService.value;
+      const slug = Gen.slugOf(name, slugInput.value);
+      problem.hidden = false;
+      if (!slug) {
+        problem.textContent = fill(T("This doesn't look like a {service} model: paste its slug or its page's address."), { service: Gen.SERVICES[name].name });
+        return;
+      }
+      if (Gen.modelsOf({ custom }, name).some(([id]) => id === slug)) {
+        problem.textContent = T("This model is already in the list.");
+        return;
+      }
+      problem.hidden = true;
+      custom[name].push(slug);
+      slugInput.value = "";
+      // Added for the service in use: it becomes the model used
+      if (name === service) models[name] = slug;
+      showCustom();
+      showModels();
+    };
+    addButton.addEventListener("click", add);
+    // Enter adds the model instead of closing the dialog
+    slugInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.isComposing) {
+        event.preventDefault();
+        event.stopPropagation();
+        add();
+      }
+    });
+    adder.append(addService, slugInput, addButton);
+    showCustom();
+    pane.append(list, adder, problem, hint(T("An image-editing model, by its slug: on fal.ai, the end of its page's address (fal-ai/flux-pro/kontext); at Google, its model id (gemini-3-pro-image).")));
+    return {
+      pane,
+      focusKey: () => {
+        const input = keyInputs[service];
+        if (input && !input.value) input.focus();
+      },
+      save: () => {
+        Object.keys(keyInputs).forEach((name) => { keys[name] = keyInputs[name].value.trim(); });
+        models[service] = modelSelect.value;
+        if (!Gen.save({ service, keys, models, custom })) toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
+      },
+    };
+  };
+  // The 🔑 button, and a first Generate without a key: Settings, on Generative Fill
+  const generativeSettings = async () => {
+    await showSettings("generative");
+    return Gen.load();
+  };
+  const generativeMessage = (error, settings) => {
+    const service = Gen.SERVICES[settings.service].name;
+    const detail = error && error.detail ? ` (${error.detail})` : "";
+    switch (error && error.kind) {
+      case "key": return fill(T("{service} refused the key. Check it in Generative Fill's settings."), { service }) + detail;
+      case "quota": return fill(T("{service} says the quota or the balance is used up."), { service }) + detail;
+      case "blocked": return T("The model refused this picture or this prompt.") + detail;
+      case "noimage": return T("The model sent no picture back.") + detail;
+      case "network": return fill(T("{service} couldn't be reached."), { service });
+      default: return T("Generative Fill didn't go through.") + (detail || ` (${String((error && error.message) || error)})`);
+    }
+  };
+  // Generations run alongside the work: each keeps its page and selection, at most three at
+  // once and the others wait their turn. The tray at the bottom right of the page follows them,
+  // and the page shows where each one is going.
+  const GEN_AT_ONCE = 3;
+  const genJobs = [];
+  let genJobCount = 0;
+  let genTrayOpen = true;
+  const STORE_GEN_TIMES = "typer.web.generative.times";
+  // How long a model usually takes, to show how far along a generation probably is
+  const genTimes = (() => {
+    try {
+      return JSON.parse(window.localStorage.getItem(STORE_GEN_TIMES)) || {};
+    } catch (error) {
+      return {};
+    }
+  })();
+  const expectedTime = (model) => genTimes[model] || 15000;
+  const noteTime = (model, ms) => {
+    genTimes[model] = genTimes[model] ? Math.round(genTimes[model] * 0.7 + ms * 0.3) : ms;
+    try {
+      window.localStorage.setItem(STORE_GEN_TIMES, JSON.stringify(genTimes));
+    } catch (error) {
+      // Only an estimate: it starts again from 15 s
+    }
+  };
+  const genActive = () => genJobs.some((job) => job.state === "waiting" || job.state === "drawing" || job.state === "aligning" || job.state === "settling");
+  // Something under way that a new layer would disturb: it lands once it's over
+  const pageBusy = () => Boolean(gesture || polygon || scrubbing || ui.modal.open || !ui.editor.hidden || (app.doc && app.doc.live) || transformOf() || cropOf() || warpedLayer() || (window.TypeRReshapeTool && window.TypeRReshapeTool.busy()));
+  const settleFor = (job) => (doc) => new Promise((resolve) => {
+    const check = () => {
+      if (doc !== app.doc || !pageBusy()) resolve();
+      else {
+        if (job.state !== "settling") {
+          // Its picture is here: its place goes to the next one
+          job.state = "settling";
+          startJobs();
+          renderGenTray();
+        }
+        setTimeout(check, 250);
+      }
+    };
+    check();
+  });
+  const runJob = async (job) => {
+    // Cropped or resized while it waited: its selection no longer says the same place
+    if (job.doc.width !== job.size[0] || job.doc.height !== job.size[1]) {
+      Object.assign(job, { state: "failed", message: T("The page changed size meanwhile.") });
+      renderGenTray();
+      return;
+    }
+    job.state = "drawing";
+    job.started = Date.now();
+    renderGenTray();
+    const model = Gen.modelOf(job.account);
+    try {
+      const result = await ops.generativeFill({
+        doc: job.doc,
+        selection: job.selection,
+        activeIds: job.activeIds,
+        hide: job.hide,
+        name: job.name || (job.prompt ? job.prompt.replace(/\s+/g, " ").slice(0, 60) : T("Generative Fill")),
+        ratios: Gen.ratiosFor(model),
+        settle: settleFor(job),
+        draw: async (canvas, info) => {
+          job.thumb = genThumb(canvas, info.inside);
+          renderGenTray();
+          const picture = await Gen.generate({ settings: job.account, prompt: job.prompt, canvas, ratio: info.ratio, size: info.size, signal: job.controller.signal });
+          noteTime(model, Date.now() - job.started);
+          job.state = "aligning";
+          job.percent = 0;
+          renderGenTray();
+          return picture;
+        },
+      }, (fraction) => {
+        if (job.state === "aligning") job.percent = fraction;
+      });
+      job.ended = Date.now();
+      if (result.outcome === "done") {
+        job.state = "done";
+        job.layerId = result.id;
+        if (!result.aligned) job.message = T("Laid as it came: check its edges.");
+        setTimeout(() => dropJob(job), result.aligned ? 12000 : 30000);
+      } else {
+        job.state = "failed";
+        job.message = result.outcome === "gone" ? T("The page was closed meanwhile.") : result.outcome === "resized" ? T("The page changed size meanwhile.") : T("Nothing to fill.");
+      }
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        dropJob(job);
+        return;
+      }
+      console.warn("TypeR web: Generative Fill failed", error);
+      job.state = "failed";
+      job.kind = error && error.kind;
+      job.message = generativeMessage(error, job.account);
+    } finally {
+      startJobs();
+      renderGenTray();
+      schedule(false);
+    }
+  };
+  const startJobs = () => {
+    // A page closed before its turn came: nothing to wait for
+    genJobs.slice().forEach((job) => {
+      if (!app.docs.includes(job.doc)) {
+        if (job.state === "waiting") dropJob(job);
+        else if (job.state === "drawing") job.controller.abort();
+      }
+    });
+    let running = genJobs.filter((job) => job.state === "drawing" || job.state === "aligning").length;
+    genJobs.forEach((job) => {
+      if (job.state === "waiting" && running < GEN_AT_ONCE) {
+        running++;
+        runJob(job);
+      }
+    });
+  };
+  const dropJob = (job) => {
+    const at = genJobs.indexOf(job);
+    if (at >= 0) genJobs.splice(at, 1);
+    renderGenTray();
+    schedule(false);
+  };
+  // A generation asked for by another tool (the Bubble Reshaper): its own selection and prompt
+  const generateIn = async (selection, prompt, name, hide) => {
+    if (!Gen || pixelsOnly()) return false;
+    const doc = app.doc;
+    if (!doc || !selection) return false;
+    let account = Gen.load();
+    if (!Gen.ready(account)) {
+      account = await generativeSettings();
+      if (!account || !Gen.ready(account) || app.doc !== doc) return false;
+    }
+    genJobs.push({ id: ++genJobCount, doc, selection, activeIds: doc.state.activeIds.slice(), size: [doc.width, doc.height], prompt, name, hide, account, state: "waiting", percent: 0, controller: new AbortController() });
+    genTrayOpen = true;
+    startJobs();
+    renderGenTray();
+    schedule(false);
+    return true;
+  };
+  const runGenerative = async () => {
+    if (!Gen || pixelsOnly()) return;
+    const doc = app.doc;
+    if (!doc || !doc.state.selection || doc.state.quickMask) return;
+    let account = Gen.load();
+    if (!Gen.ready(account)) {
+      account = await generativeSettings();
+      if (!account || !Gen.ready(account) || app.doc !== doc || !doc.state.selection) return;
+    }
+    genJobs.push({
+      id: ++genJobCount,
+      doc,
+      selection: doc.state.selection,
+      activeIds: doc.state.activeIds.slice(),
+      size: [doc.width, doc.height],
+      prompt: gen.prompt.trim(),
+      account,
+      state: "waiting",
+      percent: 0,
+      controller: new AbortController(),
+    });
+    genTrayOpen = true;
+    startJobs();
+    renderGenTray();
+    schedule(false);
+  };
+  // A small picture of the selection, for the tray
+  const genThumb = (canvas, inside) => {
+    const SIZE = 36;
+    const part = inside || { left: 0, top: 0, width: canvas.width, height: canvas.height };
+    const scale = Math.min(1, SIZE / Math.max(part.width, part.height));
+    const thumb = document.createElement("canvas");
+    thumb.width = Math.max(1, Math.round(part.width * scale));
+    thumb.height = Math.max(1, Math.round(part.height * scale));
+    const ctx = thumb.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(canvas, part.left, part.top, part.width, part.height, 0, 0, thumb.width, thumb.height);
+    return thumb.toDataURL();
+  };
+
+  // The tray, at the bottom right of the page
+  const genTray = document.createElement("div");
+  genTray.className = "gentray";
+  genTray.hidden = true;
+  genTray.setAttribute("role", "status");
+  ui.stage.appendChild(genTray);
+  ["pointerdown", "dblclick", "wheel", "contextmenu"].forEach((type) => genTray.addEventListener(type, (event) => event.stopPropagation()));
+  let genTicker = 0;
+  const genStatus = (job) => {
+    const seconds = job.started ? Math.max(0, Math.round(((job.ended || Date.now()) - job.started) / 1000)) : 0;
+    switch (job.state) {
+      case "waiting": return T("Waiting…");
+      case "drawing": return `${T("Generating…")} ${seconds} s`;
+      case "aligning": return T("Aligning…");
+      case "settling": return T("Ready, lands when you finish your action");
+      case "done": return job.message ? `${T("Done")} · ${job.message}` : fill(T("Done in {seconds} s"), { seconds });
+      default: return job.message || T("Generative Fill didn't go through.");
+    }
+  };
+  const genFraction = (job) => {
+    if (job.state === "drawing") return Math.min(0.9, ((Date.now() - job.started) / expectedTime(Gen.modelOf(job.account))) * 0.85);
+    if (job.state === "aligning") return 0.9 + job.percent * 0.08;
+    if (job.state === "settling") return 0.98;
+    if (job.state === "done") return 1;
+    return 0;
+  };
+  const renderGenTray = () => {
+    clearInterval(genTicker);
+    genTicker = 0;
+    drawGenAreas();
+    if (!genJobs.length) {
+      genTray.hidden = true;
+      genTray.textContent = "";
+      return;
+    }
+    genTray.hidden = false;
+    genTray.textContent = "";
+    const running = genJobs.filter((job) => job.state === "drawing" || job.state === "aligning" || job.state === "settling").length;
+    const waiting = genJobs.filter((job) => job.state === "waiting").length;
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "gentray__head";
+    head.setAttribute("aria-expanded", String(genTrayOpen));
+    head.innerHTML = ICON.sparkles;
+    const title = document.createElement("span");
+    title.className = "gentray__title";
+    title.textContent = T("Generative Fill");
+    const count = document.createElement("span");
+    count.className = "gentray__count";
+    count.textContent = [running && fill(T("{count} running"), { count: running }), waiting && fill(T("{count} waiting"), { count: waiting })].filter(Boolean).join(" · ");
+    const arrow = document.createElement("span");
+    arrow.className = "gentray__arrow";
+    arrow.innerHTML = genTrayOpen ? ICON.down : ICON.up;
+    head.append(title, count, arrow);
+    head.addEventListener("click", () => {
+      genTrayOpen = !genTrayOpen;
+      renderGenTray();
+    });
+    genTray.appendChild(head);
+    if (genTrayOpen) {
+      const list = document.createElement("ul");
+      list.className = "gentray__list";
+      const bars = [];
+      genJobs.forEach((job) => {
+        const row = document.createElement("li");
+        row.className = `gentray__job is-${job.state}`;
+        const picture = document.createElement(job.thumb ? "img" : "span");
+        picture.className = "gentray__thumb";
+        if (job.thumb) picture.src = job.thumb;
+        const text = document.createElement("div");
+        text.className = "gentray__text";
+        const what = document.createElement("b");
+        what.textContent = job.prompt || T("Remove the text");
+        const status = document.createElement("span");
+        status.textContent = app.docs.length > 1 ? `${job.doc.name} · ${genStatus(job)}` : genStatus(job);
+        status.title = status.textContent;
+        const bar = document.createElement("div");
+        bar.className = "gentray__bar";
+        const filled = document.createElement("i");
+        filled.style.width = `${Math.round(genFraction(job) * 100)}%`;
+        bar.appendChild(filled);
+        text.append(what, status, bar);
+        bars.push({ job, filled, status });
+        row.append(picture, text);
+        // A finished one takes you to its layer; one under way, to its page
+        row.addEventListener("click", (event) => {
+          if (event.target.closest("button") || !app.docs.includes(job.doc)) return;
+          if (job.doc !== app.doc) switchDoc(job.doc);
+          if (job.state === "done" && job.doc.state.layers.some((layer) => layer.id === job.layerId)) ops.selectLayer(job.layerId);
+        });
+        const actions = document.createElement("span");
+        actions.className = "gentray__actions";
+        if (job.state === "failed") {
+          if (job.kind === "key" || job.kind === "nokey") actions.appendChild(iconButton("key", T("Generative Fill settings"), false, () => generativeSettings()));
+          if (app.docs.includes(job.doc)) {
+            actions.appendChild(iconButton("redo", T("Try again"), false, () => {
+              Object.assign(job, { state: "waiting", message: "", kind: "", started: 0, ended: 0, percent: 0, controller: new AbortController(), account: Gen.load() });
+              startJobs();
+              renderGenTray();
+            }));
+          }
+          actions.appendChild(iconButton("close", T("Dismiss"), false, () => dropJob(job)));
+        } else if (job.state === "done") {
+          actions.appendChild(iconButton("close", T("Dismiss"), false, () => dropJob(job)));
+        } else {
+          actions.appendChild(iconButton("close", T("Stop"), false, () => {
+            if (job.state === "waiting") dropJob(job);
+            else job.controller.abort();
+          }));
+        }
+        row.appendChild(actions);
+        list.appendChild(row);
+      });
+      genTray.appendChild(list);
+      // Seconds and bars move on their own while something is under way
+      if (bars.some(({ job }) => job.state === "drawing" || job.state === "aligning")) {
+        genTicker = setInterval(() => {
+          bars.forEach(({ job, filled, status }) => {
+            filled.style.width = `${Math.round(genFraction(job) * 100)}%`;
+            status.textContent = app.docs.length > 1 ? `${job.doc.name} · ${genStatus(job)}` : genStatus(job);
+          });
+        }, 500);
+      }
+    }
+  };
+  // On the page: where each generation of this page goes, until it lands
+  const genAreas = document.createElementNS("http://www.w3.org/2000/svg", "g");
+  genAreas.setAttribute("class", "gen-areas");
+  ui.overDoc.insertBefore(genAreas, ui.overDoc.firstChild);
+  let genAreasKey = "";
+  const drawGenAreas = () => {
+    const shown = genJobs.filter((job) => job.doc === app.doc && job.state !== "done" && job.state !== "failed");
+    const key = shown.map((job) => `${job.id}:${job.state}`).join(",") + (app.doc ? app.doc.id : "");
+    if (key === genAreasKey) return;
+    genAreasKey = key;
+    genAreas.textContent = "";
+    shown.forEach((job) => {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("class", `gen-area${job.state === "waiting" ? " is-waiting" : ""}`);
+      path.setAttribute("d", job.selection.rings.map((ring) => `M${ring.map((p) => `${p[0]} ${p[1]}`).join("L")}Z`).join(""));
+      genAreas.appendChild(path);
+    });
+  };
+  // Edit > Generative Fill…: the bar's prompt, or a dialog where the bar isn't shown
+  const openGenerative = async () => {
+    if (!Gen || !hasSelection() || pixelsOnly()) return;
+    if (settings.taskBar && !Shell.touch) {
+      gen.open = true;
+      gen.focus = true;
+      taskBarKey = "";
+      schedule(false);
+      return;
+    }
+    const values = await dialog({
+      title: T("Generative Fill"),
+      body: T("Leave the prompt empty to take the text out and redraw what it hid."),
+      ok: T("Generate"),
+      also: T("Settings…"),
+      fields: [{ id: "prompt", label: T("Prompt"), value: gen.prompt }],
+    });
+    if (!values) return;
+    if (values.also) {
+      await generativeSettings();
+      return;
+    }
+    gen.prompt = values.prompt;
+    runGenerative();
+  };
+  const buildSelectionBar = () => {
+    const separator = () => {
+      const line = document.createElement("span");
+      line.className = "ctxbar__sep";
+      return line;
+    };
+    taskBar.textContent = "";
+    taskBar.setAttribute("aria-label", T("Contextual Task Bar"));
+    const hide = iconButton("close", T("Hide the contextual task bar"), false, () => setTaskBar(false));
+    hide.classList.add("ctxbar__hide");
+    // A selection left after a fill goes in one click, as Select > Deselect
+    const deselect = document.createElement("button");
+    deselect.type = "button";
+    deselect.className = "ctxbar__gen";
+    deselect.textContent = T("Deselect");
+    deselect.title = `${T("Deselect")} (${keyLabel("Cmd+D")})`;
+    deselect.addEventListener("click", () => ops.deselect());
+    if (!Gen) {
+      taskBar.append(deselect, separator(), hide);
+      return;
+    }
+    if (!gen.open) {
+      const start = document.createElement("button");
+      start.type = "button";
+      start.className = "ctxbar__gen";
+      start.innerHTML = ICON.sparkles;
+      start.append(T("Generative Fill"));
+      start.addEventListener("click", () => {
+        gen.open = true;
+        gen.focus = true;
+        taskBarKey = "";
+        schedule(false);
+      });
+      taskBar.append(start, separator(), deselect, separator(), hide);
+      return;
+    }
+    // Once open, the prompt stays for the next selections: select, Generate, select, Generate
+    const back = iconButton("back", T("Back"), false, () => {
+      gen.open = false;
+      taskBarKey = "";
+      schedule(false);
+    });
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "ctxbar__prompt";
+    input.value = gen.prompt;
+    input.placeholder = T("Describe it, or leave empty to remove the text");
+    input.setAttribute("aria-label", T("Prompt"));
+    input.spellcheck = settings.spellcheck;
+    input.addEventListener("input", () => { gen.prompt = input.value; });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.isComposing) {
+        event.preventDefault();
+        input.blur();
+        runGenerative();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        gen.open = false;
+        taskBarKey = "";
+        input.blur();
+        schedule(false);
+      }
+    });
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "btn btn--main btn--small";
+    go.textContent = T("Generate");
+    go.addEventListener("click", runGenerative);
+    const keyButton = iconButton("key", T("Generative Fill settings"), false, () => generativeSettings());
+    taskBar.append(back, input, go, keyButton, separator(), deselect, separator(), hide);
+    if (gen.focus) {
+      gen.focus = false;
+      requestAnimationFrame(() => input.focus());
+    }
+  };
+  const placeSelectionBar = () => {
+    const doc = app.doc;
+    const selection = doc && doc.state.selection;
+    if (!selection || doc.state.quickMask || gesture || polygon || transformOf() || cropOf() || warpedLayer()) {
+      taskBar.hidden = true;
+      return;
+    }
+    const key = JSON.stringify(["selection", gen.open, settings.spellcheck, Boolean(Gen)]);
+    if (key !== taskBarKey) {
+      const typing = taskBar.contains(document.activeElement) && document.activeElement.tagName === "INPUT";
+      taskBarKey = key;
+      if (typing && gen.open) gen.focus = true;
+      buildSelectionBar();
+    }
+    taskBar.hidden = false;
+    const b = selection.bounds;
+    const [x0, y0] = toScreen(b.left, b.top);
+    const [x1, y1] = toScreen(b.right, b.bottom);
+    const width = taskBar.offsetWidth;
+    const height = taskBar.offsetHeight;
+    const GAP = 12;
+    let top = y1 + GAP;
+    if (top + height > stageH - 8) top = y0 - GAP - height >= 8 ? y0 - GAP - height : stageH - height - 8;
+    const left = Math.max(8, Math.min(stageW - width - 8, (x0 + x1) / 2 - width / 2));
+    // Clear of the generations' tray when there's room above the selection
+    if (!genTray.hidden && y0 - GAP - height >= 8) {
+      const tray = { left: genTray.offsetLeft, top: genTray.offsetTop, right: genTray.offsetLeft + genTray.offsetWidth, bottom: genTray.offsetTop + genTray.offsetHeight };
+      if (left < tray.right && left + width > tray.left && top < tray.bottom && top + height > tray.top) top = y0 - GAP - height;
+    }
+    taskBar.style.left = `${Math.round(left)}px`;
+    taskBar.style.top = `${Math.round(Math.max(8, top))}px`;
+  };
+
   const renderOptions = () => {
     const bar = ui.options;
     if (scrubbing) return;
@@ -2603,6 +3348,7 @@
       return;
     }
     if (tool === "sfx" && window.TypeRSFX) window.TypeRSFX.options(bar);
+    if (tool === "reshape" && window.TypeRReshapeTool) window.TypeRReshapeTool.options(bar);
     if (SELECTION_TOOLS.has(tool)) {
       const modes = document.createElement("span");
       modes.className = "obar__group";
@@ -2626,6 +3372,13 @@
       bar.appendChild(checkbox(T("Sample all layers"), app.magicSampleAll, (on) => { app.magicSampleAll = on; }));
     }
     if (tool === "clean") {
+      const shapes = document.createElement("span");
+      shapes.className = "obar__group";
+      const held = IS_MAC ? [" (⇧)", " (⌃ / ⌘)", " (⌥)"] : [" (Shift)", " (Ctrl)", " (Alt)"];
+      [["rectangle", "Rectangular Marquee"], ["lasso", "Lasso"], ["polygon", "Polygonal Lasso"]].forEach(([value, title], n) => {
+        shapes.appendChild(iconButton(value, T(title) + held[n], app.cleanShape === value, () => setCleanShape(value)));
+      });
+      bar.appendChild(shapes);
       bar.appendChild(scrubbed(T("Tolerance"), numberInput(app.cleanTolerance, 0, 255, (value) => { app.cleanTolerance = Math.max(0, Math.min(255, value)); })));
       bar.appendChild(scrubbed(T("Margin"), numberInput(app.cleanMargin, 0, 20, (value) => { app.cleanMargin = Math.max(0, Math.min(20, value)); })));
     }
@@ -2802,6 +3555,9 @@
 
   const strokeFields = (tool) => {
     const { size, hardness } = app.brush;
+    // On a mask, in grey: the brush paints the foreground's, the eraser the background's
+    const painting = maskPainting();
+    if (painting && tool !== "stamp") return { size, hardness, target: painting.target, gray: PS.grayOf(toRgb(tool === "eraser" ? app.bg : app.fg)), erase: tool === "eraser" };
     if (tool === "stamp") return { size, hardness, color: { red: 0, green: 0, blue: 0 }, clone: { ox: stamp.offset[0], oy: stamp.offset[1], sample: stamp.sample } };
     return tool === "eraser" ? { size, hardness, erase: true } : { size, hardness, color: toRgb(app.fg) };
   };
@@ -2944,9 +3700,32 @@
     svgEl("path", { class: "stamp-mark", d: `M${x - 7} ${y}H${x + 7}M${x} ${y - 7}V${y + 7}` }, ui.handles);
   };
 
-  // Where brushes paint: the active pixel layer, or a new one above a text layer
+  // What the brushes paint on when it isn't pixels: the Quick Mask, or the mask targeted in the
+  // Layers panel. `target` is "quick", "mask" or "vector" (which can't be painted on).
+  const maskPainting = () => {
+    const doc = app.doc;
+    if (!doc) return null;
+    if (doc.state.quickMask) return { target: "quick", id: null };
+    const chosen = ops.maskTarget();
+    return chosen ? { target: chosen.part === "vector" ? "vector" : "mask", id: chosen.id } : null;
+  };
+  // Tools that only work on a layer's own pixels say so instead, on a mask
+  const pixelsOnly = () => {
+    const painting = maskPainting();
+    if (!painting) return false;
+    toast(painting.target === "quick" ? T("This tool doesn't work in Quick Mask mode: press Q to leave it.") : T("This tool works on the layer's pixels: click its thumbnail, left of the mask's."));
+    return true;
+  };
+  // Where brushes paint: the Quick Mask, the targeted mask, the active pixel layer, or a new
+  // pixel layer above a text layer
   const paintTarget = () => {
     const doc = app.doc;
+    const painting = maskPainting();
+    if (painting && painting.target === "vector") {
+      toast(T("This is a vector mask: rasterize it to paint on it (Layer > Vector Mask > Rasterize)."));
+      return null;
+    }
+    if (painting) return { id: painting.id };
     const layer = activeLayer();
     if (layer && layer.kind === "raster" && !layer.adjustment) return layer;
     return doc ? ops.newLayer(nextLayerName()) : null;
@@ -2987,6 +3766,7 @@
     plain: "This box has no plain background to clean.",
   };
   const magicEraseAt = (point) => {
+    if (pixelsOnly()) return;
     const layer = activeLayer();
     if (!layer || layer.kind !== "raster" || layer.adjustment) {
       toast(T("Select a pixel layer first."));
@@ -2994,14 +3774,33 @@
     }
     ops.magicErase(point[0], point[1]);
   };
+  // A click made on the move slips a little: a box or a lasso that small, or that quick, can't
+  // be meant, and it is the click, where the button went down
+  const slipped = (current, x0, y0, x1, y1) => {
+    const zoom = view().zoom;
+    const scale = current.slop > 3 ? 1.5 : 1;
+    const long = Math.max(x1 - x0, y1 - y0) * zoom;
+    const short = Math.min(x1 - x0, y1 - y0) * zoom;
+    return long < 24 * scale || short < 10 * scale || performance.now() - current.time < 150;
+  };
   const cleanAt = (current, point, event) => {
     let where = { x: point[0], y: point[1] };
-    if (current.moved) {
+    if (current.moved && current.shape === "lasso") {
+      const xs = current.points.map((p) => p[0]);
+      const ys = current.points.map((p) => p[1]);
+      if (current.points.length >= 3 && !slipped(current, Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys))) where = { points: current.points };
+      else where = { x: current.start[0], y: current.start[1] };
+    } else if (current.moved) {
       const [x0, y0, x1, y1] = marqueeBox(Object.assign({}, current, { last: point }), event);
-      where = { box: { left: x0, top: y0, right: x1, bottom: y1 } };
+      if (!slipped(current, x0, y0, x1, y1)) where = { box: { left: x0, top: y0, right: x1, bottom: y1 } };
+      else where = { x: current.start[0], y: current.start[1] };
     }
+    cleanWith(where);
+  };
+  const cleanWith = (where) => {
     const result = ops.cleanBubble(where);
     if (result.error && CLEAN_REFUSALS[result.error]) toast(T(CLEAN_REFUSALS[result.error]));
+    else if (result.hidden) toast(T("Cleaned, but the TypeR Clean layer is hidden. Show it in the Layers panel to see the result."), true);
   };
 
   // Space during a marquee carries it: both corners follow the pointer, the shape stays
@@ -3078,20 +3877,23 @@
   };
   const closePolygon = () => {
     if (!polygon) return;
-    const { points, mode, doc } = polygon;
+    const { points, mode, doc, clean } = polygon;
     polygon = null;
     setDrag("");
+    settleShapeHold();
     if (doc !== app.doc) return;
     // A double-click leaves two corners on the same spot
     const corners = points.filter((p, i) => !i || Math.hypot(p[0] - points[i - 1][0], p[1] - points[i - 1][1]) > 0.5);
-    if (corners.length >= 3) ops.lasso(corners, mode, "Polygonal Lasso");
+    if (clean) {
+      if (corners.length >= 3) cleanWith({ points: corners });
+    } else if (corners.length >= 3) ops.lasso(corners, mode, "Polygonal Lasso");
     else if (mode === "new") ops.deselect();
   };
   const polygonClick = (event, base, point) => {
     const now = performance.now();
     const screen = [event.clientX, event.clientY];
     if (!polygon) {
-      polygon = { points: [point], mode: selectionMode(event), time: now, screen, doc: app.doc };
+      polygon = { points: [point], mode: selectionMode(event), time: now, screen, doc: app.doc, clean: app.tool === "clean" };
     } else {
       const last = polygon.screen;
       const twice = now - polygon.time < 450 && Math.hypot(screen[0] - last[0], screen[1] - last[1]) <= base.slop * 2;
@@ -3138,10 +3940,12 @@
 
   ui.stage.addEventListener("pointerdown", (event) => {
     if (spring) spring.used = true;
+    if (shapeHold) shapeHold.used = true;
     if (event.target.closest(".start, .editor")) return;
     // While typing, the handles still work: only a click elsewhere ends the edit. A finger
     // can also move the page, to see where the text goes: only its tap ends the edit.
-    const handleWhileTyping = !ui.editor.hidden && hitHandle(event);
+    const turnWhileTyping = !ui.editor.hidden && Boolean(editing) && !hitHandle(event) && turnControls && !isFinger(event) && inRotateZone(event);
+    const handleWhileTyping = !ui.editor.hidden && (hitHandle(event) || turnWhileTyping);
     const fingerWhileTyping = !ui.editor.hidden && !handleWhileTyping && isFinger(event);
     if (!ui.editor.hidden && !handleWhileTyping && !fingerWhileTyping) {
       endEdit();
@@ -3245,8 +4049,14 @@
       return;
     }
     if (tool === "clean") {
-      // A click cleans the bubble, a drag a box
-      gesture = Object.assign(base, { kind: "clean" });
+      // A click cleans the bubble, a drag a box or a lasso. The polygon takes a click per corner.
+      if (app.cleanShape === "polygon") {
+        gesture = polygonClick(event, base, point);
+        if (gesture) ui.stage.setPointerCapture(event.pointerId);
+        event.preventDefault();
+        return;
+      }
+      gesture = Object.assign(base, { kind: "clean", shape: app.cleanShape, points: [point], time: performance.now() });
       ui.stage.setPointerCapture(event.pointerId);
       event.preventDefault();
       return;
@@ -3292,8 +4102,8 @@
       event.preventDefault();
       return;
     }
-    if (tool === "move" && turnControls && !isFinger(event) && inRotateZone(event)) {
-      const layer = activeTexts()[0];
+    if ((tool === "move" || turnWhileTyping) && turnControls && !isFinger(event) && inRotateZone(event)) {
+      const layer = turnWhileTyping ? typedLayer() : activeTexts()[0];
       if (layer) {
         gestureCount++;
         gesture = Object.assign(base, { kind: "turn", layer, pivot: turnControls.pivot, from: PS.turnOf(layer), token: `gesture:${gestureCount}` });
@@ -3311,6 +4121,15 @@
         event.preventDefault();
         return;
       }
+    }
+    if (tool === "reshape" && window.TypeRReshapeTool) {
+      const made = window.TypeRReshapeTool.down(event, point, base);
+      if (made) {
+        gesture = made;
+        ui.stage.setPointerCapture(event.pointerId);
+      }
+      event.preventDefault();
+      return;
     }
     if (tool === "sfx" && window.TypeRSFX) {
       const made = window.TypeRSFX.down(event, point, base);
@@ -3345,6 +4164,14 @@
         }
       }
       if (!doc.state.activeIds.length) return;
+      // A targeted mask that isn't linked to its layer moves alone
+      const chosen = ops.maskTarget();
+      const loose = chosen && (chosen.part === "vector" ? chosen.layer.vectorMask.notLink : chosen.layer.mask.unlinked);
+      if (loose) {
+        gesture = Object.assign(base, { kind: "moveMask", id: chosen.id, part: chosen.part, moved: [0, 0], token: `gesture:mask:${Date.now()}` });
+        ui.stage.setPointerCapture(event.pointerId);
+        return;
+      }
       const ids = ops.beginLiveMove(doc.state.activeIds);
       if (!ids.length) {
         ops.endLiveMove(false);
@@ -3354,6 +4181,7 @@
       ui.stage.setPointerCapture(event.pointerId);
       return;
     }
+    if (tool === "stamp" && pixelsOnly()) return;
     if (tool === "stamp") {
       if (event.altKey && !event.ctrlKey && !event.metaKey) {
         setStampSource(point);
@@ -3458,8 +4286,9 @@
       const c = cropOf();
       ui.stage.style.cursor = over ? HANDLE_CURSOR[over.kind] : c.touched && inCrop(c, toDoc(event)) ? "move" : "";
     }
-    if (polygon && tool === "polygon" && !gesture && !pinch) showPolygon(polygonAim(toDoc(event), event));
+    if (polygon && (tool === "polygon" || polygon.clean) && !gesture && !pinch) showPolygon(polygonAim(toDoc(event), event));
     if (tool === "sfx" && !gesture && app.doc && window.TypeRSFX) window.TypeRSFX.hover(event, toDoc(event));
+    if (tool === "reshape" && !gesture && app.doc && window.TypeRReshapeTool) window.TypeRReshapeTool.hover(event, toDoc(event));
     if (!gesture || event.pointerId !== gesture.id) {
       if (SELECTION_TOOLS.has(tool) && app.doc && !event.shiftKey && !event.altKey && app.selectionMode === "new") {
         const [x, y] = toDoc(event);
@@ -3469,6 +4298,11 @@
       return;
     }
     const current = gesture;
+    if (current.kind === "reshape") {
+      if (Math.hypot(event.clientX - current.x, event.clientY - current.y) > current.slop) current.moved = true;
+      if (current.moved) window.TypeRReshapeTool.move(current, event, toDoc(event));
+      return;
+    }
     if (current.kind === "sfx") {
       window.TypeRSFX.move(current, event, toDoc(event));
       return;
@@ -3501,6 +4335,15 @@
       doc.view.y = current.vy + event.clientY - current.y;
       doc.view.fitted = false;
       viewChanged();
+    } else if (current.kind === "moveMask") {
+      let dx = Math.round(point[0] - current.start[0]);
+      let dy = Math.round(point[1] - current.start[1]);
+      if (event.shiftKey) {
+        if (Math.abs(dx) > Math.abs(dy)) dy = 0;
+        else dx = 0;
+      }
+      if (ops.moveMask(current.id, dx - current.moved[0], dy - current.moved[1], current.token, current.part)) current.moved = [dx, dy];
+      hud(`Δ ${dx}, ${dy} px`, event);
     } else if (current.kind === "move") {
       let dx = point[0] - current.start[0];
       let dy = point[1] - current.start[1];
@@ -3632,6 +4475,9 @@
       const shown = PS.frameOf(app.doc.state.layers.find((layer) => layer.id === current.layer.id), doc);
       hud(`${Math.round(shown.width)} × ${Math.round(shown.height)} px`, event);
       placeEditor();
+    } else if (current.kind === "clean" && current.shape === "lasso") {
+      current.points.push(point);
+      setDrag("M" + current.points.map((p) => `${p[0]} ${p[1]}`).join("L"));
     } else if (current.kind === "textBox" || current.kind === "clean") {
       const [x0, y0, x1, y1] = marqueeBox(current, event);
       setDrag(`M${x0} ${y0}H${x1}V${y1}H${x0}Z`);
@@ -3708,6 +4554,10 @@
     if (smartLines.length) {
       smartLines = [];
       schedule(false);
+    }
+    if (kind === "reshape") {
+      window.TypeRReshapeTool.up(current, event, point, cancelled);
+      return;
     }
     if (kind === "sfx") {
       window.TypeRSFX.up(current, event, point, cancelled);
@@ -3786,6 +4636,7 @@
   ui.stage.addEventListener("pointerup", finishGesture);
   ui.stage.addEventListener("pointercancel", finishGesture);
   ["pointerup", "pointercancel"].forEach((type) => ui.stage.addEventListener(type, settleSpring));
+  ["pointerup", "pointercancel"].forEach((type) => ui.stage.addEventListener(type, settleShapeHold));
   ui.stage.addEventListener("pointerleave", () => {
     ui.brushRing.setAttribute("hidden", "");
     hideStampPreview();
@@ -3799,7 +4650,7 @@
     // On a Mac, Ctrl + click also asks for the menu: with the wand, and on an end of an SFX's
     // path, Ctrl means something else
     const sfxEnd = gesture && gesture.kind === "sfx" && (gesture.mode === "end0" || gesture.mode === "end1");
-    const macWandClick = IS_MAC && event.ctrlKey && (app.tool === "wand" || sfxEnd);
+    const macWandClick = IS_MAC && event.ctrlKey && (app.tool === "wand" || app.tool === "clean" || sfxEnd);
     // The editor keeps the browser's menu: that's where spelling suggestions are
     if (event.target === ui.editor && !macWandClick) return;
     event.preventDefault();
@@ -3808,7 +4659,7 @@
     const point = toDoc(event);
     const hit = ops.hitLayer(point[0], point[1]);
     if (hit && !app.doc.state.activeIds.includes(hit.id)) ops.selectLayer(hit.id);
-    openContextMenu(event.clientX, event.clientY, ["Deselect", "Reselect", "Inverse", null, "Cut", "Copy", "Fill with Foreground Colour", "Fill with Background Colour", "Content-Aware Fill…", null, "Free Transform", null, "Duplicate Layer", "Group Layers", "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", null, "Convert to SFX", "Separate SFX Letters", "Keep in the bank…", null, "Merge Down", "Merge Visible"]);
+    openContextMenu(event.clientX, event.clientY, ["Deselect", "Reselect", "Inverse", null, "Cut", "Copy", "Fill with Foreground Colour", "Fill with Background Colour", "Content-Aware Fill…", "Generative Fill…", null, addMaskItem, addVectorMaskItem, "Create Clipping Mask", null, "Free Transform", null, "Duplicate Layer", "Group Layers", "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", null, "Convert to SFX", "Separate SFX Letters", "Keep in the bank…", null, "Merge Down", "Merge Visible"]);
   });
   ui.stage.addEventListener("dblclick", (event) => {
     const turning = transformOf();
@@ -4260,8 +5111,42 @@
     ops.setText(editing.id, ui.editor.value.replace(/\n/g, "\r"), "typing");
     placeEditor();
   });
+  // Undo and Redo while typing go through the page's history, as in Photoshop: the letters
+  // typed, and the frame's handles, its turn, a style. The box's own undo only knew the letters.
+  // Never further back than this edit's first step: a new text stays.
+  const stepWhileTyping = (back) => {
+    const doc = app.doc;
+    if (!doc || !editing) return;
+    const base = doc.history.findIndex((step) => step.id === editing.base);
+    const floor = base < 0 ? 0 : base + (editing.isNew ? 1 : 0);
+    if (back ? doc.historyIndex <= floor : doc.historyIndex >= doc.history.length - 1) return;
+    if (back) ops.undo();
+    else ops.redo();
+    const layer = typedLayer();
+    if (!layer) {
+      cancelEdit();
+      return;
+    }
+    const text = String(layer.params.layerText.textKey || "").replace(/\r/g, "\n");
+    if (ui.editor.value !== text) {
+      const at = Math.min(ui.editor.selectionEnd, text.length);
+      ui.editor.value = text;
+      ui.editor.setSelectionRange(at, at);
+    }
+    characterKey = "";
+    placeEditor();
+    renderCharacter();
+    renderOptions();
+    schedule(false);
+  };
   ui.editor.addEventListener("keydown", (event) => {
     event.stopPropagation();
+    const letter = event.key.toLowerCase();
+    if (isCommand(event) && !event.altKey && (letter === "z" || (!IS_MAC && letter === "y" && !event.shiftKey))) {
+      event.preventDefault();
+      stepWhileTyping(letter === "z" && !event.shiftKey);
+      return;
+    }
     if (isCommand(event)) handleKey(event);
     if (event.defaultPrevented) return;
     // The caret moves before the next frame: it is drawn again there
@@ -4296,29 +5181,94 @@
   const buildLayerTools = () => {
     const host = $("layers-tools");
     host.textContent = "";
-    const blend = document.createElement("select");
-    blend.id = "layer-blend";
-    blend.setAttribute("aria-label", T("Blend mode"));
-    const pass = document.createElement("option");
-    pass.value = "pass through";
-    pass.textContent = T("Pass Through");
-    blend.appendChild(pass);
-    BLEND_NAMES.forEach(([value, name]) => {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = T(name);
-      blend.appendChild(option);
-    });
-    blend.addEventListener("change", () => {
-      activeLayers().forEach((layer) => ops.setLayerProps(layer.id, { blend: blend.value }, "Blending Change"));
-    });
+    const blend = blendField();
     const opacity = numberInput(100, 0, 100, (value) => {
       activeLayers().forEach((layer) => ops.setLayerProps(layer.id, { opacity: Math.max(0, Math.min(100, value)) / 100 }, "Opacity Change", "opacity"));
     });
     opacity.id = "layer-opacity";
-    host.append(blend, labelled(T("Opacity"), opacity));
+    // Find Layers, as Photoshop's filter row: shown on demand, folded away the rest of the time
+    const find = iconButton("search", toolTitle("Find layers", findItem.keys), layerFind.open, () => (layerFind.open ? closeFind() : openFind()));
+    find.classList.add("layers__find");
+    host.append(blend, scrubbed(T("Opacity"), opacity), find);
+    // Photoshop's second line: the locks, then Fill
+    const oldLocks = $("layers-locks");
+    if (oldLocks) oldLocks.remove();
+    const locks = document.createElement("div");
+    locks.id = "layers-locks";
+    locks.className = "layers__tools layers__locks";
+    const lockLabel = document.createElement("span");
+    lockLabel.className = "layers__lock-label";
+    lockLabel.textContent = T("Lock:");
+    locks.appendChild(lockLabel);
+    lockButtons = {};
+    [["transparency", "lockAlpha", "Lock transparent pixels"], ["pixels", "brush", "Lock image pixels"], ["position", "move", "Lock position"], ["all", "lock", "Lock all"]].forEach(([kind, icon, title]) => {
+      const button = iconButton(icon, kind === "transparency" ? toolTitle(title, "/") : T(title), false, () => toggleLock(kind));
+      button.classList.add("layers__lock");
+      lockButtons[kind] = button;
+      locks.appendChild(button);
+    });
+    const fillField = numberInput(100, 0, 100, (value) => setFill(activeLayers(), Math.max(0, Math.min(100, value)) / 100, "fill"));
+    fillField.id = "layer-fill";
+    const fillLabel = scrubbed(TL("Fill (layers panel)", "Fill"), fillField);
+    fillLabel.classList.add("layers__fill");
+    fillLabel.title = T("Fill: the layer's own pixels, without its stroke");
+    locks.appendChild(fillLabel);
+    host.after(locks);
+    const old = $("layers-filter");
+    if (old) old.remove();
+    const row = document.createElement("div");
+    row.id = "layers-filter";
+    row.className = "layers__filter";
+    row.hidden = !layerFind.open;
+    const words = document.createElement("input");
+    words.type = "text";
+    words.value = layerFind.words;
+    words.placeholder = T("Name or text");
+    words.setAttribute("aria-label", T("Find layers"));
+    words.spellcheck = false;
+    words.addEventListener("input", () => {
+      layerFind.words = words.value;
+      layersKey = "";
+      renderLayers();
+    });
+    words.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeFind();
+      } else if (event.key === "Enter" || event.key === "ArrowDown") {
+        // The first layer found becomes the active one, and the list takes the keys
+        event.preventDefault();
+        const first = ui.layers.querySelector(".layer");
+        if (first) ops.selectLayer(Number(first.dataset.layerId));
+        ui.layers.focus();
+      }
+    });
+    row.appendChild(words);
+    [["text", "text", "Text layers"], ["pixel", "image", "Pixel layers"], ["group", "folder", "Groups"]].forEach(([kind, icon, title]) => {
+      const button = iconButton(icon, T(title), layerFind.kinds.has(kind), () => {
+        if (layerFind.kinds.has(kind)) layerFind.kinds.delete(kind);
+        else layerFind.kinds.add(kind);
+        button.classList.toggle("is-on", layerFind.kinds.has(kind));
+        button.setAttribute("aria-pressed", String(layerFind.kinds.has(kind)));
+        layersKey = "";
+        renderLayers();
+      });
+      row.appendChild(button);
+    });
+    row.appendChild(iconButton("close", T("Close"), false, closeFind));
+    locks.after(row);
+    findUi = { row, words, button: find };
     const foot = $("layers-foot");
     foot.textContent = "";
+    // Photoshop's Add Layer Mask button: from the selection if there is one, Alt hides instead.
+    // On a layer that has a mask already, it adds a vector mask.
+    const maskButton = iconButton("mask", T("Add layer mask (Alt: hide)"), false, () => {});
+    maskButton.addEventListener("click", (event) => {
+      const hide = event.altKey;
+      const selected = hasSelection();
+      if (canAddMask()) ops.addMask(selected ? (hide ? "hideSelection" : "revealSelection") : hide ? "hideAll" : "revealAll");
+      else if (canAddVectorMask()) ops.addVectorMask(selected ? "selection" : hide ? "hideAll" : "revealAll");
+    }, true);
     const reorder = (icon, title, direction) => {
       const button = iconButton(icon, T(title), false, () => shiftLayerOrder(direction));
       button.classList.add("touch-only");
@@ -4330,23 +5280,389 @@
       if (row && layer) renameRow(layer, row);
     });
     rename.classList.add("touch-only");
+    // Photoshop's Link Layers: linked layers move and transform together
+    const lock = iconButton("link", T("Link layers"), false, () => linkLayers());
+    // As in Photoshop: several layers chosen go into the new group, otherwise it starts empty
+    const group = iconButton("folder", T("New group"), false, () => {
+      if (activeLayers().filter((layer) => !layer.isBackground).length > 1) ops.groupLayers(T("Group"));
+      else ops.newGroup(T("Group"));
+    });
+    // Cmd + click: under the active layer
+    const add = iconButton("plus", T("New layer (Cmd: below)").replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl"), false, (event) => {
+      if (event.metaKey || event.ctrlKey) ops.newLayerBelow(nextLayerName());
+      else ops.newLayer(nextLayerName());
+    });
+    const copy = iconButton("copy", T("Duplicate layer"), false, () => ops.duplicateLayers());
+    const bin = iconButton("trash", T("Delete layer"), false, deleteFromPanel);
+    // Layers dragged onto the bin go, onto New Layer are copied, onto New Group go into one
+    dropOnButton(bin, () => ops.deleteLayers(), true);
+    dropOnButton(add, () => ops.duplicateLayers());
+    dropOnButton(group, () => ops.groupLayers(T("Group")));
+    footButtons = { lock, copy, bin };
     foot.append(
       reorder("up", "Bring Forward", 1),
       reorder("down", "Send Backward", -1),
       rename,
-      iconButton("lock", T("Lock layer"), false, () => {
-        const layer = activeLayer();
-        if (layer) ops.setLayerProps(layer.id, { locked: !layer.locked }, layer.locked ? "Unlock Layer" : "Lock Layer");
-      }),
-      // As in Photoshop: several layers chosen go into the new group, otherwise it starts empty
-      iconButton("folder", T("New group"), false, () => {
-        if (activeLayers().filter((layer) => !layer.isBackground).length > 1) ops.groupLayers(T("Group"));
-        else ops.newGroup(T("Group"));
-      }),
-      iconButton("plus", T("New layer"), false, () => ops.newLayer(nextLayerName())),
-      iconButton("copy", T("Duplicate layer"), false, () => ops.duplicateLayers()),
-      iconButton("trash", T("Delete layer"), false, () => ops.deleteLayers()),
+      lock,
+      group,
+      maskButton,
+      add,
+      copy,
+      bin,
     );
+  };
+
+  let footButtons = null;
+
+  /* ---- the blend modes: Photoshop's list, each mode shown on the page while pointed at ---- */
+  const BLEND_SECTIONS = [["pass through"], ["normal"], ["darken", "multiply", "color burn"], ["lighten", "screen", "color dodge", "linear dodge"], ["overlay", "soft light", "hard light"], ["difference", "exclusion"], ["hue", "saturation", "color", "luminosity"]];
+  const blendLabel = (value) => (value === "pass through" ? T("Pass Through") : T((BLEND_NAMES.find(([key]) => key === value) || [value, value])[1]));
+  // Pass Through is a folder's only
+  const blendChoices = () => {
+    const layers = activeLayers();
+    const folders = layers.length > 0 && layers.every((layer) => layer.kind === "group");
+    return BLEND_SECTIONS.filter((section) => folders || section[0] !== "pass through");
+  };
+  let blendSteps = 0;
+  const setBlend = (value) => {
+    const step = `blend:${++blendSteps}`;
+    activeLayers().filter((layer) => !layer.isBackground).forEach((layer) => ops.setLayerProps(layer.id, { blend: value }, "Blending Change", step));
+  };
+  let blendMenu = null;
+  const closeBlendMenu = () => {
+    if (!blendMenu) return;
+    const { list, ids, button } = blendMenu;
+    blendMenu = null;
+    list.remove();
+    ops.previewBlend(ids, null);
+    button.setAttribute("aria-expanded", "false");
+  };
+  const openBlendMenu = (button) => {
+    closeBlendMenu();
+    closeContextMenu();
+    const layers = activeLayers().filter((layer) => !layer.isBackground);
+    if (!app.doc || !layers.length || button.disabled) return;
+    const ids = layers.map((layer) => layer.id);
+    const current = button.dataset.value;
+    const list = document.createElement("div");
+    list.className = "menu__list menu__list--context blend-menu";
+    list.setAttribute("role", "listbox");
+    list.setAttribute("aria-label", T("Blend mode"));
+    if (lang === "ar") list.dir = "rtl";
+    const items = [];
+    blendChoices().forEach((section, index) => {
+      if (index) {
+        const sep = document.createElement("div");
+        sep.className = "menu__sep";
+        list.appendChild(sep);
+      }
+      section.forEach((value) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.tabIndex = -1;
+        item.className = "menu__item blend-menu__item" + (value === current ? " is-current" : "");
+        item.setAttribute("role", "option");
+        item.setAttribute("aria-selected", String(value === current));
+        item.dataset.value = value;
+        item.textContent = blendLabel(value);
+        items.push(item);
+        list.appendChild(item);
+      });
+    });
+    document.body.appendChild(list);
+    const rect = button.getBoundingClientRect();
+    list.style.minWidth = `${Math.round(rect.width)}px`;
+    const below = rect.bottom + 2;
+    const top = below + list.offsetHeight > window.innerHeight - 8 ? Math.max(8, rect.top - 2 - list.offsetHeight) : below;
+    list.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - list.offsetWidth - 8))}px`;
+    list.style.top = `${top}px`;
+    button.setAttribute("aria-expanded", "true");
+    blendMenu = { list, ids, button, items, hot: null, opened: performance.now() };
+    const hotItem = items.find((item) => item.dataset.value === current);
+    if (hotItem) hotItem.scrollIntoView({ block: "nearest" });
+    list.addEventListener("pointermove", (event) => {
+      const item = event.target.closest(".blend-menu__item");
+      if (item && item !== blendMenu.hot) showBlendItem(item);
+    });
+    // Off the list, the page shows the mode the layers have
+    list.addEventListener("pointerleave", () => {
+      if (!blendMenu) return;
+      blendMenu.hot = null;
+      items.forEach((item) => item.classList.remove("is-hot"));
+      ops.previewBlend(ids, null);
+    });
+    list.addEventListener("click", (event) => {
+      const item = event.target.closest(".blend-menu__item");
+      if (item) pickBlend(item.dataset.value);
+    });
+  };
+  const showBlendItem = (item) => {
+    if (!blendMenu) return;
+    blendMenu.hot = item;
+    blendMenu.items.forEach((each) => each.classList.toggle("is-hot", each === item));
+    item.scrollIntoView({ block: "nearest" });
+    ops.previewBlend(blendMenu.ids, item.dataset.value);
+  };
+  const pickBlend = (value) => {
+    const changed = blendMenu && value !== blendMenu.button.dataset.value;
+    closeBlendMenu();
+    if (changed) setBlend(value);
+  };
+  const showBlend = (value, disabled) => {
+    const button = $("layer-blend");
+    if (!button) return;
+    button.dataset.value = value;
+    button.querySelector(".blend-field__name").textContent = blendLabel(value);
+    button.disabled = disabled;
+  };
+  const blendField = () => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.id = "layer-blend";
+    button.className = "font-field blend-field";
+    button.setAttribute("aria-haspopup", "listbox");
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-label", T("Blend mode"));
+    button.title = T("Blend mode. Point at a mode to see it on the page; the wheel goes from one to the next.");
+    button.dataset.value = "normal";
+    const name = document.createElement("span");
+    name.className = "blend-field__name";
+    name.textContent = blendLabel("normal");
+    button.appendChild(name);
+    // Opened on press: press, slide to a mode and let go picks it, as in Photoshop
+    button.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      if (blendMenu) {
+        closeBlendMenu();
+        return;
+      }
+      openBlendMenu(button);
+      const start = { x: event.clientX, y: event.clientY, time: performance.now() };
+      const release = (up) => {
+        window.removeEventListener("pointerup", release, true);
+        const item = up.target.closest && up.target.closest(".blend-menu__item");
+        const slid = Math.hypot(up.clientX - start.x, up.clientY - start.y) > 4 || performance.now() - start.time > 350;
+        if (item && slid) pickBlend(item.dataset.value);
+      };
+      window.addEventListener("pointerup", release, true);
+    });
+    button.addEventListener("keydown", (event) => {
+      if (blendMenu || !(event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ")) return;
+      event.preventDefault();
+      openBlendMenu(button);
+      const hot = blendMenu && blendMenu.items.find((item) => item.dataset.value === button.dataset.value);
+      if (hot) showBlendItem(hot);
+    });
+    // The wheel: the next mode or the one before, each one a step
+    button.addEventListener("wheel", (event) => {
+      if (button.disabled || blendMenu || !activeLayers().length) return;
+      event.preventDefault();
+      const values = blendChoices().flat();
+      const at = values.indexOf(button.dataset.value);
+      const next = values[Math.max(0, Math.min(values.length - 1, at + Math.sign(event.deltaY || event.deltaX)))];
+      if (next && next !== button.dataset.value) {
+        setBlend(next);
+        showBlend(next, false);
+      }
+    }, { passive: false });
+    return button;
+  };
+  // The list takes the keys while open: arrows try the modes, a letter jumps, Enter picks
+  document.addEventListener("keydown", (event) => {
+    if (!blendMenu) return;
+    const { items } = blendMenu;
+    const at = items.indexOf(blendMenu.hot || items.find((item) => item.dataset.value === blendMenu.button.dataset.value));
+    if (event.key === "Escape") closeBlendMenu();
+    else if (event.key === "ArrowDown" || event.key === "ArrowUp") showBlendItem(items[Math.max(0, Math.min(items.length - 1, at + (event.key === "ArrowDown" ? 1 : -1)))]);
+    else if (event.key === "Enter" || event.key === " ") {
+      if (blendMenu.hot) pickBlend(blendMenu.hot.dataset.value);
+      else closeBlendMenu();
+    } else if (event.key.length === 1 && /\p{L}/u.test(event.key)) {
+      const letter = event.key.toLowerCase();
+      const order = items.slice(at + 1).concat(items.slice(0, at + 1));
+      const found = order.find((item) => item.textContent.trim().toLowerCase().startsWith(letter));
+      if (found) showBlendItem(found);
+    } else return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+  document.addEventListener("pointerdown", (event) => {
+    if (blendMenu && !blendMenu.list.contains(event.target) && event.target !== blendMenu.button && !blendMenu.button.contains(event.target)) closeBlendMenu();
+  }, true);
+  window.addEventListener("blur", () => closeBlendMenu());
+  window.addEventListener("resize", () => closeBlendMenu());
+
+  /* ---- Photoshop's locks, Fill and Link Layers ---- */
+  let lockButtons = null;
+  // Text has no pixels of its own to lock, nor has a folder; the Background can't move
+  const canLock = (layer, kind) => {
+    if (!layer) return false;
+    if (kind === "all") return true;
+    if (layer.kind === "group") return false;
+    if (kind === "position") return !layer.isBackground;
+    return layer.kind === "raster";
+  };
+  const toggleLock = (kind) => {
+    const doc = app.doc;
+    const layer = activeLayer();
+    if (!doc || !layer || !canLock(layer, kind)) return;
+    const chosen = new Set(activeLayers().filter((item) => canLock(item, kind)).map((item) => item.id));
+    if (kind === "all") {
+      const locked = !layer.locked;
+      ops.setLayers(doc.state.layers.map((item) => (chosen.has(item.id) ? Object.assign({}, item, { locked }) : item)), locked ? "Lock Layer" : "Unlock Layer");
+      return;
+    }
+    const on = !(layer.locks && layer.locks[kind]);
+    ops.setLayers(doc.state.layers.map((item) => {
+      if (!chosen.has(item.id)) return item;
+      const locks = Object.assign({}, item.locks, { [kind]: on });
+      return Object.assign({}, item, { locks: locks.transparency || locks.pixels || locks.position ? locks : undefined });
+    }), on ? "Lock Layer" : "Unlock Layer");
+  };
+  // Fill: 0 makes the hollow text an SFX has; a text drawn by Photoshop is drawn again here
+  const setFill = (layers, amount, coalesce) => {
+    const doc = app.doc;
+    if (!doc) return;
+    const chosen = new Set(layers.filter((layer) => !layer.isBackground && !layer.adjustment).map((layer) => layer.id));
+    if (!chosen.size) return;
+    const value = Math.round(amount * 100) / 100;
+    ops.setLayers(doc.state.layers.map((item) => {
+      if (!chosen.has(item.id) || PS.fillOf(item) === value) return item;
+      const next = Object.assign({}, item, { knockout: value <= 0, fill: value > 0 && value < 1 ? value : undefined });
+      if (item.kind === "text" && item.raster) next.raster = null;
+      return next;
+    }), "Fill Opacity Change", { coalesce });
+  };
+  const linkedTo = (layer, doc) => (layer && layer.link ? doc.state.layers.filter((item) => item.link === layer.link) : []);
+  // Two or more chosen: linked together; chosen and all linked already: let go
+  const linkLayers = () => {
+    const doc = app.doc;
+    if (!doc) return;
+    const chosen = activeLayers().filter((layer) => !layer.isBackground);
+    if (!chosen.length) return;
+    const together = chosen.every((layer) => layer.link && layer.link === chosen[0].link);
+    if (chosen.length === 1 || together) {
+      const ids = new Set(chosen.map((layer) => layer.id));
+      ops.setLayers(doc.state.layers.map((item) => (ids.has(item.id) && item.link ? Object.assign({}, item, { link: undefined }) : item)), "Unlink Layers");
+      return;
+    }
+    const link = Math.max(0, ...doc.state.layers.map((layer) => layer.link || 0)) + 1;
+    const ids = new Set(chosen.map((layer) => layer.id));
+    ops.setLayers(doc.state.layers.map((item) => (ids.has(item.id) ? Object.assign({}, item, { link }) : item)), "Link Layers");
+  };
+  // The effects shown under a layer: its stroke, for now the only one TypeR draws
+  const fxOpen = new Set();
+  let fxDrag = null;
+  const hasFx = (layer) => (layer.kind === "text" || layer.kind === "group") && Boolean(layer.stroke) && layer.stroke.size > 0;
+  const setStrokeOf = (layer, stroke, name = "Stroke") => {
+    const doc = app.doc;
+    if (!doc) return;
+    ops.setLayers(doc.state.layers.map((item) => (item.id === layer.id ? Object.assign({}, item, { stroke }, item.kind === "text" ? { raster: null } : null) : item)), name);
+  };
+  // The layers being dragged in the panel, and those that go with them
+  let dragIds = null;
+  let dragFamily = new Set();
+  const chooseLayers = (ids) => {
+    const doc = app.doc;
+    if (doc) doc.state = Object.assign({}, doc.state, { activeIds: ids.slice() });
+  };
+  const dropOnButton = (button, act, takesMask) => {
+    const wanted = () => (Boolean(dragIds) && dragSource === app.doc) || (takesMask && (Boolean(maskDrag) || Boolean(fxDrag)));
+    button.addEventListener("dragover", (event) => {
+      if (!wanted()) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      button.classList.add("is-drop");
+    });
+    button.addEventListener("dragleave", () => button.classList.remove("is-drop"));
+    button.addEventListener("drop", (event) => {
+      event.preventDefault();
+      button.classList.remove("is-drop");
+      if (dragIds) {
+        const ids = dragIds;
+        endLayerDrag();
+        chooseLayers(ids);
+        act(ids);
+      } else if (takesMask && fxDrag) {
+        const layer = app.doc.state.layers.find((item) => item.id === fxDrag.id);
+        fxDrag = null;
+        if (layer) setStrokeOf(layer, null, "Delete Effects");
+      } else if (takesMask && maskDrag) {
+        const { id, part } = maskDrag;
+        maskDrag = null;
+        if (!(app.doc.state.activeIds.length === 1 && app.doc.state.activeIds[0] === id)) ops.selectLayer(id);
+        ops.setMaskTarget(id, part);
+        deleteFromPanel();
+      }
+    });
+  };
+
+  // Find Layers: by name, by the words of a text, and by kind
+  const layerFind = { open: false, words: "", kinds: new Set() };
+  let findUi = null;
+  const plainWords = (text) => String(text || "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+  const finding = () => layerFind.open && (Boolean(layerFind.words.trim()) || layerFind.kinds.size > 0);
+  const foundLayer = (layer) => {
+    const kind = layer.kind === "text" ? "text" : layer.kind === "group" ? "group" : "pixel";
+    if (layerFind.kinds.size && !layerFind.kinds.has(kind)) return false;
+    const words = plainWords(layerFind.words).trim();
+    if (!words) return true;
+    const text = layer.kind === "text" ? layer.params.layerText.textKey : "";
+    const seen = plainWords(`${layer.clean ? "TypeR Clean" : layer.name} ${text}`);
+    return words.split(/\s+/).every((word) => seen.includes(word));
+  };
+  const openFind = () => {
+    if (!findUi) return;
+    if (!Shell.touch && Workspace() && !Workspace().isVisible("layers")) Workspace().setVisible("layers", true);
+    layerFind.open = true;
+    findUi.row.hidden = false;
+    findUi.button.classList.add("is-on");
+    findUi.button.setAttribute("aria-pressed", "true");
+    findUi.words.focus();
+    findUi.words.select();
+    layersKey = "";
+    renderLayers();
+  };
+  const closeFind = () => {
+    if (!findUi) return;
+    const typing = document.activeElement === findUi.words;
+    Object.assign(layerFind, { open: false, words: "" });
+    layerFind.kinds.clear();
+    findUi.words.value = "";
+    findUi.row.hidden = true;
+    findUi.button.classList.remove("is-on");
+    findUi.button.setAttribute("aria-pressed", "false");
+    findUi.row.querySelectorAll(".icon-btn.is-on").forEach((button) => {
+      button.classList.remove("is-on");
+      button.setAttribute("aria-pressed", "false");
+    });
+    if (typing) ui.layers.focus();
+    layersKey = "";
+    renderLayers();
+  };
+
+  // The bin: the targeted mask, after asking whether it goes into the pixels first, as in
+  // Photoshop; otherwise the layers
+  const deleteFromPanel = async () => {
+    const chosen = ops.maskTarget();
+    if (!chosen) {
+      ops.deleteLayers();
+      return;
+    }
+    if (chosen.part === "vector") {
+      const yes = await dialog({ title: T("Delete Vector Mask"), body: T("Delete the vector mask?"), ok: T("Delete") });
+      if (yes) ops.deleteMask(chosen.id, "vector");
+      return;
+    }
+    if (!ops.canApplyMask(chosen.layer)) {
+      ops.deleteMask(chosen.id);
+      return;
+    }
+    const answer = await dialog({ title: T("Delete Layer Mask"), body: T("Apply mask to layer before removing?"), ok: T("Apply"), also: T("Delete") });
+    if (!answer) return;
+    if (answer.also) ops.deleteMask(chosen.id);
+    else ops.applyMask(chosen.id);
   };
 
   const nextLayerName = () => {
@@ -4355,13 +5671,38 @@
     return `${T("Layer")} ${count}`;
   };
 
+  // Thumbnails: small, medium or large, picked with a right-click on the list's empty part,
+  // and drawn for the screen's pixels so they stay sharp
+  const THUMB_SIZES = { small: 20, medium: 28, large: 44 };
+  const STORE_THUMBS = "typer.web.layerThumbs";
+  let thumbSize = "medium";
+  try {
+    const saved = window.localStorage.getItem(STORE_THUMBS);
+    if (THUMB_SIZES[saved]) thumbSize = saved;
+  } catch (error) {
+    // No storage: medium
+  }
+  ui.layers.dataset.thumbs = thumbSize;
+  const thumbPixels = () => Math.round(THUMB_SIZES[thumbSize] * Math.min(3, Math.max(1, window.devicePixelRatio || 1)));
+  const setThumbSize = (size) => {
+    thumbSize = size;
+    ui.layers.dataset.thumbs = size;
+    try {
+      window.localStorage.setItem(STORE_THUMBS, size);
+    } catch (error) {
+      // Kept for this visit only
+    }
+    layersKey = "";
+    renderLayers();
+  };
   const thumbs = new WeakMap();
   const thumbOf = (layer, doc) => {
-    let canvas = thumbs.get(layer);
-    if (canvas) return canvas;
+    const pixels = thumbPixels();
+    const kept = thumbs.get(layer);
+    if (kept && kept.pixels === pixels) return kept.canvas;
     const visual = PS.visualOf(layer, doc);
-    canvas = document.createElement("canvas");
-    const scale = 28 / Math.max(doc.width, doc.height);
+    const canvas = document.createElement("canvas");
+    const scale = pixels / Math.max(doc.width, doc.height);
     canvas.width = Math.max(1, Math.round(doc.width * scale));
     canvas.height = Math.max(1, Math.round(doc.height * scale));
     if (visual) {
@@ -4369,12 +5710,25 @@
       ctx.imageSmoothingQuality = "high";
       ctx.drawImage(visual.canvas, visual.x * scale, visual.y * scale, visual.canvas.width * scale, visual.canvas.height * scale);
     }
-    thumbs.set(layer, canvas);
+    thumbs.set(layer, { pixels, canvas });
     return canvas;
   };
 
   let layersKey = "";
-  let dragRow = null;
+  // A mask's thumbnail being dragged to another layer: { id, part }
+  let maskDrag = null;
+  // Kept by layer: a layer that changes in any way is a new one
+  const maskThumbs = new WeakMap();
+  const maskThumbOf = (layer, doc, part) => {
+    let kept = maskThumbs.get(layer);
+    if (!kept) maskThumbs.set(layer, (kept = {}));
+    const pixels = thumbPixels();
+    const name = `${part}:${pixels}`;
+    if (kept[name]) return kept[name];
+    const scale = pixels / Math.max(doc.width, doc.height);
+    kept[name] = ops.maskThumb(layer, part, Math.max(1, Math.round(doc.width * scale)), Math.max(1, Math.round(doc.height * scale)));
+    return kept[name];
+  };
 
   // A stroke down the eyes, as in Photoshop: the first eye shows or hides its layer, and every row
   // the pointer then crosses takes the same state, in one step of history. Rows are found by height
@@ -4464,29 +5818,168 @@
     }
     return false;
   };
+  const inHiddenFolder = (layer, byId) => {
+    for (let id = layer.group; id && byId.get(id); id = byId.get(id).group) {
+      if (byId.get(id).visible === false) return true;
+    }
+    return false;
+  };
+  // Folders open or closed: not a step of history, as in Photoshop
+  const setFoldersOpen = (doc, ids, open) => {
+    const wanted = new Set(ids);
+    let changed = false;
+    const layers = doc.state.layers.map((item) => {
+      if (!wanted.has(item.id) || item.kind !== "group" || (item.open !== false) === open) return item;
+      changed = true;
+      return Object.assign({}, item, { open });
+    });
+    if (!changed) return false;
+    doc.state = Object.assign({}, doc.state, { layers });
+    doc.history[doc.historyIndex].state = doc.state;
+    return true;
+  };
+  // A layer chosen anywhere else, on the page or with the keys, opens the folders it is in
+  const foldersAround = (doc) => {
+    const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
+    const out = [];
+    doc.state.activeIds.forEach((id) => {
+      const layer = byId.get(id);
+      for (let up = layer && layer.group; up && byId.get(up); up = byId.get(up).group) out.push(up);
+    });
+    return out;
+  };
+
+  // Alt + click on an eye: that layer alone, and the same again brings the others back, as in Photoshop
+  let solo = null;
+  const soloLayer = (layer) => {
+    const doc = app.doc;
+    if (!doc) return;
+    if (solo && solo.docId === doc.id && solo.id === layer.id) {
+      const { before } = solo;
+      solo = null;
+      ops.setLayers(doc.state.layers.map((item) => (before.has(item.id) && (item.visible !== false) !== before.get(item.id) ? Object.assign({}, item, { visible: before.get(item.id) }) : item)), "Show Other Layers");
+      return;
+    }
+    const byId = new Map(doc.state.layers.map((item) => [item.id, item]));
+    const family = PS.familyOf(doc.state.layers, layer.id);
+    const above = new Set();
+    for (let up = layer.group; up && byId.get(up); up = byId.get(up).group) above.add(up);
+    solo = { docId: doc.id, id: layer.id, before: new Map(doc.state.layers.map((item) => [item.id, item.visible !== false])) };
+    ops.setLayers(doc.state.layers.map((item) => {
+      const visible = family.has(item.id) ? (item.id === layer.id ? true : item.visible !== false) : above.has(item.id);
+      return (item.visible !== false) === visible ? item : Object.assign({}, item, { visible });
+    }), "Hide Other Layers");
+  };
+
+  // Photoshop's colour labels, which tint the eye's cell. A folder's goes to what it holds.
+  const LABELS = [["none", "No Colour", ""], ["red", "Red", "#a63a3a"], ["orange", "Orange", "#b0662a"], ["yellow", "Yellow", "#a8902c"], ["green", "Green", "#4d8a3a"], ["blue", "Blue", "#3a6aa6"], ["violet", "Violet", "#7a4fa6"], ["gray", "Grey", "#6c6c6c"]];
+  const labelColor = (name) => (LABELS.find((entry) => entry[0] === name) || [])[2] || "";
+  const labelItems = () => {
+    const layer = activeLayer();
+    const now = (layer && layer.color) || "none";
+    return LABELS.map(([name, label, color]) => ({
+      label,
+      check: () => now === name,
+      swatch: color || "transparent",
+      action: () => {
+        const doc = app.doc;
+        if (!doc) return;
+        const ids = new Set();
+        doc.state.activeIds.forEach((id) => PS.familyOf(doc.state.layers, id).forEach((member) => ids.add(member)));
+        ops.setLayers(doc.state.layers.map((item) => (ids.has(item.id) ? Object.assign({}, item, { color: name === "none" ? undefined : name }) : item)), "Layer Properties");
+      },
+    }));
+  };
+
+  // The Background made a normal layer, by a double-click or its padlock, as in Photoshop
+  const fromBackground = (layer) => {
+    ops.setLayerProps(layer.id, { isBackground: false, locked: false, name: `${(app.names && app.names.layer) || T("Layer")} 0` }, "Layer From Background");
+  };
+
+  // Near the list's top or bottom while dragging, it scrolls
+  const scrollWhileDragging = (clientY) => {
+    const box = ui.layers.getBoundingClientRect();
+    const edge = Math.min(32, box.height / 4);
+    const past = clientY < box.top + edge ? clientY - box.top - edge : clientY > box.bottom - edge ? clientY - box.bottom + edge : 0;
+    if (past) ui.layers.scrollTop += Math.sign(past) * Math.min(18, Math.max(3, Math.abs(past) / 2));
+  };
+  const clearDrops = () => {
+    ui.layers.classList.remove("drop-end");
+    ui.layers.querySelectorAll(".drop-above, .drop-below, .drop-inside").forEach((row) => row.classList.remove("drop-above", "drop-below", "drop-inside"));
+  };
+  const endLayerDrag = () => {
+    dragIds = null;
+    dragFamily = new Set();
+    dragSource = null;
+    if (tabSpring) clearTimeout(tabSpring.timer);
+    tabSpring = null;
+    ui.tabs.querySelectorAll(".tab.is-drop").forEach((tab) => tab.classList.remove("is-drop"));
+    previewDrop(null);
+    clearDrops();
+    ui.layers.querySelectorAll(".is-dragged").forEach((row) => row.classList.remove("is-dragged"));
+  };
+  let shownActive = "";
 
   const renderLayers = () => {
     const doc = app.doc;
-    const blend = $("layer-blend");
     const opacity = $("layer-opacity");
+    const fillField = $("layer-fill");
     const active = activeLayer();
-    if (blend && document.activeElement !== blend) blend.value = active ? active.blend || "normal" : "normal";
     if (opacity && document.activeElement !== opacity) opacity.value = active ? Math.round((active.opacity === undefined ? 1 : active.opacity) * 100) : 100;
+    if (fillField && document.activeElement !== fillField) fillField.value = active ? Math.round(PS.fillOf(active) * 100) : 100;
+    // The Background alone has neither, as in Photoshop
+    const fixed = !active || (active.isBackground && doc.state.activeIds.length === 1);
+    if (!blendMenu) showBlend(active ? active.blend || (active.kind === "group" ? "pass through" : "normal") : "normal", fixed);
+    if (opacity) opacity.disabled = fixed;
+    if (fillField) fillField.disabled = fixed || Boolean(active && active.adjustment);
+    if (lockButtons) {
+      Object.keys(lockButtons).forEach((kind) => {
+        const on = Boolean(active && (kind === "all" ? active.locked : active.locks && active.locks[kind]));
+        const button = lockButtons[kind];
+        button.classList.toggle("is-on", on);
+        button.setAttribute("aria-pressed", String(on));
+        // Lock All takes the others in: they show it, greyed
+        button.disabled = !canLock(active, kind) || (kind !== "all" && Boolean(active && active.locked));
+      });
+    }
+    if (footButtons) {
+      const linked = Boolean(active && active.link);
+      footButtons.lock.classList.toggle("is-on", linked);
+      footButtons.lock.setAttribute("aria-pressed", String(linked));
+      footButtons.lock.disabled = !active;
+      footButtons.copy.disabled = !active;
+      footButtons.bin.disabled = !active;
+    }
     if (!doc) {
       ui.layers.textContent = "";
       layersKey = "";
+      shownActive = "";
       return;
     }
-    const key = JSON.stringify([doc.id, doc.state.activeIds, doc.historyIndex, doc.state.layers.map((layer) => [layer.id, layer.visible, layer.name, layer.locked, layer.open, (layer.paint || []).length]), Fonts.generation]);
+    const activeKey = `${doc.id}:${doc.state.activeIds.join(",")}`;
+    const activeChanged = activeKey !== shownActive;
+    shownActive = activeKey;
+    if (activeChanged && !finding()) setFoldersOpen(doc, foldersAround(doc), true);
+    const target = ops.maskTarget();
+    const key = JSON.stringify([doc.id, doc.state.activeIds, doc.historyIndex, doc.state.layers.map((layer) => [layer.id, layer.visible, layer.name, layer.locked, layer.open, (layer.paint || []).length, Boolean(layer.clipping), layer.color || "", layer.locks || 0, PS.fillOf(layer), layer.link || 0, hasFx(layer) ? [layer.stroke.enabled !== false, fxOpen.has(layer.id)] : 0]), Fonts.generation, target ? [target.id, target.part] : null, doc.maskView ? doc.maskView.mode : null, thumbPixels(), layerFind.open, layerFind.words, Array.from(layerFind.kinds)]);
     if (key === layersKey) return;
     layersKey = key;
     const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
+    const clipping = ops.clipping(doc);
+    const bases = new Set(Array.from(clipping.baseOf.values()).map((base) => base.id));
+    const single = doc.state.activeIds.length === 1 ? doc.state.activeIds[0] : null;
+    const filtered = finding();
     const scroll = ui.layers.scrollTop;
     ui.layers.textContent = "";
     doc.state.layers.slice().reverse().forEach((layer) => {
-      if (hiddenByFolder(layer, byId)) return;
+      if (filtered ? !foundLayer(layer) : hiddenByFolder(layer, byId)) return;
+      const depth = filtered ? 0 : depthOf(layer, byId);
       const row = document.createElement("li");
-      row.className = "layer" + (doc.state.activeIds.includes(layer.id) ? " is-on" : "") + (layer.visible === false ? " is-hidden" : "");
+      row.className = "layer" + (doc.state.activeIds.includes(layer.id) ? " is-on" : "") + (layer.visible === false ? " is-hidden" : "") + (inHiddenFolder(layer, byId) ? " is-dimmed" : "") + (dragIds && dragIds.includes(layer.id) ? " is-dragged" : "");
+      if (layer.color && labelColor(layer.color)) {
+        row.dataset.color = layer.color;
+        row.style.setProperty("--label", labelColor(layer.color));
+      }
       row.draggable = true;
       row.id = `layer-row-${layer.id}`;
       row.dataset.layerId = String(layer.id);
@@ -4499,8 +5992,9 @@
       eye.innerHTML = ICON.eye;
       eye.setAttribute("aria-pressed", String(layer.visible !== false));
       eye.setAttribute("aria-label", `${T("Show or hide")}: ${layer.name}`);
+      eye.title = T("Show or hide. Alt + click: this layer alone. Drag down the eyes: several at once.");
       eye.addEventListener("pointerdown", (event) => {
-        if (event.pointerType === "touch" || event.button !== 0) return;
+        if (event.pointerType === "touch" || event.button !== 0 || event.altKey) return;
         // No text selection, no drag of the row: the stroke takes the pointer
         event.preventDefault();
         event.stopPropagation();
@@ -4508,11 +6002,21 @@
       });
       eye.addEventListener("click", (event) => {
         event.stopPropagation();
-        ops.toggleLayer(layer.id);
+        if (event.altKey) soloLayer(layer);
+        else ops.toggleLayer(layer.id);
+      });
+      // Its own menu, as in Photoshop: the others shown or hidden, and the colour labels
+      eye.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (Shell.touch) return;
+        if (!doc.state.activeIds.includes(layer.id)) ops.selectLayer(layer.id);
+        const alone = solo && solo.docId === doc.id && solo.id === layer.id;
+        openContextMenu(event.clientX, event.clientY, [{ label: alone ? "Show Other Layers" : "Hide Other Layers", keys: "", action: () => soloLayer(layer) }, null, ...labelItems()]);
       });
       row.appendChild(eye);
       const indent = document.createElement("span");
-      indent.style.width = `${depthOf(layer, byId) * 12}px`;
+      indent.style.width = `${depth * 12}px`;
       indent.style.flex = "none";
       row.appendChild(indent);
       if (layer.kind === "group") {
@@ -4522,15 +6026,26 @@
         twist.className = "layer__twist";
         twist.textContent = layer.open === false ? "▸" : "▾";
         twist.setAttribute("aria-label", T("Open or close the group"));
+        twist.title = T("Open or close the group. Alt + click: with the groups inside. Cmd + click: every group.").replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl");
         twist.addEventListener("click", (event) => {
           event.stopPropagation();
-          const next = Object.assign({}, doc.state, { layers: doc.state.layers.map((item) => (item.id === layer.id ? Object.assign({}, item, { open: item.open === false }) : item)) });
-          doc.state = next;
-          doc.history[doc.historyIndex].state = next;
+          const open = layer.open === false;
+          const ids = event.metaKey || event.ctrlKey ? doc.state.layers.map((item) => item.id) : event.altKey ? Array.from(PS.familyOf(doc.state.layers, layer.id)) : [layer.id];
+          setFoldersOpen(doc, ids, open);
           layersKey = "";
           renderLayers();
         });
+        twist.addEventListener("dblclick", (event) => event.stopPropagation());
         row.appendChild(twist);
+      }
+      // A clipped layer: its arrow points at its base, as in Photoshop
+      if (clipping.clipped.has(layer.id)) {
+        row.classList.add("is-clipped");
+        const arrow = document.createElement("span");
+        arrow.className = "layer__clip";
+        arrow.innerHTML = ICON.clip;
+        arrow.title = T("Clipped to the layer below (Alt + click between them to release)");
+        row.appendChild(arrow);
       }
       const thumb = document.createElement("span");
       thumb.className = "layer__thumb";
@@ -4541,9 +6056,67 @@
         thumb.classList.add("layer__thumb--group");
         thumb.innerHTML = ICON.folder;
       } else thumb.appendChild(thumbOf(layer, doc));
+      const targeted = layer.id === single && target && target.id === layer.id ? target.part : null;
+      if (layer.id === single && (layer.mask || layer.vectorMask) && !targeted) thumb.classList.add("is-target");
       row.appendChild(thumb);
+      [["mask", layer.mask], ["vector", layer.vectorMask]].forEach(([part, mask]) => {
+        if (!mask) return;
+        const off = part === "vector" ? mask.disable : mask.disabled;
+        const unlinked = part === "vector" ? mask.notLink : mask.unlinked;
+        const link = document.createElement("button");
+        link.type = "button";
+        link.tabIndex = -1;
+        link.className = "layer__link" + (unlinked ? " is-off" : "");
+        link.innerHTML = ICON.link;
+        link.title = unlinked ? T("Link the mask to its layer") : T("Unlink the mask from its layer");
+        link.setAttribute("aria-label", link.title);
+        link.addEventListener("click", (event) => {
+          event.stopPropagation();
+          toggleMaskLink(layer, part);
+        });
+        row.appendChild(link);
+        const box = document.createElement("span");
+        box.className = "layer__mask" + (part === "vector" ? " layer__mask--vector" : "") + (targeted === part ? " is-target" : "") + (off ? " is-off" : "");
+        box.dataset.part = part;
+        box.appendChild(maskThumbOf(layer, doc, part));
+        box.title = part === "vector" ? T("Vector mask. Shift + click: disable. Alt + click: show it alone. Cmd + click: load it as a selection.").replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl") : T("Layer mask. Shift + click: disable. Alt + click: show it alone. Cmd + click: load it as a selection. Double-click: its properties.").replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl");
+        if (doc.maskView && doc.maskView.id === layer.id && doc.maskView.part === part) box.classList.add("is-viewed");
+        box.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (event.shiftKey && !(event.metaKey || event.ctrlKey)) {
+            toggleMaskOn(layer, part);
+            return;
+          }
+          if (event.metaKey || event.ctrlKey) {
+            ops.maskToSelection(layer.id, event.shiftKey && event.altKey ? "intersect" : event.shiftKey ? "add" : event.altKey ? "subtract" : null, part);
+            return;
+          }
+          if (!(doc.state.activeIds.length === 1 && doc.state.activeIds[0] === layer.id)) ops.selectLayer(layer.id);
+          ops.setMaskTarget(layer.id, part);
+          if (event.altKey) toggleMaskView("alone");
+          layersKey = "";
+          renderLayers();
+          showColors();
+          renderStatus();
+        });
+        box.addEventListener("dblclick", (event) => {
+          event.stopPropagation();
+          if (part === "mask") openMaskProperties(layer.id);
+        });
+        box.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (Shell.touch) return;
+          if (!(doc.state.activeIds.length === 1 && doc.state.activeIds[0] === layer.id)) ops.selectLayer(layer.id);
+          ops.setMaskTarget(layer.id, part);
+          openContextMenu(event.clientX, event.clientY, maskMenuOf(layer.id, part));
+        });
+        // Dragged onto another layer, it goes there; with Alt, a copy does
+        box.addEventListener("pointerdown", () => { maskDrag = { id: layer.id, part }; });
+        row.appendChild(box);
+      });
       const name = document.createElement("span");
-      name.className = "layer__name";
+      name.className = "layer__name" + (bases.has(layer.id) ? " is-base" : "");
       name.textContent = layer.clean ? "TypeR Clean" : layer.name;
       row.appendChild(name);
       if (layer.kind === "text") {
@@ -4563,22 +6136,83 @@
         flag.title = T("Adjustment layer: kept in the file, not shown here.");
         row.appendChild(flag);
       }
-      if (layer.locked || layer.isBackground) {
-        const lock = document.createElement("span");
-        lock.className = "layer__lock";
+      // Linked to others: the chain, as in Photoshop
+      if (layer.link && linkedTo(layer, doc).length > 1) {
+        const chain = document.createElement("span");
+        chain.className = "layer__linked";
+        chain.innerHTML = ICON.link;
+        chain.title = T("Linked: moves with the layers linked to it");
+        row.appendChild(chain);
+      }
+      // Its effects, folded under it: a click on "fx" opens them, with Alt every layer's
+      if (hasFx(layer)) {
+        const fx = document.createElement("button");
+        fx.type = "button";
+        fx.tabIndex = -1;
+        fx.className = "layer__fx" + (fxOpen.has(layer.id) ? " is-open" : "");
+        fx.textContent = "fx";
+        fx.title = T("Effects: show or hide them under the layer (Alt: every layer's)");
+        fx.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const open = !fxOpen.has(layer.id);
+          const ids = event.altKey ? doc.state.layers.filter(hasFx).map((item) => item.id) : [layer.id];
+          ids.forEach((id) => (open ? fxOpen.add(id) : fxOpen.delete(id)));
+          layersKey = "";
+          renderLayers();
+        });
+        fx.addEventListener("dblclick", (event) => event.stopPropagation());
+        row.appendChild(fx);
+      }
+      // Its padlock unlocks it, or makes the Background a normal layer, as in Photoshop. Hollow
+      // when only some locks are on.
+      const someLocks = Boolean(layer.locks && (layer.locks.transparency || layer.locks.pixels || layer.locks.position));
+      if (layer.locked || layer.isBackground || someLocks) {
+        const lock = document.createElement("button");
+        lock.type = "button";
+        lock.tabIndex = -1;
+        lock.className = "layer__lock" + (!layer.locked && someLocks ? " is-partial" : "");
         lock.innerHTML = ICON.lock;
+        lock.title = layer.locked || someLocks ? T("Unlock Layer") : T("Make it a normal layer");
+        lock.setAttribute("aria-label", lock.title);
+        lock.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (layer.locked || someLocks) ops.setLayerProps(layer.id, { locked: false, locks: undefined }, "Unlock Layer");
+          else fromBackground(layer);
+        });
+        lock.addEventListener("dblclick", (event) => event.stopPropagation());
         row.appendChild(lock);
       }
+      row.addEventListener("pointerdown", (event) => {
+        if (!event.target.closest(".layer__mask")) maskDrag = null;
+      });
       row.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         if (Shell.touch) return;
         if (!doc.state.activeIds.includes(layer.id)) ops.selectLayer(layer.id);
-        openContextMenu(event.clientX, event.clientY, [{ label: "Rename", action: () => renameRow(layer, name) }, "Duplicate Layer", "Delete Layer", null, "Group Layers", "Ungroup Layers", null, "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", null, "Convert to SFX", "Separate SFX Letters", "Keep in the bank…", null, "Merge Down", "Merge Visible", "Flatten Image"]);
+        openContextMenu(event.clientX, event.clientY, [{ label: "Rename", action: () => renameRow(layer, name) }, "Duplicate Layer", "Delete Layer", null, "Group Layers", "Ungroup Layers", null, addMaskItem, addVectorMaskItem, "Create Clipping Mask", null, "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", null, "Convert to SFX", "Separate SFX Letters", "Keep in the bank…", null, "Merge Down", "Merge Visible", "Flatten Image", null, "Similar Layers", null, ...labelItems()]);
       });
       row.addEventListener("click", (event) => {
         // Cmd + click on a thumbnail: its pixels as a selection, and with Shift, added to it
         if ((event.metaKey || event.ctrlKey) && event.target.closest(".layer__thumb") && layer.kind !== "group") {
           ops.selectLayerPixels(layer.id, event.shiftKey ? "add" : null);
+          return;
+        }
+        // Alt + click on the line between two layers: the upper one is clipped to the lower one,
+        // or let go. Near a row's top edge, it's the line above it.
+        if (event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.target.closest(".layer__eye, .layer__twist")) {
+          const rect = row.getBoundingClientRect();
+          const upperRow = event.clientY - rect.top < 6 ? row.previousElementSibling : row;
+          const upper = upperRow && byId.get(Number(upperRow.dataset.layerId));
+          if (upper && upper.kind !== "group" && ops.clipToBelow(upper.id)) return;
+        }
+        // The layer's own thumbnail: what the brushes paint is its pixels again
+        if (event.target.closest(".layer__thumb") && !event.shiftKey && (layer.mask || layer.vectorMask)) {
+          if (!(doc.state.activeIds.length === 1 && doc.state.activeIds[0] === layer.id)) ops.selectLayer(layer.id);
+          ops.setMaskTarget(layer.id, null);
+          layersKey = "";
+          renderLayers();
+          showColors();
+          renderStatus();
           return;
         }
         if (event.shiftKey) {
@@ -4593,41 +6227,335 @@
           renderAfterState();
         } else ops.selectLayer(layer.id, event.metaKey || event.ctrlKey);
       });
+      // On a text's thumbnail, its words to edit; on the Background, a normal layer; elsewhere,
+      // the name, as in Photoshop
       row.addEventListener("dblclick", (event) => {
-        if (event.target.closest(".layer__eye, .layer__twist")) return;
-        renameRow(layer, name);
+        if (event.target.closest(".layer__eye, .layer__twist, .layer__lock")) return;
+        if (layer.isBackground) fromBackground(layer);
+        else if (layer.kind === "text" && event.target.closest(".layer__thumb")) beginEdit(layer);
+        else renameRow(layer, name);
       });
       row.addEventListener("dragstart", (event) => {
-        if (eyeStroke) {
+        if (eyeStroke || row.querySelector("input")) {
           event.preventDefault();
           return;
         }
-        dragRow = layer.id;
-        event.dataTransfer.effectAllowed = "move";
+        if (maskDrag && maskDrag.id === layer.id) {
+          dragIds = null;
+          event.dataTransfer.effectAllowed = "copyMove";
+          event.dataTransfer.setData("text/plain", layer.name);
+          return;
+        }
+        maskDrag = null;
+        fxDrag = null;
+        dragSource = doc;
+        // From the chosen layers, they all go; from another one, that one alone
+        dragIds = doc.state.activeIds.includes(layer.id) ? doc.state.layers.filter((item) => doc.state.activeIds.includes(item.id)).map((item) => item.id) : [layer.id];
+        dragFamily = new Set();
+        dragIds.forEach((id) => PS.familyOf(doc.state.layers, id).forEach((member) => dragFamily.add(member)));
+        event.dataTransfer.effectAllowed = "copyMove";
         event.dataTransfer.setData("text/plain", layer.name);
+        // What follows the pointer: the name, or how many layers go
+        const ghost = document.createElement("div");
+        ghost.className = "layer-ghost";
+        ghost.textContent = dragIds.length > 1 ? fill(T("{count} layers"), { count: dragIds.length }) : layer.clean ? "TypeR Clean" : layer.name;
+        document.body.appendChild(ghost);
+        event.dataTransfer.setDragImage(ghost, -10, -6);
+        setTimeout(() => ghost.remove(), 0);
+        const going = dragIds;
+        requestAnimationFrame(() => {
+          if (dragIds !== going) return;
+          going.forEach((id) => {
+            const moving = $(`layer-row-${id}`);
+            if (moving) moving.classList.add("is-dragged");
+          });
+        });
       });
       row.addEventListener("dragover", (event) => {
-        if (dragRow === null || dragRow === layer.id) return;
+        // Effects dragged from another layer: onto a text or a folder
+        if (fxDrag) {
+          if (fxDrag.id === layer.id || !(layer.kind === "text" || layer.kind === "group")) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = event.altKey ? "copy" : "move";
+          if (!row.classList.contains("drop-inside")) {
+            clearDrops();
+            row.classList.add("drop-inside");
+          }
+          return;
+        }
+        if (maskDrag && dragIds === null) {
+          if (maskDrag.id === layer.id || !ops.canHaveMask(layer)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = event.altKey ? "copy" : "move";
+          row.classList.add("drop-inside");
+          return;
+        }
+        if (!dragIds) return;
+        // Into itself, never; onto itself with Alt, a copy just above. From another page, a copy.
+        const foreign = dragSource !== doc;
+        const self = !foreign && dragIds.includes(layer.id);
+        if (!foreign && dragFamily.has(layer.id) && !(self && event.altKey)) {
+          clearDrops();
+          previewDrop(null);
+          return;
+        }
         event.preventDefault();
+        event.dataTransfer.dropEffect = event.altKey || foreign ? "copy" : "move";
         const rect = row.getBoundingClientRect();
         const y = (event.clientY - rect.top) / rect.height;
-        const where = layer.kind === "group" && y > 0.3 && y < 0.7 ? "inside" : y < 0.5 ? "above" : "below";
-        row.classList.remove("drop-above", "drop-below", "drop-inside");
-        row.classList.add(`drop-${where}`);
-        row.dataset.drop = where;
+        let where = layer.kind === "group" && !self && y > 0.3 && y < 0.7 ? "inside" : y < 0.5 ? "above" : "below";
+        if (layer.isBackground) where = "above";
+        // Just under an open folder's row is the top of what it holds
+        const intoOpen = where === "below" && layer.kind === "group" && layer.open !== false && !filtered;
+        const shown = `drop-${where}`;
+        if (!row.classList.contains(shown)) {
+          clearDrops();
+          row.classList.add(shown);
+        }
+        row.dataset.drop = intoOpen ? "inside" : where;
+        row.style.setProperty("--drop-indent", `${24 + (depth + (intoOpen || where === "inside" ? 1 : 0)) * 12}px`);
+        // The page shows the new order before the drop
+        previewDrop(foreign || event.altKey ? null : [layer.id, row.dataset.drop]);
       });
-      row.addEventListener("dragleave", () => row.classList.remove("drop-above", "drop-below", "drop-inside"));
+      row.addEventListener("dragleave", (event) => {
+        if (!row.contains(event.relatedTarget)) row.classList.remove("drop-above", "drop-below", "drop-inside");
+      });
       row.addEventListener("drop", (event) => {
         event.preventDefault();
         row.classList.remove("drop-above", "drop-below", "drop-inside");
-        if (dragRow !== null && dragRow !== layer.id) ops.reorderLayer(dragRow, layer.id, row.dataset.drop);
-        dragRow = null;
+        if (fxDrag) {
+          const from = byId.get(fxDrag.id);
+          fxDrag = null;
+          if (from && from.stroke && from.id !== layer.id && (layer.kind === "text" || layer.kind === "group")) moveEffects(from, layer, event.altKey);
+          return;
+        }
+        if (maskDrag && dragIds === null) {
+          const from = maskDrag;
+          maskDrag = null;
+          const into = byId.get(layer.id);
+          const key = from.part === "vector" ? "vectorMask" : "mask";
+          if (into && into[key]) {
+            dialog({ title: T("Replace the mask?"), body: fill(T("{name} already has a mask. Replace it?"), { name: into.name }), ok: T("Replace") }).then((yes) => {
+              if (yes) ops.transferMask(from.id, layer.id, event.altKey, from.part);
+            });
+          } else ops.transferMask(from.id, layer.id, event.altKey, from.part);
+          return;
+        }
+        const ids = dragIds;
+        const source = dragSource;
+        endLayerDrag();
+        if (!ids || !row.dataset.drop) return;
+        if (source !== doc) ops.pasteLayersFrom(source, ids, layer.id, row.dataset.drop);
+        else ops.reorderLayers(ids, layer.id, row.dataset.drop, event.altKey);
       });
-      row.addEventListener("dragend", () => { dragRow = null; });
+      row.addEventListener("dragend", () => {
+        endLayerDrag();
+        maskDrag = null;
+        fxDrag = null;
+      });
       ui.layers.appendChild(row);
+      if (hasFx(layer) && fxOpen.has(layer.id) && !filtered) ui.layers.appendChild(fxRow(layer, doc, depth));
     });
+    if (filtered && !ui.layers.firstChild) {
+      const none = document.createElement("li");
+      none.className = "layers__none";
+      none.setAttribute("role", "presentation");
+      none.textContent = T("No layer matches.");
+      ui.layers.appendChild(none);
+    }
     ui.layers.scrollTop = scroll;
+    // The active layer, chosen from anywhere, comes into view: just enough, as in Photoshop
+    const lead = activeChanged && $(`layer-row-${doc.state.activeIds[doc.state.activeIds.length - 1]}`);
+    if (lead) {
+      const box = ui.layers.getBoundingClientRect();
+      const rect = lead.getBoundingClientRect();
+      if (rect.top < box.top) ui.layers.scrollTop -= box.top - rect.top;
+      else if (rect.bottom > box.bottom) ui.layers.scrollTop += rect.bottom - box.bottom;
+    }
   };
+
+  // A layer's stroke, on its own line under it: its eye turns it off and on, a drag takes it to
+  // another layer (Alt: a copy), and onto the bin it goes
+  const fxRow = (layer, doc, depth) => {
+    const stroke = layer.stroke;
+    const on = stroke.enabled !== false;
+    const sub = document.createElement("li");
+    sub.className = "layer-fx" + (doc.state.activeIds.includes(layer.id) ? " is-on" : "") + (on ? "" : " is-off");
+    sub.setAttribute("role", "presentation");
+    sub.draggable = true;
+    const eye = document.createElement("button");
+    eye.type = "button";
+    eye.tabIndex = -1;
+    eye.className = "layer__eye";
+    eye.innerHTML = ICON.eye;
+    eye.setAttribute("aria-pressed", String(on));
+    eye.setAttribute("aria-label", `${T("Show or hide")}: ${T("Stroke")}`);
+    eye.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setStrokeOf(layer, Object.assign({}, stroke, { enabled: !on }), on ? "Hide Effect" : "Show Effect");
+    });
+    const indent = document.createElement("span");
+    indent.style.width = `${depth * 12 + 22}px`;
+    indent.style.flex = "none";
+    const name = document.createElement("span");
+    name.className = "layer-fx__name";
+    name.textContent = T("Stroke");
+    const detail = document.createElement("span");
+    detail.className = "layer-fx__detail";
+    detail.textContent = `${Math.round(stroke.size * 10) / 10} px`;
+    const swatch = document.createElement("i");
+    swatch.className = "menu__swatch";
+    const c = stroke.color || { r: 0, g: 0, b: 0 };
+    swatch.style.setProperty("--label", `rgb(${c.r},${c.g},${c.b})`);
+    sub.append(eye, indent, swatch, name, detail);
+    sub.title = T("Drag onto another layer to move the stroke there (Alt: a copy), or onto the bin to remove it.");
+    sub.addEventListener("click", () => {
+      if (!(doc.state.activeIds.length === 1 && doc.state.activeIds[0] === layer.id)) ops.selectLayer(layer.id);
+    });
+    sub.addEventListener("dragstart", (event) => {
+      fxDrag = { id: layer.id };
+      dragIds = null;
+      event.dataTransfer.effectAllowed = "copyMove";
+      event.dataTransfer.setData("text/plain", "fx");
+    });
+    sub.addEventListener("dragend", () => {
+      fxDrag = null;
+      clearDrops();
+    });
+    return sub;
+  };
+  const moveEffects = (from, to, copy) => {
+    const doc = app.doc;
+    if (!doc) return;
+    const stroke = JSON.parse(JSON.stringify(from.stroke));
+    ops.setLayers(doc.state.layers.map((item) => {
+      if (item.id === to.id) return Object.assign({}, item, { stroke }, item.kind === "text" ? { raster: null } : null);
+      if (item.id === from.id && !copy) return Object.assign({}, item, { stroke: null }, item.kind === "text" ? { raster: null } : null);
+      return item;
+    }), copy ? "Copy Effects" : "Move Effects");
+  };
+
+  // What the page shows while layers are dragged in the panel: only asked again when the
+  // place changes
+  let dropShown = "";
+  const previewDrop = (place) => {
+    const key = place && dragIds ? `${dragIds.join(",")}:${place.join(":")}` : "";
+    if (key === dropShown) return;
+    dropShown = key;
+    ops.previewOrder(key ? dragIds : null, place && place[0], place && place[1]);
+  };
+  // The page the layers were dragged from: over another page's tab for a moment, that page
+  // comes forward; dropped on it, on its list or on its picture, they are copied there
+  let dragSource = null;
+  let tabSpring = null;
+  ui.tabs.addEventListener("dragover", (event) => {
+    if (!dragIds || !dragSource) return;
+    const tab = event.target.closest(".tab");
+    const doc = tab && app.docs.find((item) => String(item.id) === tab.dataset.id);
+    if (!doc) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = doc === dragSource ? "none" : "copy";
+    ui.tabs.querySelectorAll(".tab.is-drop").forEach((item) => { if (item !== tab) item.classList.remove("is-drop"); });
+    tab.classList.add("is-drop");
+    if (doc === app.doc) return;
+    if (!tabSpring || tabSpring.doc !== doc) {
+      clearTimeout(tabSpring && tabSpring.timer);
+      tabSpring = { doc, timer: setTimeout(() => { if (dragIds) switchDoc(doc); }, 550) };
+    }
+  });
+  ui.tabs.addEventListener("dragleave", (event) => {
+    const tab = event.target.closest(".tab");
+    if (tab && !tab.contains(event.relatedTarget)) {
+      tab.classList.remove("is-drop");
+      if (tabSpring) clearTimeout(tabSpring.timer);
+      tabSpring = null;
+    }
+  });
+  ui.tabs.addEventListener("drop", (event) => {
+    const tab = event.target.closest(".tab");
+    const doc = tab && app.docs.find((item) => String(item.id) === tab.dataset.id);
+    if (!dragIds || !doc) return;
+    event.preventDefault();
+    const ids = dragIds;
+    const source = dragSource;
+    endLayerDrag();
+    if (doc === source) return;
+    if (doc !== app.doc) switchDoc(doc);
+    if (app.doc === doc) ops.pasteLayersFrom(source, ids);
+  });
+  ui.stage.addEventListener("dragover", (event) => {
+    if (!dragIds || !dragSource || dragSource === app.doc) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  });
+  ui.stage.addEventListener("drop", (event) => {
+    if (!dragIds || !dragSource || dragSource === app.doc) return;
+    event.preventDefault();
+    const ids = dragIds;
+    const source = dragSource;
+    endLayerDrag();
+    ops.pasteLayersFrom(source, ids);
+  });
+  // A page brought forward during a drag takes the dragged row away, and with it its dragend:
+  // the first move with no button down says the drag is over
+  window.addEventListener("pointermove", (event) => {
+    if ((dragIds || fxDrag) && event.buttons === 0) {
+      endLayerDrag();
+      fxDrag = null;
+    }
+  });
+
+  // The list itself: a click on its empty part lets go of the layers, a drop there sends them to
+  // the bottom, a right-click sets the thumbnails' size, and a drag near an edge scrolls it
+  ui.layers.addEventListener("click", (event) => {
+    if (event.target === ui.layers && app.doc && app.doc.state.activeIds.length) ops.clearActiveLayers();
+  });
+  ui.layers.addEventListener("contextmenu", (event) => {
+    if (event.target !== ui.layers || Shell.touch) return;
+    event.preventDefault();
+    const size = (name, label) => ({ label, check: () => thumbSize === name, action: () => setThumbSize(name) });
+    openContextMenu(event.clientX, event.clientY, [size("small", "Small Thumbnails"), size("medium", "Medium Thumbnails"), size("large", "Large Thumbnails"), null, { label: "Close All Groups", enabled: () => Boolean(app.doc) && app.doc.state.layers.some((layer) => layer.kind === "group" && layer.open !== false), action: () => {
+      setFoldersOpen(app.doc, app.doc.state.layers.map((layer) => layer.id), false);
+      layersKey = "";
+      renderLayers();
+    } }]);
+  });
+  const bottomOf = (ids) => app.doc.state.layers.find((layer) => !layer.group && !ids.includes(layer.id)) || app.doc.state.layers.find((layer) => !layer.group);
+  ui.layers.addEventListener("dragover", (event) => {
+    if (!dragIds && !maskDrag && !fxDrag) return;
+    scrollWhileDragging(event.clientY);
+    if (event.target !== ui.layers || !dragIds || !app.doc) return;
+    event.preventDefault();
+    const foreign = dragSource !== app.doc;
+    event.dataTransfer.dropEffect = event.altKey || foreign ? "copy" : "move";
+    if (!ui.layers.classList.contains("drop-end")) {
+      clearDrops();
+      ui.layers.classList.add("drop-end");
+    }
+    const bottom = bottomOf(dragIds);
+    previewDrop(foreign || event.altKey || !bottom ? null : [bottom.id, bottom.isBackground ? "above" : "below"]);
+  });
+  ui.layers.addEventListener("dragleave", (event) => {
+    if (event.target === ui.layers) ui.layers.classList.remove("drop-end");
+    // Out of the list: the page shows the layers where they are
+    if (dragIds && !ui.layers.contains(event.relatedTarget)) previewDrop(null);
+  });
+  ui.layers.addEventListener("drop", (event) => {
+    if (event.target !== ui.layers || !dragIds || !app.doc) return;
+    event.preventDefault();
+    const ids = dragIds;
+    const source = dragSource;
+    endLayerDrag();
+    const bottom = bottomOf(ids);
+    if (source !== app.doc) ops.pasteLayersFrom(source, ids, bottom && bottom.id, bottom && bottom.isBackground ? "above" : "below");
+    else if (bottom) ops.reorderLayers(ids, bottom.id, bottom.isBackground ? "above" : "below", event.altKey);
+  });
+
+  // Alt held: the Layers panel shows where a click would clip a layer to the one below
+  const showAltOnLayers = (event) => ui.layers.classList.toggle("is-alt", Boolean(event && event.altKey));
+  window.addEventListener("keydown", showAltOnLayers, true);
+  window.addEventListener("keyup", showAltOnLayers, true);
+  window.addEventListener("blur", () => showAltOnLayers(null));
 
   const renameRow = (layer, nameEl) => {
     const input = document.createElement("input");
@@ -4651,10 +6579,27 @@
       event.stopPropagation();
       if (event.key === "Enter") done(true);
       if (event.key === "Escape") done(false);
+      // Tab names the layer below next, Shift + Tab the one above, as in Photoshop
+      if (event.key === "Tab") {
+        event.preventDefault();
+        const row = nameEl.closest(".layer");
+        let next = row && (event.shiftKey ? row.previousElementSibling : row.nextElementSibling);
+        while (next && !next.dataset.layerId) next = event.shiftKey ? next.previousElementSibling : next.nextElementSibling;
+        const nextId = next && next.dataset.layerId;
+        done(true);
+        if (!nextId) return;
+        requestAnimationFrame(() => {
+          const doc = app.doc;
+          const layer = doc && doc.state.layers.find((item) => String(item.id) === nextId);
+          const nextRow = $(`layer-row-${nextId}`);
+          if (layer && nextRow && !layer.isBackground) renameRow(layer, nextRow.querySelector(".layer__name"));
+        });
+      }
     });
     input.addEventListener("blur", () => done(true));
     input.addEventListener("click", (event) => event.stopPropagation());
     input.addEventListener("dblclick", (event) => event.stopPropagation());
+    input.addEventListener("pointerdown", (event) => event.stopPropagation());
   };
 
   /* -------------------------------- history ------------------------------- */
@@ -4924,6 +6869,7 @@
   const tabBar = $("tabbar");
   const tabThumb = $("tabs-thumb");
   const tabsMore = $("tabs-more");
+  const tabRoom = () => tabBar.clientWidth - ($("pager").hidden ? 0 : $("pager").offsetWidth);
   tabsMore.innerHTML = SVG('<path d="m6 7 5 5-5 5M13 7l5 5-5 5"/>');
   tabsMore.title = T("Open Documents");
   tabsMore.setAttribute("aria-label", T("Open Documents"));
@@ -4931,7 +6877,7 @@
   // Only once the pages don't fit: the strip scrolls, the hidden side fades out, a thin bar
   // shows where the view is, and » lists them all
   const syncTabBar = () => {
-    const over = ui.tabs.scrollWidth > tabBar.clientWidth + 1;
+    const over = ui.tabs.scrollWidth > tabRoom() + 1;
     tabBar.classList.toggle("is-overflow", over);
     tabsMore.hidden = !over;
     const { scrollLeft, scrollWidth, clientWidth } = ui.tabs;
@@ -4964,7 +6910,7 @@
     const all = Array.from(ui.tabs.children);
     const current = ui.tabs.querySelector(".tab.is-on");
     const widthOf = (tab) => tab.getBoundingClientRect().width;
-    const room = tabBar.clientWidth - 1;
+    const room = tabRoom() - 1;
     let cap = tabCap(all.map(widthOf), room);
     if (!cap) return;
     const onWidth = current ? Math.min(widthOf(current), TAB_ON_MIN) : 0;
@@ -5191,12 +7137,20 @@
     else openTabsMenu(event.detail === 0);
   });
 
+  // The chapter's pages, if the panel was given some (see stepPage)
+  let chapter = null;
+  let paging = false;
+  const pageKey = (page) => "web-file://" + page.file.name;
+  const pageOf = (doc) => (chapter && doc ? chapter.pages.findIndex((page) => pageKey(page) === doc.path) : -1);
   const renderStatus = () => {
     const doc = app.doc;
     const zoomInput = $("status-zoom");
     if (document.activeElement !== zoomInput) zoomInput.value = `${Math.round(view().zoom * 1000) / 10}%`;
     $("status-doc").textContent = doc ? `${doc.width} × ${doc.height} px, ${Math.round(doc.resolution)} ppi` : "";
-    const hint = transform ? T(TRANSFORM_HINT) : warpedLayer() ? T("Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.") : T(TOOL_HINT[app.tool] || "");
+    renderPager();
+    const painting = doc && maskPainting();
+    const onMask = painting && (app.tool === "brush" || app.tool === "eraser");
+    const hint = transform ? T(TRANSFORM_HINT) : onMask && painting.target === "quick" ? T("Quick Mask: black takes away from the selection, white adds to it. Q: back to the selection.") : onMask && painting.target === "mask" ? T("On the layer mask: black hides the layer, white shows it, grey half. X: swap the colours.") : warpedLayer() ? T("Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.") : T(TOOL_HINT[app.tool] || "");
     $("status-hint").textContent = hint.replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl");
     ui.start.hidden = Boolean(doc);
   };
@@ -5204,6 +7158,7 @@
   const renderAfterState = () => {
     renderLayers();
     renderCharacter();
+    showColors();
     renderHistory();
     renderTabs();
     renderMenusState();
@@ -5466,7 +7421,7 @@
     return entries;
   };
   const openFolderEntries = (entries) => {
-    if (entries.length) openFiles(entries);
+    if (entries.length) openChapter(entries);
     else toast(T("There is no PSD, PNG, JPEG or WebP in this folder."));
   };
   const openFolder = async () => {
@@ -5481,8 +7436,41 @@
     try {
       openFolderEntries(await filesOfFolder(await window.showDirectoryPicker({ id: "typer-open-folder", mode: "readwrite" })));
     } catch (error) {
-      if (error.name !== "AbortError") toast(fill(T("{name} can't be read: {error}"), { name: T("Open Folder…"), error: error.message || error }), true);
+      if (error.name !== "AbortError") toast(fill(T("{name} can't be read: {error}"), { name: T("Open Pages…"), error: error.message || error }), true);
     }
+  };
+  // Open Pages…: the pages picked one by one, or a whole folder. Either way they make a chapter
+  // (see openChapter), shared with the panel's Import pages.
+  const PAGE_TYPES = [{ description: "Photoshop, PNG, JPEG", accept: { "image/vnd.adobe.photoshop": [".psd", ".psb"], "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"] } }];
+  const pickPageFiles = async () => {
+    if (!canPickFiles) {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.multiple = true;
+      input.accept = ".psd,.psb,.png,.jpg,.jpeg,.webp";
+      input.addEventListener("change", () => openChapter(Array.from(input.files)));
+      input.click();
+      return;
+    }
+    try {
+      const handles = await window.showOpenFilePicker({ id: "typer-open-pages", multiple: true, types: PAGE_TYPES });
+      const entries = [];
+      for (const handle of handles) entries.push({ file: await handle.getFile(), handle });
+      await openChapter(entries);
+    } catch (error) {
+      if (error.name !== "AbortError") toast(fill(T("{name} can't be read: {error}"), { name: T("Open Pages…"), error: error.message || error }), true);
+    }
+  };
+  const openPages = async () => {
+    const answer = await dialog({
+      title: T("Open Pages"),
+      body: T("Pick the pages you want, or a whole folder. They open one at a time, in the order of their names."),
+      ok: T("Choose Pages…"),
+      also: T("Choose a Folder…"),
+    });
+    if (!answer) return;
+    if (answer.also) openFolder();
+    else pickPageFiles();
   };
 
   const openRecentFile = async (row) => {
@@ -5540,6 +7528,194 @@
     const at = app.docs.indexOf(app.doc);
     if (app.docs.length > 1) switchDoc(app.docs[(at + direction + app.docs.length) % app.docs.length]);
   };
+
+  // A chapter's pages, in order: a folder opened or dropped here, or the files given to the
+  // panel's Import pages button, with a script or without one. The pager in the tab bar and
+  // Page Down / Page Up go through them, each page opened when it's reached, and the page left
+  // closed when it holds nothing to save, so a long chapter never weighs more than the pages
+  // being worked on. Without such a list, the keys go from tab to tab.
+  const windowItem = (label) => MENUS.find(([name]) => name === "Window")[1].find((item) => item && item.label === label);
+  // The panel's own list of pages follows, as if its button had been used: one chapter, two doors
+  const panelBridge = () => {
+    try {
+      const frame = $("panel-frame");
+      return (frame && frame.contentWindow && frame.contentWindow.__typerWeb) || null;
+    } catch (error) {
+      return null;
+    }
+  };
+  const setPages = (entries, fromPanel) => {
+    const pages = Array.from(entries || [])
+      .map((entry) => ({ file: entry.file || entry, handle: entry.handle || null }))
+      .filter((page) => PAGE_FILES.test(page.file.name))
+      .sort((a, b) => NATURAL_ORDER.compare(a.file.name, b.file.name));
+    const had = Boolean(chapter);
+    chapter = pages.length > 1 ? { pages, at: 0 } : null;
+    renderStatus();
+    renderMenusState();
+    const bridge = !fromPanel && panelBridge();
+    if (bridge && !chapter && had) bridge.unlinkPages();
+    if (!chapter) return;
+    const next = windowItem("Next Page").keys;
+    const previous = windowItem("Previous Page").keys;
+    toast(next && previous
+      ? fill(T("{count} pages imported. {next}: next page, {previous}: previous page."), { count: pages.length, next: keyLabel(next), previous: keyLabel(previous) })
+      : fill(T("{count} pages imported."), { count: pages.length }));
+  };
+  const goToPage = async (target) => {
+    if (!chapter || paging || target < 0 || target >= chapter.pages.length) return;
+    const at = pageOf(app.doc);
+    const left = at < 0 ? null : app.doc;
+    const page = chapter.pages[target];
+    paging = true;
+    try {
+      const open = app.docs.find((doc) => doc.path === pageKey(page));
+      if (open) switchDoc(open);
+      else {
+        // Saved over its file, a page reopens as it is on disk now
+        const file = page.handle ? await page.handle.getFile() : app.files.get(pageKey(page)) || page.file;
+        await openFiles([{ file, handle: page.handle }]);
+      }
+      if (pageOf(app.doc) !== target) return;
+      chapter.at = target;
+      // Kept open: a page with changes to save, or saved only as a download
+      if (left && left !== app.doc && app.docs.includes(left) && !PS.isDirty(left) && (left.handle || left.historyIndex === 0)) {
+        if (left.handle) chapter.pages[at].handle = left.handle;
+        ops.closeDoc(left);
+      }
+    } catch (error) {
+      toast(fill(T("{name} can't be read: {error}"), { name: page.file.name, error: error.message || error }), true);
+    } finally {
+      paging = false;
+      renderStatus();
+    }
+  };
+  const stepPage = (direction) => {
+    if (!chapter) {
+      stepDoc(direction);
+      return;
+    }
+    const at = pageOf(app.doc);
+    // Away from the chapter, the keys bring back the page last worked on
+    const target = at < 0 ? chapter.at : at + direction;
+    if (target < 0 || target >= chapter.pages.length) toast(T(direction > 0 ? "This is the last page." : "This is the first page."));
+    else goToPage(target);
+  };
+  // A folder is a chapter: its pages wait in the pager, the first one opens. What isn't a page
+  // (an InDesign file) opens as before.
+  const openChapter = async (entries) => {
+    const isPage = (entry) => PAGE_FILES.test((entry.file || entry).name);
+    if (entries.filter(isPage).length < 2) {
+      await openFiles(entries);
+      return;
+    }
+    setPages(entries.filter(isPage));
+    await goToPage(0);
+    const bridge = panelBridge();
+    if (bridge && chapter) bridge.importPages(chapter.pages.map((page) => page.file));
+    const others = entries.filter((entry) => !isPage(entry));
+    if (others.length) await openFiles(others);
+  };
+
+  // The pager: ‹ 3 / 24 ›, and the number lists every page of the chapter
+  const pager = $("pager");
+  const pagerAt = $("pager-at");
+  const pagerPrev = $("pager-prev");
+  const pagerNext = $("pager-next");
+  pagerPrev.innerHTML = SVG('<path d="m15 6-6 6 6 6"/>');
+  pagerNext.innerHTML = SVG('<path d="m9 6 6 6-6 6"/>');
+  const renderPager = () => {
+    const shown = Boolean(chapter) && !Shell.touch;
+    if (pager.hidden === shown) {
+      pager.hidden = !shown;
+      fitTabs();
+      syncTabBar();
+    }
+    if (!shown) return;
+    const at = pageOf(app.doc);
+    const count = chapter.pages.length;
+    pagerAt.textContent = `${at < 0 ? "–" : at + 1} / ${count}`;
+    pagerAt.title = at < 0 ? T("Pages of the Chapter") : fill(T("Page {at} of {count}"), { at: at + 1, count }) + " · " + chapter.pages[at].file.name;
+    pagerPrev.disabled = at === 0;
+    pagerNext.disabled = at === count - 1;
+    const withKeys = (label) => (windowItem(label).keys ? `${T(label)} (${keyLabel(windowItem(label).keys)})` : T(label));
+    pagerPrev.title = withKeys("Previous Page");
+    pagerNext.title = withKeys("Next Page");
+    pagerPrev.setAttribute("aria-label", T("Previous Page"));
+    pagerNext.setAttribute("aria-label", T("Next Page"));
+  };
+  pagerPrev.addEventListener("click", () => stepPage(-1));
+  pagerNext.addEventListener("click", () => stepPage(1));
+  const pagesMenuOpen = () => Boolean(contextMenu && contextMenu.classList.contains("pages-menu"));
+  const openPagesMenu = (byKeyboard) => {
+    closeContextMenu();
+    closeMenus();
+    if (!chapter) return;
+    const list = document.createElement("div");
+    list.className = "menu__list menu__list--context tabs-menu pages-menu";
+    list.setAttribute("role", "menu");
+    list.setAttribute("aria-label", T("Pages of the Chapter"));
+    const at = pageOf(app.doc);
+    chapter.pages.forEach((page, index) => {
+      const on = index === at;
+      const open = app.docs.find((doc) => doc.path === pageKey(page));
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "menu__item" + (on ? " is-on" : "");
+      row.setAttribute("role", "menuitemradio");
+      row.setAttribute("aria-checked", String(on));
+      row.title = page.file.name;
+      const check = document.createElement("span");
+      check.className = "tabs-menu__check";
+      if (on) check.innerHTML = SVG('<path d="m5 12.500 4.500 4.500L19 7.500"/>');
+      const name = document.createElement("span");
+      name.textContent = page.file.name + (open && PS.isDirty(open) ? " *" : "");
+      row.append(check, name);
+      row.addEventListener("click", () => {
+        closeContextMenu();
+        if (!on) goToPage(index);
+      });
+      list.appendChild(row);
+    });
+    const line = document.createElement("div");
+    line.className = "menu__sep";
+    const unlink = document.createElement("button");
+    unlink.type = "button";
+    unlink.className = "menu__item";
+    unlink.setAttribute("role", "menuitem");
+    const unlinkText = document.createElement("span");
+    unlinkText.textContent = T("Close the Chapter");
+    unlink.append(document.createElement("span"), unlinkText);
+    unlink.children[0].className = "tabs-menu__check";
+    // Its pages stay open as tabs
+    unlink.addEventListener("click", () => {
+      closeContextMenu();
+      setPages(null);
+    });
+    list.append(line, unlink);
+    document.body.appendChild(list);
+    contextMenu = list;
+    pagerAt.setAttribute("aria-expanded", "true");
+    const box = pagerAt.getBoundingClientRect();
+    list.style.maxHeight = `${Math.max(120, window.innerHeight - box.bottom - 10)}px`;
+    list.style.left = `${Math.max(8, Math.min(box.right - list.offsetWidth, window.innerWidth - list.offsetWidth - 8))}px`;
+    list.style.top = `${box.bottom + 2}px`;
+    const current = list.querySelector(".is-on");
+    if (current) {
+      current.scrollIntoView({ block: "nearest" });
+      if (byKeyboard) current.focus();
+    }
+  };
+  let pagesMenuWasOpen = false;
+  pagerAt.addEventListener("pointerdown", () => {
+    pagesMenuWasOpen = pagesMenuOpen();
+  });
+  pagerAt.addEventListener("click", (event) => {
+    const wasOpen = pagesMenuWasOpen || (event.detail === 0 && pagesMenuOpen());
+    pagesMenuWasOpen = false;
+    if (wasOpen) closeContextMenu();
+    else openPagesMenu(event.detail === 0);
+  });
 
   const download = (blob, name) => {
     const link = document.createElement("a");
@@ -6423,7 +8599,10 @@
   };
 
   const fillSelectionCheck = (color) => {
-    if (!ops.fillSelection(color)) toast(T("Select a pixel layer first."));
+    const painting = maskPainting();
+    if (painting && painting.target === "vector") toast(T("This is a vector mask: rasterize it to paint on it (Layer > Vector Mask > Rasterize)."));
+    else if (painting) ops.fillMask(painting.target, painting.id, PS.grayOf(color));
+    else if (!ops.fillSelection(color)) toast(T("Select a pixel layer first."));
   };
 
   // Edit > Content-Aware Fill…: asks how, then paints the selection over with what surrounds
@@ -6431,6 +8610,7 @@
   const fillPrefs = { area: "around", output: "current", mirror: false, adapt: true };
   let filling = false;
   const contentAwareFill = async () => {
+    if (pixelsOnly()) return;
     if (filling || !hasSelection()) return;
     const values = await dialog({
       title: T("Content-Aware Fill"),
@@ -6495,7 +8675,7 @@
   const cutSelection = async () => {
     const doc = app.doc;
     const layer = activeLayer();
-    if (layer.locked) {
+    if (PS.lockOf(layer, "pixels")) {
       toast(T("This layer is locked."));
       return;
     }
@@ -6801,6 +8981,7 @@
   };
 
   const showLevels = async () => {
+    if (pixelsOnly()) return;
     settleForResize();
     const begun = ops.levelsBegin();
     if (begun.error) {
@@ -7079,14 +9260,41 @@
     return Boolean(shape && shape.textType === "box" && shape.box);
   };
 
-  const shiftLayerOrder = (direction) => {
+  // Arrange: the chosen layers beside the active one, one step up or down, or to the top or
+  // bottom of their folder, together
+  const shiftLayerOrder = (direction, toEnd) => {
     const doc = app.doc;
     const layer = activeLayer();
     if (!doc || !layer) return;
-    const siblings = doc.state.layers.filter((item) => item.group === layer.group);
-    const at = siblings.indexOf(layer);
-    const target = siblings[at + direction];
-    if (target) ops.reorderLayer(layer.id, target.id, direction > 0 ? "above" : "below");
+    const siblings = doc.state.layers.filter((item) => (item.group || null) === (layer.group || null));
+    const chosen = siblings.filter((item) => doc.state.activeIds.includes(item.id) && !item.isBackground);
+    if (!chosen.length) return;
+    const others = siblings.filter((item) => !chosen.includes(item));
+    const top = siblings.indexOf(chosen[chosen.length - 1]);
+    const bottom = siblings.indexOf(chosen[0]);
+    const target = toEnd
+      ? others[direction > 0 ? others.length - 1 : 0]
+      : direction > 0 ? others.find((item) => siblings.indexOf(item) > top) : others.slice().reverse().find((item) => siblings.indexOf(item) < bottom);
+    if (target) ops.reorderLayers(chosen.map((item) => item.id), target.id, direction > 0 ? "above" : "below");
+  };
+  // Several layers chosen at once, as a Shift + click makes them
+  const selectLayers = (ids) => {
+    const doc = app.doc;
+    if (!doc || !ids.length) return;
+    ops.selectLayer(ids[ids.length - 1]);
+    doc.state = Object.assign({}, doc.state, { activeIds: ids });
+    schedule(false);
+    renderAfterState();
+  };
+  const kindOfLayer = (layer) => (layer.kind === "text" ? "text" : layer.kind === "group" ? "group" : layer.adjustment ? "adjustment" : "pixel");
+  // Alt + . and Alt + , : the top and the bottom layer among the rows shown
+  const selectEdgeLayer = (top) => {
+    const doc = app.doc;
+    if (!doc) return;
+    const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
+    const rows = doc.state.layers.filter((layer) => !hiddenByFolder(layer, byId));
+    const layer = rows[top ? rows.length - 1 : 0];
+    if (layer) ops.selectLayer(layer.id);
   };
 
   const Workspace = () => window.TypeRWorkspace;
@@ -7198,12 +9406,172 @@
   };
 
   // The app has all the keys a browser tab keeps for itself, so Photoshop's work as they are
+  /* ---- masks ---- */
+
+  // The single active layer, if it has a mask (or a vector mask): what the menus act on
+  const maskedLayer = () => {
+    const layers = activeLayers();
+    return layers.length === 1 && layers[0].mask ? layers[0] : null;
+  };
+  const vectorLayer = () => {
+    const layers = activeLayers();
+    return layers.length === 1 && layers[0].vectorMask ? layers[0] : null;
+  };
+  const maskedTarget = () => {
+    const chosen = ops.maskTarget();
+    return chosen && chosen.part === "mask" ? chosen.layer : null;
+  };
+  const canAddMask = () => activeLayers().some((layer) => ops.canHaveMask(layer) && !layer.mask);
+  const canAddVectorMask = () => activeLayers().some((layer) => ops.canHaveMask(layer) && !layer.vectorMask);
+  // The right click's: from the selection when there is one, as Photoshop's mask button does
+  const addMaskItem = { label: "Add Layer Mask", enabled: () => canAddMask(), action: () => ops.addMask(hasSelection() ? "revealSelection" : "revealAll") };
+  const addVectorMaskItem = { label: "Add Vector Mask", enabled: () => canAddVectorMask(), action: () => ops.addVectorMask(hasSelection() ? "selection" : "revealAll") };
+  const toggleMaskOn = (layer, part) => {
+    if (!layer) return;
+    if (part === "vector") ops.setMaskProps(layer.id, { disable: !layer.vectorMask.disable }, layer.vectorMask.disable ? "Enable Vector Mask" : "Disable Vector Mask", null, "vector");
+    else ops.setMaskProps(layer.id, { disabled: !layer.mask.disabled }, layer.mask.disabled ? "Enable Layer Mask" : "Disable Layer Mask");
+  };
+  const toggleMaskLink = (layer, part) => {
+    if (!layer) return;
+    if (part === "vector") ops.setMaskProps(layer.id, { notLink: !layer.vectorMask.notLink }, layer.vectorMask.notLink ? "Link Vector Mask" : "Unlink Vector Mask", null, "vector");
+    else ops.setMaskProps(layer.id, { unlinked: !layer.mask.unlinked }, layer.mask.unlinked ? "Link Layer Mask" : "Unlink Layer Mask");
+  };
+  const invertTarget = () => {
+    const doc = app.doc;
+    if (!doc) return;
+    if (doc.state.quickMask) {
+      // The Quick Mask inverted is the other side of the selection: white and black swap
+      ops.invertMask(null, "quick");
+      return;
+    }
+    const layer = maskedTarget();
+    if (layer) ops.invertMask(layer.id);
+  };
+  // \: the targeted mask in red over the page; Alt + click on its thumbnail: alone, in grey
+  const toggleMaskView = (mode) => {
+    const doc = app.doc;
+    if (!doc) return;
+    if (!ops.maskTarget()) {
+      if (mode === "overlay") toast(T("Click a mask's thumbnail in the Layers panel first."));
+      return;
+    }
+    ops.setMaskView(doc.maskView && doc.maskView.mode === mode ? null : mode);
+  };
+  // A mask thumbnail's right click, as Photoshop's
+  const maskMenuOf = (id, part) => {
+    const layer = () => (app.doc && app.doc.state.layers.find((item) => item.id === id)) || null;
+    const now = layer();
+    if (!now) return [];
+    const fromMask = [
+      { label: "Add Mask to Selection", action: () => ops.maskToSelection(id, "add", part) },
+      { label: "Subtract Mask from Selection", enabled: hasSelection, action: () => ops.maskToSelection(id, "subtract", part) },
+      { label: "Intersect Mask with Selection", enabled: hasSelection, action: () => ops.maskToSelection(id, "intersect", part) },
+    ];
+    if (part === "vector") {
+      return [
+        { label: now.vectorMask.disable ? "Enable Vector Mask" : "Disable Vector Mask", action: () => toggleMaskOn(layer(), "vector") },
+        { label: "Delete Vector Mask", action: () => ops.deleteMask(id, "vector") },
+        { label: "Rasterize Vector Mask", action: () => ops.rasterizeVectorMask(id) },
+        null,
+        ...fromMask,
+        null,
+        { label: now.vectorMask.notLink ? "Link Vector Mask" : "Unlink Vector Mask", action: () => toggleMaskLink(layer(), "vector") },
+      ];
+    }
+    return [
+      { label: now.mask.disabled ? "Enable Layer Mask" : "Disable Layer Mask", action: () => toggleMaskOn(layer(), "mask") },
+      { label: "Delete Layer Mask", action: () => ops.deleteMask(id) },
+      { label: "Apply Layer Mask", enabled: () => ops.canApplyMask(layer()), action: () => ops.applyMask(id) },
+      null,
+      ...fromMask,
+      null,
+      { label: "Invert", keys: "Cmd+I", action: () => ops.invertMask(id) },
+      { label: now.mask.unlinked ? "Link Layer Mask" : "Unlink Layer Mask", action: () => toggleMaskLink(layer(), "mask") },
+      null,
+      { label: "Mask Properties…", action: () => openMaskProperties(id) },
+    ];
+  };
+  // Properties > Masks: Density and Feather, tried out as they change. Cancel takes them back.
+  const openMaskProperties = async (id) => {
+    const doc = app.doc;
+    const layer = doc && doc.state.layers.find((item) => item.id === id);
+    if (!layer || !layer.mask) return;
+    const startIndex = doc.historyIndex;
+    const token = `mask-properties:${id}:${Date.now()}`;
+    const start = { density: Math.round((layer.mask.userMaskDensity === undefined ? 1 : layer.mask.userMaskDensity) * 100), feather: Math.round((layer.mask.userMaskFeather || 0) * 10) / 10 };
+    const values = Object.assign({}, start);
+    const body = document.createElement("div");
+    body.className = "mask-props";
+    const apply = () => {
+      if (app.doc !== doc) return;
+      ops.setMaskProps(id, { userMaskDensity: values.density / 100, userMaskFeather: values.feather }, "Mask Properties", token);
+    };
+    const slider = (label, key, max, step, unit) => {
+      const wrap = document.createElement("label");
+      wrap.className = "mask-props__row";
+      const name = document.createElement("span");
+      name.textContent = label;
+      const range = document.createElement("input");
+      range.type = "range";
+      range.min = "0";
+      range.max = String(max);
+      range.step = String(step);
+      range.value = String(values[key]);
+      const number = document.createElement("input");
+      number.type = "number";
+      number.min = "0";
+      number.max = String(max);
+      number.step = String(step);
+      number.value = String(values[key]);
+      const suffix = document.createElement("span");
+      suffix.className = "mask-props__unit";
+      suffix.textContent = unit;
+      const set = (value, from) => {
+        const v = Math.max(0, Math.min(max, Number(value) || 0));
+        values[key] = v;
+        if (from !== range) range.value = String(v);
+        if (from !== number) number.value = String(v);
+        showSliderFill(range);
+        apply();
+      };
+      range.addEventListener("input", () => set(range.value, range));
+      number.addEventListener("input", () => set(number.value, number));
+      showSliderFill(range);
+      wrap.append(name, range, number, suffix);
+      return wrap;
+    };
+    body.append(slider(T("Density"), "density", 100, 1, "%"), slider(T("Feather"), "feather", 250, 0.1, "px"));
+    const hint = document.createElement("p");
+    hint.className = "modal__hint";
+    hint.textContent = T("Density lets the hidden part show through; Feather softens the mask's edges. The mask's pixels don't change.");
+    body.appendChild(hint);
+    const answer = await dialog({ title: T("Mask Properties"), body });
+    if (app.doc !== doc) return;
+    // Cancelled: back to how it was; OK: kept, as one step
+    if (!answer) ops.rollbackHistory(startIndex);
+    else ops.sealHistory();
+  };
+  const toggleQuickMask = () => {
+    if (!app.doc) return;
+    commitTransform();
+    ops.toggleQuickMask();
+    // Quick Mask paints black on what isn't selected, with the default colours
+    if (app.doc.state.quickMask) {
+      app.fg = { r: 0, g: 0, b: 0 };
+      app.bg = { r: 255, g: 255, b: 255 };
+    }
+    showColors();
+    renderStatus();
+    renderMenusState();
+  };
+
   const DESKTOP = Boolean(window.TypeRDesktop);
+  const findItem = { label: "Find Layers", keys: "Alt+Shift+Cmd+F", enabled: hasDoc, action: () => openFind() };
   const MENUS = [
     ["File", [
       { label: "New…", keys: DESKTOP ? "Cmd+N" : "Alt+Cmd+N", action: newDocument },
       { label: "Open…", keys: "Cmd+O", action: openDialog },
-      { label: "Open Folder…", keys: "Shift+Cmd+O", action: openFolder },
+      { label: "Open Pages…", id: "Open Folder…", keys: "Shift+Cmd+O", action: openPages },
       { label: "Open Recent…", enabled: () => Recent.available, action: showRecentFiles },
       null,
       { label: "Close", keys: DESKTOP ? "Cmd+W" : "Alt+Cmd+W", enabled: hasDoc, action: () => closeDoc() },
@@ -7229,9 +9597,10 @@
       null,
       { label: "Cut", keys: "Cmd+X", enabled: canCut, browserWhenOff: true, action: cutSelection },
       { label: "Copy", keys: "Cmd+C", enabled: hasDoc, browserWhenOff: true, action: copySelection },
-      { label: "Fill with Foreground Colour", keys: "Alt+Backspace", enabled: hasSelection, action: () => fillSelectionCheck(toRgb(app.fg)) },
-      { label: "Fill with Background Colour", keys: "Cmd+Backspace", enabled: hasSelection, action: () => fillSelectionCheck(toRgb(app.bg)) },
+      { label: "Fill with Foreground Colour", keys: "Alt+Backspace", enabled: () => hasSelection() || Boolean(maskPainting()), action: () => fillSelectionCheck(toRgb(app.fg)) },
+      { label: "Fill with Background Colour", keys: "Cmd+Backspace", enabled: () => hasSelection() || Boolean(maskPainting()), action: () => fillSelectionCheck(toRgb(app.bg)) },
       { label: "Content-Aware Fill…", keys: "Shift+Backspace", enabled: hasSelection, action: contentAwareFill },
+      { label: "Generative Fill…", enabled: () => Boolean(Gen) && hasSelection(), action: openGenerative },
       { label: "Clear", keys: "Backspace", enabled: () => hasSelection() || hasLayer(), action: () => clearOrDelete() },
       null,
       // A browser tab keeps Ctrl+T for itself: Photoshop's shortcut only arrives in the installed app or full screen
@@ -7248,6 +9617,8 @@
     ]],
     ["Image", [
       { label: "Levels…", keys: "Cmd+L", enabled: hasDoc, action: showLevels },
+      // On a mask or the Quick Mask: black and white change places
+      { label: "Invert", keys: "Cmd+I", enabled: () => Boolean(maskedTarget() || (app.doc && app.doc.state.quickMask)), action: invertTarget },
       null,
       { label: "Canvas Size…", keys: "Alt+Cmd+C", enabled: hasDoc, action: askCanvasSize },
       { label: "Image Size…", keys: "Alt+Cmd+I", enabled: hasDoc, action: askImageSize },
@@ -7266,8 +9637,10 @@
       { label: "Copy Layer Style", enabled: hasLayer, action: () => { if (ops.copyLayerStyle()) toast(T("Copied.")); } },
       { label: "Paste Layer Style", enabled: () => hasLayer() && Boolean(app.styleClipboard), action: () => ops.pasteLayerStyle() },
       null,
+      { label: "Bring to Front", keys: "Shift+Cmd+]", enabled: hasLayer, action: () => shiftLayerOrder(1, true) },
       { label: "Bring Forward", keys: "Cmd+]", enabled: hasLayer, action: () => shiftLayerOrder(1) },
       { label: "Send Backward", keys: "Cmd+[", enabled: hasLayer, action: () => shiftLayerOrder(-1) },
+      { label: "Send to Back", keys: "Shift+Cmd+[", enabled: hasLayer, action: () => shiftLayerOrder(-1, true) },
       null,
       { label: "Convert to Paragraph Text", enabled: () => activeTexts().some((layer) => !isParagraph(layer)), action: () => activeTexts().forEach((layer) => { if (!isParagraph(layer)) ops.convertText(layer.id); }) },
       { label: "Convert to Point Text", enabled: () => activeTexts().some(isParagraph), action: () => activeTexts().forEach((layer) => { if (isParagraph(layer)) ops.convertText(layer.id); }) },
@@ -7278,6 +9651,34 @@
       { label: "Convert to SFX", enabled: () => Boolean(window.TypeRSFX && window.TypeRSFX.canConvert()), action: () => window.TypeRSFX.convert() },
       { label: "Separate SFX Letters", enabled: () => Boolean(window.TypeRSFX && window.TypeRSFX.activeSfx()), action: () => window.TypeRSFX.separate() },
       { label: "Keep in the bank…", enabled: () => Boolean(window.TypeRSFX && window.TypeRSFX.activeSfx()), action: () => window.TypeRSFX.keepInBank() },
+      null,
+      { label: "Layer Mask", submenu: [
+        { label: "Reveal All", id: "Layer Mask: Reveal All", enabled: canAddMask, action: () => ops.addMask("revealAll") },
+        { label: "Hide All", id: "Layer Mask: Hide All", enabled: canAddMask, action: () => ops.addMask("hideAll") },
+        { label: "Reveal Selection", enabled: () => canAddMask() && hasSelection(), action: () => ops.addMask("revealSelection") },
+        { label: "Hide Selection", enabled: () => canAddMask() && hasSelection(), action: () => ops.addMask("hideSelection") },
+        { label: "From Transparency", enabled: () => canAddMask() && activeLayers().some((layer) => layer.kind !== "group"), action: () => ops.addMask("transparency") },
+        null,
+        { label: "Delete", id: "Layer Mask: Delete", enabled: () => Boolean(maskedLayer()), action: () => ops.deleteMask(maskedLayer().id) },
+        { label: "Apply", id: "Layer Mask: Apply", enabled: () => ops.canApplyMask(maskedLayer()), action: () => ops.applyMask(maskedLayer().id) },
+        null,
+        { label: "Disable", id: "Layer Mask: Disable", title: () => (maskedLayer() && maskedLayer().mask.disabled ? "Enable" : "Disable"), enabled: () => Boolean(maskedLayer()), action: () => toggleMaskOn(maskedLayer(), "mask") },
+        { label: "Unlink", id: "Layer Mask: Unlink", title: () => (maskedLayer() && maskedLayer().mask.unlinked ? "Link" : "Unlink"), enabled: () => Boolean(maskedLayer()), action: () => toggleMaskLink(maskedLayer(), "mask") },
+        null,
+        { label: "Mask Properties…", enabled: () => Boolean(maskedLayer()), action: () => openMaskProperties(maskedLayer().id) },
+      ] },
+      { label: "Vector Mask", submenu: [
+        { label: "Reveal All", id: "Vector Mask: Reveal All", enabled: canAddVectorMask, action: () => ops.addVectorMask("revealAll") },
+        { label: "Hide All", id: "Vector Mask: Hide All", enabled: canAddVectorMask, action: () => ops.addVectorMask("hideAll") },
+        { label: "Current Selection", enabled: () => canAddVectorMask() && hasSelection(), action: () => ops.addVectorMask("selection") },
+        null,
+        { label: "Delete", id: "Vector Mask: Delete", enabled: () => Boolean(vectorLayer()), action: () => ops.deleteMask(vectorLayer().id, "vector") },
+        { label: "Rasterize", id: "Vector Mask: Rasterize", enabled: () => Boolean(vectorLayer()), action: () => ops.rasterizeVectorMask(vectorLayer().id) },
+        null,
+        { label: "Disable", id: "Vector Mask: Disable", title: () => (vectorLayer() && vectorLayer().vectorMask.disable ? "Enable" : "Disable"), enabled: () => Boolean(vectorLayer()), action: () => toggleMaskOn(vectorLayer(), "vector") },
+        { label: "Unlink", id: "Vector Mask: Unlink", title: () => (vectorLayer() && vectorLayer().vectorMask.notLink ? "Link" : "Unlink"), enabled: () => Boolean(vectorLayer()), action: () => toggleMaskLink(vectorLayer(), "vector") },
+      ] },
+      { label: "Create Clipping Mask", keys: "Alt+Cmd+G", title: () => (ops.clippingPlan() === "release" ? "Release Clipping Mask" : "Create Clipping Mask"), enabled: () => Boolean(ops.clippingPlan()), action: () => ops.toggleClipping() },
       null,
       { label: "Merge Down", keys: "Cmd+E", enabled: hasLayer, action: () => ops.mergeSelected() },
       { label: "Merge Visible", keys: "Shift+Cmd+E", enabled: hasDoc, action: () => ops.mergeVisible() },
@@ -7291,6 +9692,13 @@
       null,
       { label: "Expand…", enabled: hasSelection, action: () => askRadius(T("Expand selection"), (r) => ops.grow(r)) },
       { label: "Contract…", enabled: hasSelection, action: () => askRadius(T("Contract selection"), (r) => ops.grow(-r)) },
+      null,
+      { label: "Edit in Quick Mask Mode", keys: "Q", check: () => Boolean(app.doc && app.doc.state.quickMask), enabled: hasDoc, action: () => toggleQuickMask() },
+      null,
+      // Photoshop's: every layer but the Background, those of the active one's kind, and the search
+      { label: "All Layers", keys: "Alt+Cmd+A", enabled: () => hasDoc() && app.doc.state.layers.some((layer) => !layer.isBackground), action: () => selectLayers(app.doc.state.layers.filter((layer) => !layer.isBackground).map((layer) => layer.id)) },
+      { label: "Similar Layers", enabled: hasLayer, action: () => selectLayers(app.doc.state.layers.filter((layer) => !layer.isBackground && kindOfLayer(layer) === kindOfLayer(activeLayer())).map((layer) => layer.id)) },
+      findItem,
     ]],
     ["View", [
       { label: "Zoom In", keys: "Cmd+=", enabled: hasDoc, browserWhenOff: true, action: () => zoomStep(1) },
@@ -7305,6 +9713,8 @@
     ["Window", [
       { label: "Next Document", keys: "Alt+Shift+ArrowRight", alias: "Cmd+Tab", enabled: () => app.docs.length > 1, action: () => stepDoc(1) },
       { label: "Previous Document", keys: "Alt+Shift+ArrowLeft", alias: "Shift+Cmd+Tab", enabled: () => app.docs.length > 1, action: () => stepDoc(-1) },
+      { label: "Next Page", keys: "PageDown", enabled: () => Boolean(chapter) || app.docs.length > 1, action: () => stepPage(1) },
+      { label: "Previous Page", keys: "PageUp", enabled: () => Boolean(chapter) || app.docs.length > 1, action: () => stepPage(-1) },
       null,
       { label: "Show or Hide All Panels", keys: "Tab", action: toggleAllPanels },
       { label: "TypeR", check: () => Workspace().isVisible("typer"), action: () => Workspace().toggle("typer") },
@@ -7339,7 +9749,7 @@
 
   const keyLabel = (keys) => {
     if (!keys) return "";
-    const arrows = keys.replace(/ArrowRight/g, "→").replace(/ArrowLeft/g, "←");
+    const arrows = keys.replace(/ArrowRight/g, "→").replace(/ArrowLeft/g, "←").replace(/PageDown/g, "Pg↓").replace(/PageUp/g, "Pg↑");
     if (IS_MAC) return arrows.replace(/Shift\+/g, "⇧").replace(/Alt\+/g, "⌥").replace(/Cmd\+/g, "⌘").replace(/Backspace/g, "⌫");
     return arrows.replace(/Cmd/g, "Ctrl");
   };
@@ -7362,22 +9772,58 @@
   };
   const TOOL_ITEMS = TOOLS.filter(Boolean).map((entry) => ({ label: entry[1], keys: entry[2], entry, virtual: true, action: () => pickTool(entry[0]) }));
   const MORE_ITEMS = [
-    { label: "Default colours", keys: "D", virtual: true, action: () => { app.fg = { r: 0, g: 0, b: 0 }; app.bg = { r: 255, g: 255, b: 255 }; showColors(); } },
+    // On a layer mask, white paints and black is behind it, as in Photoshop
+    { label: "Default colours", keys: "D", virtual: true, action: () => {
+      const onMask = maskPainting() && maskPainting().target !== "quick";
+      app.fg = onMask ? { r: 255, g: 255, b: 255 } : { r: 0, g: 0, b: 0 };
+      app.bg = onMask ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 };
+      showColors();
+    } },
     { label: "Swap colours", keys: "X", virtual: true, action: () => swapColors() },
     { label: "Decrease brush size", keys: "[", virtual: true, action: () => scaleBrush(0.8) },
     { label: "Increase brush size", keys: "]", virtual: true, action: () => scaleBrush(1.25) },
+    { label: "Show the mask in red", keys: "\\", virtual: true, action: () => toggleMaskView("overlay") },
   ];
   const hasText = () => activeTexts().length > 0;
   const LAYER_AND_TEXT_ITEMS = [
     { label: "Select the layer above", keys: "Alt+]", enabled: hasDoc, action: () => selectNeighbourLayer(1) },
     { label: "Select the layer below", keys: "Alt+[", enabled: hasDoc, action: () => selectNeighbourLayer(-1) },
+    { label: "Add the layer above to the selection", keys: "Alt+Shift+]", enabled: hasDoc, action: () => selectNeighbourLayer(1, true) },
+    { label: "Add the layer below to the selection", keys: "Alt+Shift+[", enabled: hasDoc, action: () => selectNeighbourLayer(-1, true) },
+    { label: "Select the top layer", keys: "Alt+.", enabled: hasDoc, action: () => selectEdgeLayer(true) },
+    { label: "Lock transparent pixels", keys: "/", enabled: () => canLock(activeLayer(), "transparency"), action: () => toggleLock("transparency") },
+    { label: "Select the bottom layer", keys: "Alt+,", enabled: hasDoc, action: () => selectEdgeLayer(false) },
     { label: "Increase text size", keys: "Shift+Cmd+>", enabled: hasText, anywhere: true, action: () => stepTextSize(1, false) },
     { label: "Decrease text size", keys: "Shift+Cmd+<", alias: "Cmd+<", enabled: hasText, anywhere: true, action: () => stepTextSize(-1, false) },
     { label: "Increase text size a lot", keys: "Alt+Shift+Cmd+>", enabled: hasText, anywhere: true, action: () => stepTextSize(1, true) },
     { label: "Decrease text size a lot", keys: "Alt+Shift+Cmd+<", alias: "Alt+Cmd+<", enabled: hasText, anywhere: true, action: () => stepTextSize(-1, true) },
   ];
-  const SHORTCUT_GROUPS = [["Tools", TOOL_ITEMS], ...MENUS.map(([name, items]) => [name, items.filter(Boolean)]), ["Colours and brush", MORE_ITEMS], ["Layers and text", LAYER_AND_TEXT_ITEMS]];
-  const SHORTCUTS = SHORTCUT_GROUPS.flatMap(([group, items]) => items.map((item) => ({ id: `${group}:${item.label}`, group, item, keys: item.keys || "", alias: item.alias })));
+  // Keys that stand for the mouse's buttons, for where a click makes too much noise: none by
+  // default (keyclick.js does the clicking)
+  const MOUSE_ITEMS = [
+    { label: "Left click", mouse: 0, virtual: true, action: () => {} },
+    { label: "Right click", mouse: 2, virtual: true, action: () => {} },
+  ];
+  // A submenu's items take their place in their menu's group, named after it too
+  const menuGroupItems = (items) => items.filter(Boolean).flatMap((item) => (item.submenu ? item.submenu.filter(Boolean).map((sub) => Object.assign(sub, { parent: item })) : [item]));
+  const SHORTCUT_GROUPS = [["Tools", TOOL_ITEMS], ...MENUS.map(([name, items]) => [name, menuGroupItems(items)]), ["Colours and brush", MORE_ITEMS], ["Layers and text", LAYER_AND_TEXT_ITEMS], ["Mouse", MOUSE_ITEMS]];
+  const SHORTCUTS = SHORTCUT_GROUPS.flatMap(([group, items]) => items.map((item) => ({ id: `${group}:${item.id || item.label}`, group, item, keys: item.keys || "", alias: item.alias })));
+  // What the Shortcuts tab shows first: the keys of every day. The rest waits under Other
+  // shortcuts, and the search goes through everything.
+  const FEATURED_SHORTCUTS = new Set([
+    ...["Move", "Rectangular Marquee", "Lasso", "Magic Wand", "Brush", "Eraser", "Clone Stamp", "Bubble Cleaner", "Eyedropper", "Type", "SFX"].map((label) => `Tools:${label}`),
+    "File:Open…", "File:Save", "File:Save As…",
+    "Edit:Undo", "Edit:Redo", "Edit:Fill with Foreground Colour", "Edit:Content-Aware Fill…", "Edit:Free Transform",
+    "Layer:New Layer", "Layer:Duplicate Layer", "Layer:Group Layers", "Layer:Merge Down",
+    "Select:All", "Select:Deselect", "Select:Inverse",
+    "View:Zoom In", "View:Zoom Out", "View:Fit on Screen",
+    "Window:Next Page", "Window:Previous Page",
+    "Colours and brush:Default colours", "Colours and brush:Swap colours", "Colours and brush:Decrease brush size", "Colours and brush:Increase brush size",
+    "Layers and text:Increase text size", "Layers and text:Decrease text size",
+    "Mouse:Left click", "Mouse:Right click",
+  ]);
+  const STORE_MORE_SHORTCUTS = "typer.web.shortcutsMore";
+  const shortcutName = (item) => (item.parent ? `${T(item.parent.label)} › ${T(item.label)}` : T(item.label));
   const STORE_SHORTCUTS = "typer.web.shortcuts";
   let customShortcuts = {};
   try {
@@ -7395,7 +9841,7 @@
       if (item.entry) item.entry[2] = item.keys;
     });
   };
-  const allShortcuts = () => SHORTCUTS.map(({ item }) => item).filter((item) => item.keys);
+  const allShortcuts = () => SHORTCUTS.map(({ item }) => item).filter((item) => item.keys && item.mouse === undefined);
 
   // What the keys really are, whatever the keyboard makes of them
   const comboOf = (event) => {
@@ -7426,6 +9872,8 @@
     if (part === "Alt") return IS_MAC ? "⌥" : "Alt";
     if (part === "Shift") return IS_MAC ? "⇧" : "Shift";
     if (part === "Backspace") return IS_MAC ? "⌫" : "Backspace";
+    if (part === "PageDown") return "Pg↓";
+    if (part === "PageUp") return "Pg↑";
     return part;
   });
 
@@ -7435,6 +9883,12 @@
     const notes = {};
     let recording = null;
     let query = "";
+    let moreOpen = false;
+    try {
+      moreOpen = Boolean(window.localStorage.getItem(STORE_MORE_SHORTCUTS));
+    } catch (error) {
+      moreOpen = false;
+    }
     const valueOf = ({ id, keys }) => (typeof draft[id] === "string" ? draft[id] : keys);
     const make = (tag, className, parent, text) => {
       const el = document.createElement(tag);
@@ -7472,15 +9926,36 @@
       list.textContent = "";
       const words = query.trim().toLowerCase();
       let shown = 0;
-      SHORTCUT_GROUPS.forEach(([group]) => {
-        const rows = SHORTCUTS.filter((one) => one.group === group && (!words || T(one.item.label).toLowerCase().includes(words) || valueOf(one).toLowerCase().includes(words)));
-        if (!rows.length) return;
-        make("div", "sk__group", list, T(group));
+      // Searching, all of them in one list; otherwise the featured ones, then the fold
+      let more = null;
+      if (!words) {
+        more = document.createElement("details");
+        more.className = "sk__more";
+        more.open = moreOpen;
+        const summary = make("summary", "sk__more-head", more, T("Other shortcuts"));
+        make("span", "sk__more-count", summary, String(SHORTCUTS.filter((one) => !FEATURED_SHORTCUTS.has(one.id)).length));
+        more.addEventListener("toggle", () => {
+          moreOpen = more.open;
+          try {
+            window.localStorage.setItem(STORE_MORE_SHORTCUTS, moreOpen ? "1" : "");
+          } catch (error) {
+            // Without storage, the fold only stays open for this visit
+          }
+        });
+      }
+      const moreBody = more ? make("div", "sk__more-body", more) : null;
+      const placeOf = (featured) => (more && !featured ? moreBody : list);
+      [true, false].forEach((featured) => SHORTCUT_GROUPS.forEach(([group]) => {
+        const rows = SHORTCUTS.filter((one) => one.group === group && (words ? shortcutName(one.item).toLowerCase().includes(words) || valueOf(one).toLowerCase().includes(words) : FEATURED_SHORTCUTS.has(one.id) === featured));
+        if (!rows.length || (words && !featured)) return;
+        const host = placeOf(featured);
+        make("div", "sk__group", host, T(group));
+        if (group === "Mouse") make("p", "sk__hint", host, T("Hold the key as you would hold the button, to drag or paint. With Shift, Alt or Ctrl it clicks with them. Pick a key you don't type: in a text field, a letter stays a letter."));
         rows.forEach((one) => {
           shown++;
-          const row = make("div", "sk__row", list);
+          const row = make("div", "sk__row", host);
           row.dataset.id = one.id;
-          make("span", "sk__name", row, T(one.item.label));
+          make("span", "sk__name", row, shortcutName(one.item));
           const keys = valueOf(one);
           const field = fieldOf(row, recording === one.id ? "" : keys);
           if (recording === one.id) {
@@ -7520,14 +9995,15 @@
           }
           if (notes[one.id]) make("div", "sk__note", row, notes[one.id]);
         });
-      });
+      }));
+      if (more) list.appendChild(more);
       // What stays as it is: other tools count on them
       const fixed = [["← ↑ → ↓", T("Move the active layer by 1 px (Shift: 10 px), or the selection if a selection tool is on")], [T("Space"), T("Pan")], [IS_MAC ? `⌘${T("Space")} / ⌃${T("Space")}` : `Ctrl+${T("Space")}`, T("Zoom: drag right to zoom in, left to zoom out")], [T("Hold a tool's key"), T("Use the tool until you let go")], ["Enter", T("Apply")], ["Esc", T("Cancel")]].filter(([keys, label]) => !words || label.toLowerCase().includes(words) || keys.toLowerCase().includes(words));
       if (fixed.length) {
-        make("div", "sk__group", list, T("Fixed"));
+        make("div", "sk__group", placeOf(false), T("Fixed"));
         fixed.forEach(([keys, label]) => {
           shown++;
-          const row = make("div", "sk__row", list);
+          const row = make("div", "sk__row", placeOf(false));
           make("span", "sk__name", row, label);
           const field = make("button", "sk__field", row);
           field.type = "button";
@@ -7540,10 +10016,10 @@
       // The SFX tool's, as they are: its guide shows each one
       const sfxRows = window.TypeRSFXGuide ? window.TypeRSFXGuide.rows().filter(({ text, label }) => !words || label.toLowerCase().includes(words) || text.toLowerCase().includes(words)) : [];
       if (sfxRows.length) {
-        make("div", "sk__group", list, T("SFX tool"));
+        make("div", "sk__group", placeOf(false), T("SFX tool"));
         sfxRows.forEach(({ keys, label }) => {
           shown++;
-          const row = make("div", "sk__row", list);
+          const row = make("div", "sk__row", placeOf(false));
           make("span", "sk__name", row, label);
           const field = make("button", "sk__field", row);
           field.type = "button";
@@ -7591,8 +10067,10 @@
           stopRecording();
           return;
         }
-        const combo = comboOf(event);
-        if (!combo) return;
+        const full = comboOf(event);
+        if (!full) return;
+        // A button's key goes alone: Shift, Alt or Ctrl with it make a Shift-click and so on
+        const combo = SHORTCUTS.find((one) => one.id === id).item.mouse === undefined ? full : full.split("+").pop();
         const said = [];
         SHORTCUTS.forEach((other) => {
           if (other.id === id || valueOf(other) !== combo) return;
@@ -7650,13 +10128,16 @@
     if (wantCmd !== isCommand(event)) return false;
     // Alt with the keys beside P: those keys, whatever they type. "[" typed another way below.
     const besideP = event.altKey && !event.getModifierState("AltGraph") && (event.code === "BracketLeft" ? "[" : event.code === "BracketRight" ? "]" : null);
-    if (wantAlt && (key === "[" || key === "]")) return besideP === key;
+    if (wantAlt && (key === "[" || key === "]")) return besideP === key && wantShift === event.shiftKey;
+    // Shift + Cmd + a bracket types a brace on QWERTY: its place counts
+    if (wantShift && event.shiftKey && (key === "[" || key === "]") && (event.key === (key === "[" ? "{" : "}") || event.code === (key === "[" ? "BracketLeft" : "BracketRight"))) return wantAlt === event.altKey;
     // AZERTY needs Option or AltGr for "[" and "]", and most layouts Shift for "+": the character is what counts
     const bracket = (key === "[" || key === "]") && event.key === key && !besideP;
     if (!bracket && wantAlt !== event.altKey) return false;
     if (!bracket && !(key === "=" && event.key === "+") && wantShift !== event.shiftKey) return false;
     const pressed = event.key.length === 1 ? event.key.toLowerCase() : event.key;
     if (key === "=") return pressed === "=" || pressed === "+";
+    if ((key === "," || key === ".") && event.altKey) return pressed === key || event.code === (key === "," ? "Comma" : "Period");
     // Alt changes what these type on a Mac: their place counts too, on QWERTY and on AZERTY
     if (key === "<" || key === ">") {
       const place = event.code === "Comma" ? "<" : event.code === "Period" ? ">" : event.code === "IntlBackslash" || event.code === "IntlBackquote" ? (event.shiftKey ? ">" : "<") : null;
@@ -7676,9 +10157,127 @@
     openMenu.classList.remove("is-open");
     const list = openMenu.querySelector(".menu__list");
     if (list) list.hidden = true;
+    openMenu.querySelectorAll(".menu__list--sub").forEach((sub) => { sub.hidden = true; });
     openMenu.querySelector(".menu__button").setAttribute("aria-expanded", "false");
     openMenu = null;
   };
+  // A menu's rows, with a submenu where an item has one: it opens beside its row on hover, a
+  // click or →, and ← or Esc close it again
+  const menuLabel = (item) => T(item.title ? item.title() : item.label);
+  const menuRow = (item, run) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "menu__item";
+    row.setAttribute("role", "menuitem");
+    const label = document.createElement("span");
+    label.textContent = menuLabel(item);
+    row.appendChild(label);
+    if (item.keys) {
+      const keys = document.createElement("kbd");
+      keys.textContent = keyLabel(item.keys);
+      row.appendChild(keys);
+    }
+    item.row = row;
+    item.labelEl = label;
+    row.addEventListener("click", () => run(item));
+    return row;
+  };
+  const fillMenuList = (list, items, run) => {
+    items.forEach((item) => {
+      if (!item) {
+        const sep = document.createElement("div");
+        sep.className = "menu__sep";
+        list.appendChild(sep);
+        return;
+      }
+      if (!item.submenu) {
+        list.appendChild(menuRow(item, run));
+        return;
+      }
+      const wrap = document.createElement("div");
+      wrap.className = "menu__subwrap";
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "menu__item menu__item--sub";
+      row.setAttribute("role", "menuitem");
+      row.setAttribute("aria-haspopup", "true");
+      row.setAttribute("aria-expanded", "false");
+      const label = document.createElement("span");
+      label.textContent = T(item.label);
+      const more = document.createElement("span");
+      more.className = "menu__more";
+      more.textContent = lang === "ar" ? "◂" : "▸";
+      row.append(label, more);
+      item.row = row;
+      item.labelEl = label;
+      const sub = document.createElement("div");
+      sub.className = "menu__list menu__list--sub";
+      sub.setAttribute("role", "menu");
+      sub.hidden = true;
+      fillMenuList(sub, item.submenu, run);
+      const open = (focus) => {
+        Array.from(list.querySelectorAll(":scope > .menu__subwrap > .menu__list--sub")).forEach((other) => {
+          if (other !== sub) other.hidden = true;
+        });
+        renderMenusState();
+        sub.hidden = false;
+        row.setAttribute("aria-expanded", "true");
+        // Beside its row, on whichever side has room
+        sub.classList.remove("is-left");
+        const box = sub.getBoundingClientRect();
+        if ((lang === "ar") !== (box.right > window.innerWidth - 4)) sub.classList.add("is-left");
+        const fit = sub.getBoundingClientRect();
+        sub.style.marginTop = fit.bottom > window.innerHeight - 4 ? `${window.innerHeight - 4 - fit.bottom}px` : "";
+        if (focus) {
+          const first = sub.querySelector(".menu__item:not(:disabled)");
+          if (first) first.focus();
+        }
+      };
+      const close = () => {
+        sub.hidden = true;
+        row.setAttribute("aria-expanded", "false");
+      };
+      item.closeSub = close;
+      row.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (sub.hidden) open(event.detail === 0);
+        else close();
+      });
+      wrap.addEventListener("mouseenter", () => open(false));
+      wrap.addEventListener("mouseleave", close);
+      row.addEventListener("keydown", (event) => {
+        if (event.key === (lang === "ar" ? "ArrowLeft" : "ArrowRight")) {
+          event.preventDefault();
+          event.stopPropagation();
+          open(true);
+        }
+      });
+      sub.addEventListener("keydown", (event) => {
+        const rows = Array.from(sub.querySelectorAll(":scope > .menu__item:not(:disabled)"));
+        const at = rows.indexOf(document.activeElement);
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (rows.length) rows[(at + (event.key === "ArrowDown" ? 1 : rows.length - 1) + (at < 0 && event.key === "ArrowUp" ? 1 : 0)) % rows.length].focus();
+        } else if (event.key === (lang === "ar" ? "ArrowRight" : "ArrowLeft") || event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          close();
+          row.focus();
+        }
+      });
+      wrap.append(row, sub);
+      list.appendChild(wrap);
+    });
+  };
+  // The rows of a list a keyboard goes through: its own, and its submenus' rows, not their items
+  const topRowsOf = (list) => Array.from(list.querySelectorAll(":scope > .menu__item:not(:disabled), :scope > .menu__subwrap > .menu__item:not(:disabled)"));
+  const runMenuItem = (item) => {
+    closeMenus();
+    if (!item.keepsTransform && !VIEW_ITEMS.has(item)) commitTransform();
+    item.action();
+  };
+
   const buildMenus = () => {
     ui.menus.textContent = "";
     MENUS.forEach(([name, items]) => {
@@ -7697,34 +10296,7 @@
       if (lang === "ar") list.dir = "rtl";
       list.setAttribute("role", "menu");
       list.hidden = true;
-      items.forEach((item) => {
-        if (!item) {
-          const sep = document.createElement("div");
-          sep.className = "menu__sep";
-          list.appendChild(sep);
-          return;
-        }
-        const row = document.createElement("button");
-        row.type = "button";
-        row.className = "menu__item";
-        row.setAttribute("role", "menuitem");
-        const label = document.createElement("span");
-        label.textContent = T(item.label);
-        row.appendChild(label);
-        if (item.keys) {
-          const keys = document.createElement("kbd");
-          keys.textContent = keyLabel(item.keys);
-          row.appendChild(keys);
-        }
-        item.row = row;
-        item.labelEl = label;
-        row.addEventListener("click", () => {
-          closeMenus();
-          if (!item.keepsTransform && !VIEW_ITEMS.has(item)) commitTransform();
-          item.action();
-        });
-        list.appendChild(row);
-      });
+      fillMenuList(list, items, runMenuItem);
       const open = () => {
         closeMenus();
         renderMenusState();
@@ -7740,9 +10312,9 @@
       button.addEventListener("mouseenter", () => {
         if (openMenu && openMenu !== menu) open();
       });
-      const rowsOf = () => Array.from(list.querySelectorAll(".menu__item:not(:disabled)"));
+      const rowsOf = () => topRowsOf(list);
       const focusFirst = (target) => {
-        const row = (target || menu).querySelector(".menu__item:not(:disabled)");
+        const row = (target || menu).querySelector(".menu__list > .menu__item:not(:disabled), .menu__list > .menu__subwrap > .menu__item:not(:disabled)");
         if (row) row.focus();
       };
       // The neighbouring menu, wrapping round, open if this one was
@@ -7799,12 +10371,18 @@
       if (openMenu && !event.target.closest(".menu")) closeMenus();
     });
   };
+  const allMenuItems = () => MENUS.flatMap(([, list]) => list).flatMap((item) => (item && item.submenu ? [item, ...item.submenu] : [item])).filter(Boolean);
   const renderMenusState = () => {
-    MENUS.forEach(([, items]) => items.forEach((item) => {
-      if (!item || !item.row) return;
+    allMenuItems().forEach((item) => {
+      if (!item.row) return;
+      if (item.submenu) {
+        item.row.disabled = !item.submenu.some((sub) => sub && (!sub.enabled || sub.enabled()));
+        return;
+      }
       item.row.disabled = item.enabled ? !item.enabled() : false;
-      if (item.check) item.labelEl.textContent = `${item.check() ? "✓ " : "   "}${T(item.label)}`;
-    }));
+      if (item.check) item.labelEl.textContent = `${item.check() ? "✓ " : "   "}${menuLabel(item)}`;
+      else if (item.title) item.labelEl.textContent = menuLabel(item);
+    });
   };
 
   const showShortcuts = () => showSettings("shortcuts");
@@ -7815,11 +10393,12 @@
     if (contextMenu) contextMenu.remove();
     contextMenu = null;
     tabsMore.setAttribute("aria-expanded", "false");
+    $("pager-at").setAttribute("aria-expanded", "false");
   };
   const openContextMenu = (x, y, wanted) => {
     closeContextMenu();
     closeMenus();
-    const items = MENUS.flatMap(([, list]) => list).filter(Boolean);
+    const items = allMenuItems();
     const shown = wanted.map((entry) => (entry === null || typeof entry === "object" ? entry : items.find((item) => item.label === entry))).filter((item) => item === null || (item && (!item.enabled || item.enabled())));
     const rows = shown.filter((item, at) => item || (at > 0 && shown[at - 1] && shown.slice(at + 1).some(Boolean)));
     if (!rows.length) return;
@@ -7839,7 +10418,15 @@
       row.className = "menu__item";
       row.setAttribute("role", "menuitem");
       const label = document.createElement("span");
-      label.textContent = T(item.label);
+      label.textContent = item.check ? `${item.check() ? "✓ " : "   "}${menuLabel(item)}` : menuLabel(item);
+      // A colour label's swatch, before its name
+      if (item.swatch) {
+        const swatch = document.createElement("i");
+        swatch.className = "menu__swatch";
+        swatch.style.setProperty("--label", item.swatch);
+        label.textContent = item.check && item.check() ? "✓ " : "   ";
+        label.append(swatch, menuLabel(item));
+      }
       row.appendChild(label);
       if (item.keys) {
         const keys = document.createElement("kbd");
@@ -7897,8 +10484,47 @@
   const clearOrDelete = () => {
     const doc = app.doc;
     if (!doc) return;
-    if (doc.state.selection && activeLayer() && activeLayer().kind === "raster") ops.fillSelection(null);
+    // On a mask, Delete paints the selection with the background colour, as Photoshop does;
+    // with nothing selected, the mask goes
+    const painting = maskPainting();
+    if (painting && doc.state.selection && painting.target !== "vector") ops.fillMask(painting.target, painting.id, PS.grayOf(toRgb(app.bg)));
+    else if (painting && painting.target !== "quick") ops.deleteMask(painting.id, painting.target === "vector" ? "vector" : "mask");
+    else if (painting) return;
+    else if (doc.state.selection && activeLayer() && activeLayer().kind === "raster") ops.fillSelection(null);
     else if (activeLayer() && !activeLayer().isBackground) ops.deleteLayers();
+  };
+
+  // 1 gives 10 %, 5 gives 50 %, 0 gives 100 %; two keys within a moment give their number,
+  // 4 then 5 for 45 %, 0 then 0 for 0 %. The painting tools keep the keys, as in Photoshop.
+  const PAINTING_TOOLS = new Set(["brush", "eraser", "magicEraser", "stamp", "clean"]);
+  let opacityKey = null;
+  let opacityKeys = 0;
+  // With Shift, Fill
+  const opacityByKey = (digit, toFill) => {
+    const doc = app.doc;
+    if (!doc || PAINTING_TOOLS.has(app.tool) || maskPainting()) return false;
+    const layers = activeLayers().filter((layer) => !layer.isBackground);
+    if (!layers.length) return false;
+    const now = performance.now();
+    let percent;
+    if (opacityKey && opacityKey.toFill === toFill && now - opacityKey.time < 800) {
+      percent = opacityKey.digit * 10 + digit;
+      opacityKey = null;
+    } else {
+      percent = digit === 0 ? 100 : digit * 10;
+      opacityKey = { time: now, digit, toFill, step: ++opacityKeys };
+    }
+    // Both keys make one step of history
+    const step = opacityKey ? opacityKey.step : opacityKeys;
+    if (toFill) setFill(layers, percent / 100, `fill-key:${step}`);
+    else layers.forEach((layer) => ops.setLayerProps(layer.id, { opacity: percent / 100 }, "Opacity Change", `opacity-key:${step}`));
+    const field = $(toFill ? "layer-fill" : "layer-opacity");
+    if (field) {
+      field.classList.remove("is-flash");
+      void field.offsetWidth;
+      field.classList.add("is-flash");
+    }
+    return true;
   };
 
   const nudge = (dx, dy) => {
@@ -7929,7 +10555,7 @@
   const isSpace = (event) => event.code === "Space" || event.key === " ";
 
   // What doesn't wait for a field to lose the focus
-  const ANYWHERE = new Set(["Save", "Save As…", "Open…", "Open Folder…"]);
+  const ANYWHERE = new Set(["Save", "Save As…", "Open…", "Open Pages…"]);
   const anywhereItems = () => allShortcuts().filter((item) => item.anywhere || ANYWHERE.has(item.label));
 
   const handleKey = (event, fromPanel) => {
@@ -8003,6 +10629,11 @@
     }
     // Space belongs to the panel's buttons, and everything to its Settings and what it handled itself
     if (fromPanel && (isSpace(event) || event.defaultPrevented || event.target.ownerDocument.querySelector(".app-modal:not(.app-modal--walkthrough):not(.app-modal--coached)"))) return;
+    // Number keys: the chosen layers' opacity, as in Photoshop
+    if (!fromPanel && !command && !event.altKey && /^(Digit|Numpad)\d$/.test(event.code) && opacityByKey(Number(event.code.slice(-1)), event.shiftKey)) {
+      event.preventDefault();
+      return;
+    }
     if ((key === "arrowleft" || key === "arrowright") && event.altKey && !event.shiftKey && activeTexts().length) {
       event.preventDefault();
       kern(key === "arrowleft" ? -1 : 1, command);
@@ -8046,12 +10677,14 @@
     // Alone, it would send the focus to the browser's menu on Windows
     if (event.key === "Alt") event.preventDefault();
     handleKey(event, false);
+    holdCleanShape(event);
     showSampling(event);
     showZoomHold(event);
     PS.setKeys({ meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, key: PS.keyName(event) });
   });
   document.addEventListener("keyup", (event) => {
     releaseSpring(event);
+    releaseCleanShape(event);
     // While Cmd is down a Mac never says Space was let go: both go together
     if (isSpace(event) || (IS_MAC && event.key === "Meta")) {
       spacing = false;
@@ -8064,6 +10697,9 @@
   window.addEventListener("blur", () => {
     spacing = false;
     spring = null;
+    // Cmd+Tab never lets go of Cmd here: a lent shape goes back
+    if (shapeHold && app.tool === "clean") setCleanShape(shapeHold.previous);
+    shapeHold = null;
     ui.stage.classList.remove("is-spacing", "is-sampling", "is-zoom-hold", "is-zoom-out");
     PS.clearKeys();
   });
@@ -8079,7 +10715,10 @@
     }));
     for (const { file, handle: asked } of found) {
       const handle = await asked;
-      if (handle && handle.kind === "directory") out.push(...await filesOfFolder(handle));
+      if (handle && handle.kind === "directory") {
+        out.push(...await filesOfFolder(handle));
+        out.folder = true;
+      }
       else if (file) out.push({ file, handle: handle && handle.kind === "file" ? handle : null });
     }
     if (!out.length) Array.from(event.dataTransfer.files || []).forEach((file) => out.push({ file, handle: null }));
@@ -8184,7 +10823,7 @@
     ops.newLayer(name, undefined, { bitmap, left: Math.round((doc.width - bitmap.width) / 2), top: Math.round((doc.height - bitmap.height) / 2) });
   };
   window.addEventListener("dragover", (event) => {
-    if (dragRow !== null) return;
+    if (dragIds) return;
     if (!Array.from(event.dataTransfer.types || []).includes("Files")) return;
     event.preventDefault();
     showDropZones(event);
@@ -8193,12 +10832,13 @@
     if (!event.relatedTarget) hideDropZones();
   });
   window.addEventListener("drop", async (event) => {
-    if (dragRow !== null) return;
+    if (dragIds) return;
     if (!Array.from(event.dataTransfer.types || []).includes("Files")) return;
     event.preventDefault();
     const spot = showDropZones(event);
     hideDropZones();
     let entries = await entriesFromDrop(event);
+    const folder = entries.folder;
     if (spot === "left" || spot === "right" || spot === "layer") {
       await addPictures(entries.filter(({ file }) => IS_PICTURE.test(file.type)), spot === "layer" ? addAsLayer : addAsPage(spot));
       entries = entries.filter(({ file }) => !IS_PICTURE.test(file.type));
@@ -8210,7 +10850,7 @@
     const kits = entries.filter((entry) => /\.(zip|json)$/i.test(entry.file.name));
     if (kits.length) importKits(kits.map((entry) => entry.file));
     const pages = entries.filter((entry) => !/\.(ttf|otf|ttc|otc|woff2?|zip|json)$/i.test(entry.file.name));
-    if (pages.length) openFiles(pages);
+    if (pages.length) (folder ? openChapter(pages) : openFiles(pages));
   });
 
   const measureStage = () => {
@@ -8282,6 +10922,12 @@
       renderStatus();
       renderOptions();
       if (!detail) renderStartRecent();
+    } else if (type === "mask-target" || type === "mask-view" || type === "quick-mask") {
+      layersKey = "";
+      renderLayers();
+      showColors();
+      renderStatus();
+      renderMenusState();
     } else if (type === "layer-locked") toast(T("This layer is locked."));
     else if (type === "storage-low") toast(T("This browser's storage is nearly full: save your documents, or close the ones you're done with."), true);
     else if (type === "storage-full") toast(T("The browser's storage is full: your last TypeR settings couldn't be kept."), true);
@@ -8374,6 +11020,8 @@
   $("start-kit").textContent = T("Import my styles (.zip)");
   $("start-new").textContent = T("New document");
   $("start-open").addEventListener("click", openDialog);
+  $("start-folder").textContent = T("Open pages");
+  $("start-folder").addEventListener("click", openPages);
   $("start-kit").addEventListener("click", () => $("file-kit").click());
   $("start-new").addEventListener("click", newDocument);
   $("start-practice").textContent = T("Try it on a practice page");
@@ -8390,7 +11038,8 @@
   // What the browser keeps comes back with the page: only the rest is worth a warning
   window.addEventListener("beforeunload", (event) => {
     window.TypeRSession.flush();
-    if (app.docs.some((doc) => PS.isDirty(doc) && !window.TypeRSession.isKept(doc))) {
+    // A generation under way would be lost too
+    if (genActive() || app.docs.some((doc) => PS.isDirty(doc) && !window.TypeRSession.isKept(doc))) {
       event.preventDefault();
       event.returnValue = "";
     }
@@ -8398,6 +11047,24 @@
 
   app.names = { background: T("Background"), layer: T("Layer"), group: T("Group") };
   applyShortcuts();
+  if (window.TypeRKeyClick && !Shell.touch) {
+    window.TypeRKeyClick.configure({
+      keys: () => ({ 0: MOUSE_ITEMS[0].keys, 2: MOUSE_ITEMS[1].keys }),
+      keyOf: (event) => {
+        const combo = comboOf(event);
+        return combo ? combo.split("+").pop() : null;
+      },
+      skip: (event, win) => {
+        // While a shortcut is being recorded, the key is that shortcut's
+        if (document.querySelector(".sk__field.is-recording")) return true;
+        const command = isCommand(event);
+        if (isText(win.document.activeElement) && event.key.length === 1 && !command) return true;
+        // With Shift, Alt or Cmd, a shortcut of its own comes first
+        if (!(command || event.altKey || event.shiftKey)) return false;
+        return allShortcuts().some((item) => matches(event, item.keys) || (item.alias && matches(event, item.alias)));
+      },
+    });
+  }
   buildMenus();
   buildTools();
   window.TypeRWorkspace.init(T);
@@ -8501,6 +11168,7 @@
 
   window.TypeRApp = {
     handleKey,
+    generate: generateIn,
     showSampling,
     watchChoices,
     fitView,
@@ -8510,6 +11178,8 @@
     viewChanged,
     openDialog,
     openFiles,
+    setPages,
+    openChapter,
     importKits,
     save,
     saveAs,

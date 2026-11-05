@@ -320,6 +320,32 @@
 
   /* ------------------------------- opening ------------------------------- */
 
+  // A layer's masks in a file: Photoshop keeps the user's pixel mask in `realMask` when the
+  // layer also has a vector mask, whose drawn shape then sits in `mask`
+  const vectorMaskOf = (node) => (node.vectorMask && Array.isArray(node.vectorMask.paths) ? node.vectorMask : null);
+  const pixelMaskOf = (node) => {
+    if (vectorMaskOf(node) && node.mask && node.mask.fromVectorData) return node.realMask || null;
+    return node.mask || null;
+  };
+  const masksIn = (node, layer) => {
+    const pixel = pixelMaskOf(node);
+    if (pixel) layer.mask = pixel;
+    const vector = vectorMaskOf(node);
+    if (vector) {
+      layer.vectorMask = vector;
+      const drawn = node.mask && node.mask.fromVectorData ? node.mask : null;
+      if (drawn && drawn.vectorMaskDensity !== undefined) vector.density = drawn.vectorMaskDensity;
+      if (drawn && drawn.vectorMaskFeather !== undefined) vector.feather = drawn.vectorMaskFeather;
+    }
+  };
+
+  const locksIn = (node) => {
+    const p = node.protected;
+    if (!p || lockedIn(node) || !(p.transparency || p.composite || p.position)) return undefined;
+    return { transparency: Boolean(p.transparency), pixels: Boolean(p.composite), position: Boolean(p.position) };
+  };
+  const lockedIn = (node) => Boolean(node.protected && (node.protected.all || (node.protected.transparency && node.protected.composite && node.protected.position)));
+
   const BACKGROUND_NAME = /^(background|arrière-plan|arriere-plan|fondo|fundo|hintergrund|背景|배경)$/i;
 
   const read = async (buffer, name, file) => {
@@ -340,6 +366,11 @@
       blend: node.blendMode || "normal",
       group: parent,
       clipping: Boolean(node.clipping),
+      // Photoshop's Lock All, its other locks, its colour label, its Fill and its link
+      locked: lockedIn(node),
+      locks: locksIn(node),
+      color: node.layerColor && node.layerColor !== "none" ? node.layerColor : undefined,
+      fill: node.fillOpacity > 0 && node.fillOpacity < 1 ? node.fillOpacity : undefined,
       raw: node,
     });
 
@@ -352,7 +383,7 @@
           // A folder's own layer style and mask, as an SFX has them
           const stroke = strokeFromEffects(node.effects);
           if (stroke) group.stroke = stroke;
-          if (node.mask && node.mask.canvas) group.mask = node.mask;
+          masksIn(node, group);
           if (node.fillOpacity === 0) group.knockout = true;
           groupsRead.push(group);
           walk(node.children, group.id);
@@ -367,16 +398,29 @@
           if (node.fillOpacity === 0) layer.knockout = true;
           if (node.canvas) {
             layer.raster = { bitmap: node.canvas, left: node.left || 0, top: node.top || 0 };
+            // The letters at the layer's Fill, over their stroke
+            const amount = engine.fillOf(layer);
             if (layer.stroke) {
               const { canvas, pad } = strokedDisplay(node.canvas, layer.stroke);
-              if (layer.knockout) {
+              if (amount < 1) {
                 const c = canvas.getContext("2d");
                 c.globalCompositeOperation = "destination-out";
                 c.drawImage(node.canvas, pad, pad);
+                c.globalCompositeOperation = "source-over";
+                c.globalAlpha = amount;
+                if (amount > 0) c.drawImage(node.canvas, pad, pad);
               }
               Object.assign(layer.raster, { display: canvas, displayLeft: -pad, displayTop: -pad });
             } else if (layer.knockout) Object.assign(layer.raster, { display: engine.newCanvas(1, 1), displayLeft: 0, displayTop: 0 });
+            else if (amount < 1) {
+              const canvas = engine.newCanvas(node.canvas.width, node.canvas.height);
+              const c = canvas.getContext("2d");
+              c.globalAlpha = amount;
+              c.drawImage(node.canvas, 0, 0);
+              Object.assign(layer.raster, { display: canvas, displayLeft: 0, displayTop: 0 });
+            }
           }
+          masksIn(node, layer);
           layer.rotated = isTurned(node.text.transform);
           // Sizes come out of the transform's scale when read: what is left of it is the turn
           if (layer.rotated) {
@@ -388,16 +432,30 @@
           return;
         }
         const layer = engine.newRaster(node.name || "Layer", Object.assign(common(node, parent), { bitmap: node.canvas || null, left: node.left || 0, top: node.top || 0 }));
-        if (node.mask && node.mask.canvas) layer.mask = node.mask;
+        masksIn(node, layer);
         if (node.adjustment) {
           layer.adjustment = true;
           notes.adjustments++;
         }
-        if (!parent && index === 0 && BACKGROUND_NAME.test(layer.name)) layer.isBackground = true;
+        if (!parent && index === 0 && BACKGROUND_NAME.test(layer.name)) {
+          layer.isBackground = true;
+          // The Background's own locks are not Lock All
+          layer.locked = Boolean(node.protected && node.protected.all);
+        }
         layers.push(layer);
       });
     };
     walk(psd.children, null);
+    // Photoshop's linked layers share a number; one shared by every layer is no link at all
+    const shared = new Map();
+    layers.forEach((layer) => {
+      const link = layer.raw && layer.raw.linkGroup;
+      if (link) shared.set(link, (shared.get(link) || 0) + 1);
+    });
+    layers.forEach((layer) => {
+      const link = layer.raw && layer.raw.linkGroup;
+      if (link && shared.get(link) > 1 && shared.get(link) < layers.length) layer.link = link;
+    });
     attachSfx(groupsRead, layers, psd.imageResources && psd.imageResources.xmpMetadata);
 
     if (!layers.length && psd.canvas) {
@@ -527,6 +585,22 @@
     node.blendMode = layer.blend || (layer.kind === "group" ? "pass through" : "normal");
     if (layer.clipping) node.clipping = true;
     else delete node.clipping;
+    // The other locks Photoshop had stay as they were
+    if (layer.locked && !lockedIn(node)) node.protected = Object.assign({}, node.protected, { transparency: true, composite: true, position: true, all: true });
+    else if (!layer.locked && lockedIn(node) && !(layer.isBackground && !node.protected.all)) node.protected = { transparency: Boolean(layer.locks && layer.locks.transparency), composite: Boolean(layer.locks && layer.locks.pixels), position: Boolean(layer.locks && layer.locks.position) };
+    else if (!layer.locked && !lockedIn(node)) {
+      const locks = layer.locks || {};
+      const had = node.protected || {};
+      if (Boolean(locks.transparency) !== Boolean(had.transparency) || Boolean(locks.pixels) !== Boolean(had.composite) || Boolean(locks.position) !== Boolean(had.position)) {
+        node.protected = Object.assign({}, had, { transparency: Boolean(locks.transparency), composite: Boolean(locks.pixels), position: Boolean(locks.position), all: false });
+      }
+    }
+    if (layer.color || node.layerColor) node.layerColor = layer.color || "none";
+    if (layer.link || node.linkGroup) node.linkGroup = layer.link && layer.link < 65536 ? layer.link : 0;
+    // Fill: 0 for a hollow text, written below for its kind
+    const amount = PS().fillOf(layer);
+    if (amount > 0 && amount < 1) node.fillOpacity = amount;
+    else if (amount === 1 && node.fillOpacity !== undefined && node.fillOpacity !== 0) node.fillOpacity = 1;
     return node;
   };
 
@@ -538,7 +612,16 @@
     node.bottom = top + canvas.height;
   };
 
-  const nodeFor = (layer, doc, flags) => {
+  // The layer's masks into the node, unless its pixels go back into the file untouched
+  const masksOut = (node, layer, doc) => {
+    if (node.typerRaw) return node;
+    delete node.mask;
+    delete node.realMask;
+    delete node.vectorMask;
+    return Object.assign(node, PS().ops.masksForFile(layer, doc));
+  };
+  const nodeFor = (layer, doc, flags) => masksOut(nodeBody(layer, doc, flags), layer, doc);
+  const nodeBody = (layer, doc, flags) => {
     const engine = PS();
     const node = commonOut(layer);
     if (layer.kind === "group") {
@@ -549,8 +632,6 @@
         node.effects = Object.assign({}, node.effects);
         delete node.effects.stroke;
       }
-      if (layer.mask && layer.mask.canvas) node.mask = layer.mask;
-      else delete node.mask;
       if (layer.knockout) node.fillOpacity = 0;
       else if (node.fillOpacity === 0) node.fillOpacity = 1;
       return node;
@@ -561,7 +642,7 @@
         const moveX = layer.raster.left - (layer.raw.left || 0);
         const moveY = layer.raster.top - (layer.raw.top || 0);
         place(node, layer.raster.bitmap, layer.raster.left, layer.raster.top);
-        if (!moveX && !moveY && layer.raster.bitmap === layer.raw.canvas) node.typerRaw = rawParts.get(layer.raw);
+        if (!moveX && !moveY && layer.raster.bitmap === layer.raw.canvas && (layer.mask || null) === pixelMaskOf(layer.raw) && (layer.vectorMask || null) === vectorMaskOf(layer.raw)) node.typerRaw = rawParts.get(layer.raw);
         if (moveX || moveY) {
           const transform = (layer.raw.text.transform || [1, 0, 0, 1, 0, 0]).slice();
           transform[4] += moveX;
@@ -573,7 +654,7 @@
       flags.editedText = true;
       node.text = textToPsd(layer, doc);
       // A hollow text's pixels are its letters, which Photoshop hides at Fill 0%: its stroke is drawn from them
-      const visual = engine.visualOf(layer.knockout ? Object.assign({}, layer, { knockout: false, stroke: null }) : layer, doc);
+      const visual = engine.visualOf(Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined }, layer.knockout || engine.fillOf(layer) < 1 ? { knockout: false, stroke: null } : null), doc);
       if (visual) place(node, visual.canvas, visual.x, visual.y);
       if (layer.knockout) node.fillOpacity = 0;
       else if (node.fillOpacity === 0) node.fillOpacity = 1;
@@ -586,14 +667,11 @@
     }
     const painted = (layer.paint && layer.paint.length) || layer.dx || layer.dy;
     if (painted || !layer.raw) {
-      const clean = Object.assign({}, layer, { mask: null });
+      const clean = Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined });
       const visual = engine.visualOf(clean, doc);
       if (visual) place(node, visual.canvas, visual.x, visual.y);
       else delete node.canvas;
-      if (node.mask && (layer.dx || layer.dy)) {
-        node.mask = Object.assign({}, node.mask, { left: (node.mask.left || 0) + (layer.dx || 0), top: (node.mask.top || 0) + (layer.dy || 0), right: (node.mask.right || 0) + (layer.dx || 0), bottom: (node.mask.bottom || 0) + (layer.dy || 0) });
-      }
-    } else if (layer.bitmap === (layer.raw.canvas || null) && (layer.left || 0) === (layer.raw.left || 0) && (layer.top || 0) === (layer.raw.top || 0) && (layer.mask || null) === (layer.raw.mask && layer.raw.mask.canvas ? layer.raw.mask : null)) node.typerRaw = rawParts.get(layer.raw);
+    } else if (layer.bitmap === (layer.raw.canvas || null) && (layer.left || 0) === (layer.raw.left || 0) && (layer.top || 0) === (layer.raw.top || 0) && (layer.mask || null) === pixelMaskOf(layer.raw) && (layer.vectorMask || null) === vectorMaskOf(layer.raw)) node.typerRaw = rawParts.get(layer.raw);
     return node;
   };
 
@@ -602,6 +680,7 @@
   const nodesFor = (layer, doc, flags) => {
     if (layer.kind !== "text" || !layer.warp) return [nodeFor(layer, doc, flags)];
     const text = nodeFor(Object.assign({}, layer, { warp: null }), doc, flags);
+    // What shows is drawn through the masks: the copy needs none of its own
     text.name = `${layer.name} (text)`;
     text.hidden = true;
     const shown = { name: layer.name, hidden: layer.visible === false, opacity: layer.opacity === undefined ? 1 : layer.opacity, blendMode: layer.blend || "normal" };
