@@ -637,6 +637,9 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .gensettings__add input { flex: 1; min-width: 0; height: 26px; }
 .modal__body .gensettings .modal__hint { margin-left: 0; }
 .modal__body .gensettings .gensettings__problem { color: #f28b82; }
+.gensettings label[hidden] { display: none; }
+.modal__body .gensettings .gensettings__spent { display: flex; align-items: center; gap: 8px; }
+.gensettings__spent span { flex: 1; min-width: 0; }
 .sk__intro { font-style: italic; color: var(--muted); line-height: 1.35; }
 .sk__tools { display: flex; gap: 6px; }
 .sk__tools input { flex: 1; min-width: 0; height: 26px; }

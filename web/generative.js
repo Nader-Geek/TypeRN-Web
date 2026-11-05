@@ -31,18 +31,49 @@
         ["google/nano-banana-2.1/edit", "Nano Banana 2.1"],
         ["fal-ai/nano-banana-pro/edit", "Nano Banana Pro"],
         ["fal-ai/flux-pro/kontext", "FLUX.1 Kontext [pro]"],
+        ["ideogram/v4.5/edit", "Ideogram 4.5 Edit"],
       ],
     },
   };
 
+  // What a picture costs, in US dollars, as the services listed it on 2026-11-05. Google bills
+  // tokens: its rates per million (in, text and thinking out, image out) give the cost of each
+  // answer from the tokens it counts; `sizes` is the picture's usual cost. fal.ai bills a flat
+  // price per picture, read live from its pricing API when the key allows (`scale` multiplies it
+  // by resolution); Nano Banana 2.1 is billed there by tokens too, so `sizes` stays an estimate.
+  const PRICES = {
+    "google:gemini-3.1-flash-image": { tokens: [0.5, 3, 60], sizes: { "0.5K": 0.045, "1K": 0.067, "2K": 0.101, "4K": 0.151 } },
+    "google:gemini-nano-banana-2.1": { tokens: [1.5, 7.5, 30], sizes: { "1K": 0.0336, "2K": 0.0504, "4K": 0.113 } },
+    "google:gemini-3-pro-image": { tokens: [2, 12, 120], sizes: { "1K": 0.134, "2K": 0.134, "4K": 0.24 } },
+    "google:gemini-3.1-flash-lite-image": { tokens: [0.25, 1.5, 30], image: 0.0336 },
+    "google:gemini-2.5-flash-image": { tokens: [0.3, 2.5, 30], image: 0.039 },
+    "fal:fal-ai/nano-banana-2/edit": { image: 0.08, scale: { "0.5K": 0.75, "2K": 1.5, "4K": 2 } },
+    "fal:google/nano-banana-2.1/edit": { sizes: { "1K": 0.044, "2K": 0.063, "4K": 0.138 } },
+    "fal:fal-ai/nano-banana-pro/edit": { image: 0.15, scale: { "4K": 2 } },
+    "fal:fal-ai/flux-pro/kontext": { image: 0.04 },
+    // Ideogram's price follows the quality asked, not the size
+    "fal:ideogram/v4.5/edit": { qualities: [["very_low", 0.008], ["low", 0.03], ["medium", 0.06], ["high", 0.22]], quality: "medium" },
+  };
+  const STORE_PRICES = "typer.web.generative.prices";
+  const STORE_SPENT = "typer.web.generative.spent";
+  // fal.ai's live prices: { [endpoint]: { price, unit, at } }
+  const livePrices = (() => {
+    try {
+      return JSON.parse(window.localStorage.getItem(STORE_PRICES)) || {};
+    } catch (error) {
+      return {};
+    }
+  })();
+
   const load = () => {
-    const out = { service: "google", keys: {}, models: {}, custom: {} };
+    const out = { service: "google", keys: {}, models: {}, custom: {}, quality: {} };
     try {
       const saved = JSON.parse(window.localStorage.getItem(STORE)) || {};
       if (SERVICES[saved.service]) out.service = saved.service;
       Object.keys(SERVICES).forEach((name) => {
         if (saved.keys && typeof saved.keys[name] === "string") out.keys[name] = saved.keys[name];
         if (saved.models && typeof saved.models[name] === "string" && saved.models[name]) out.models[name] = saved.models[name];
+        if (saved.quality && typeof saved.quality === "object") Object.keys(saved.quality).forEach((model) => { if (typeof saved.quality[model] === "string") out.quality[model] = saved.quality[model]; });
         out.custom[name] = saved.custom && Array.isArray(saved.custom[name]) ? saved.custom[name].filter((slug) => typeof slug === "string" && slugOf(name, slug) === slug) : [];
       });
     } catch (error) {
@@ -75,6 +106,108 @@
     }
     slug = slug.replace(/^models\//, "").replace(/:generateContent$/, "");
     return /^[a-z0-9][\w.-]*$/i.test(slug) ? slug : null;
+  };
+  // The qualities a model offers, each with its price, or null
+  const qualitiesOf = (service, model) => {
+    const price = PRICES[`${service}:${model}`];
+    return price && price.qualities ? price.qualities.slice() : null;
+  };
+  const qualityOf = (settings, service, model) => {
+    const list = qualitiesOf(service, model);
+    if (!list) return null;
+    const wanted = settings.quality && settings.quality[model];
+    return list.some(([value]) => value === wanted) ? wanted : PRICES[`${service}:${model}`].quality;
+  };
+  // What one picture costs, as the settings show it: { usd, large, unit, live } where `usd` is at
+  // the usual size (1K) and `large` for a big selection (sent at 2K). Null when no price is known.
+  const priceOf = (settings, service, model) => {
+    const price = PRICES[`${service}:${model}`];
+    const live = service === "fal" ? livePrices[model] : null;
+    if (price && price.qualities) {
+      const quality = qualityOf(settings, service, model);
+      const usd = price.qualities.find(([value]) => value === quality)[1];
+      return { usd, large: usd, unit: "image" };
+    }
+    if (price && price.sizes) return { usd: price.sizes["1K"], large: price.sizes["2K"] || price.sizes["1K"], unit: "image" };
+    if (price && price.image) {
+      const base = live && live.unit === "image" ? live.price : price.image;
+      return { usd: base, large: base * ((price.scale && price.scale["2K"]) || 1), unit: "image", live: Boolean(live && live.unit === "image") };
+    }
+    if (live) return { usd: live.price, large: live.price, unit: live.unit, live: true };
+    return null;
+  };
+  // What a picture just made cost: Google's from the tokens it counted, fal.ai's from its price.
+  // `megapixels`: the picture's size, for the models billed by it.
+  const costOf = (settings, service, model, { size, usage, megapixels } = {}) => {
+    const price = PRICES[`${service}:${model}`];
+    if (service === "google" && price && usage && price.tokens) {
+      const [input, text, image] = price.tokens;
+      const pictures = (usage.candidatesTokensDetails || []).filter((one) => one.modality === "IMAGE").reduce((sum, one) => sum + (one.tokenCount || 0), 0);
+      const words = Math.max(0, (usage.candidatesTokenCount || 0) - pictures) + (usage.thoughtsTokenCount || 0);
+      if (pictures) return { usd: ((usage.promptTokenCount || 0) * input + words * text + pictures * image) / 1e6, counted: true };
+    }
+    const shown = priceOf(settings, service, model);
+    if (!shown) return null;
+    if (shown.unit === "image") {
+      if (price && price.sizes) return { usd: price.sizes[size] || price.sizes["1K"], estimate: true };
+      if (price && price.scale) return { usd: shown.usd * (price.scale[size] || 1) };
+      return { usd: shown.usd };
+    }
+    if (/megapixel/.test(shown.unit) && megapixels) return { usd: shown.usd * megapixels };
+    return null;
+  };
+  // fal.ai's prices change: they're asked again once a day, for the models in the list, and only
+  // once while the app is open (a key that may not read them isn't asked again and again)
+  const asked = new Set();
+  const refreshPrices = async (settings) => {
+    const key = (settings.keys.fal || "").trim();
+    if (!key) return false;
+    const wanted = modelsOf(settings, "fal").map(([id]) => id).filter((id) => !asked.has(id) && (!livePrices[id] || Date.now() - livePrices[id].at > 864e5));
+    if (!wanted.length) return false;
+    wanted.forEach((id) => asked.add(id));
+    try {
+      const response = await fetch(`https://api.fal.ai/v1/models/pricing?endpoint_id=${wanted.map(encodeURIComponent).join(",")}`, { headers: { Authorization: `Key ${key}` } });
+      if (!response.ok) return false;
+      const answer = await response.json();
+      (answer.prices || []).forEach((one) => {
+        if (one && typeof one.endpoint_id === "string" && Number.isFinite(one.unit_price) && (!one.currency || one.currency === "USD")) {
+          livePrices[one.endpoint_id] = { price: one.unit_price, unit: String(one.unit || "").toLowerCase().replace(/s$/, ""), at: Date.now() };
+        }
+      });
+      window.localStorage.setItem(STORE_PRICES, JSON.stringify(livePrices));
+      return true;
+    } catch (error) {
+      console.warn("TypeR web: fal.ai's prices could not be read", error);
+      return false;
+    }
+  };
+  // What Generative Fill has cost on this device, by the costs above
+  const spent = () => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(STORE_SPENT));
+      if (saved && Number.isFinite(saved.usd)) return { usd: saved.usd, count: saved.count || 0, since: saved.since || Date.now() };
+    } catch (error) {
+      // Counted again from nothing
+    }
+    return { usd: 0, count: 0, since: Date.now() };
+  };
+  const addSpent = (usd) => {
+    const total = spent();
+    total.usd += usd;
+    total.count += 1;
+    try {
+      window.localStorage.setItem(STORE_SPENT, JSON.stringify(total));
+    } catch (error) {
+      // Only a tally
+    }
+    return total;
+  };
+  const resetSpent = () => {
+    try {
+      window.localStorage.removeItem(STORE_SPENT);
+    } catch (error) {
+      // Nothing kept anyway
+    }
   };
   const ready = (settings) => Boolean((settings.keys[settings.service] || "").trim());
 
@@ -226,13 +359,19 @@
     }
     const picture = pictureIn(answer);
     if (!picture) throw refusalOf(answer);
-    return toBitmap(new Blob([bytesOf(picture.data)], { type: picture.mime }));
+    return { picture: await toBitmap(new Blob([bytesOf(picture.data)], { type: picture.mime })), usage: answer.usageMetadata || null };
   };
 
-  const viaFal = async ({ key, model, prompt, image, ratio, size, signal }) => {
+  const viaFal = async ({ key, model, prompt, image, mask, quality, ratio, size, signal }) => {
     const url = `data:${image.mime};base64,${image.data}`;
     const body = { prompt, num_images: 1, output_format: "png", sync_mode: true };
-    if (/kontext/.test(model)) body.image_url = url;
+    if (/^ideogram\//.test(model)) {
+      // Ideogram edits only where its mask is black, and keeps the rest pixel for pixel
+      body.image_url = url;
+      if (mask) body.mask_url = `data:${mask.mime};base64,${mask.data}`;
+      if (quality) body.quality = quality;
+      delete body.output_format;
+    } else if (/kontext/.test(model)) body.image_url = url;
     else if (/nano-banana|gemini/.test(model)) body.image_urls = [url];
     else {
       body.image_url = url;
@@ -253,11 +392,16 @@
       if (error && error.name === "AbortError") throw error;
       throw new GenerativeError("network", String((error && error.message) || error));
     }
-    return toBitmap(blob);
+    return { picture: await toBitmap(blob) };
   };
 
+  // Models that take the selection as a mask, black where they draw
+  const takesMask = (service, model) => service === "fal" && /^ideogram\//.test(model);
+
   // `canvas`: what is sent; resolves with the model's picture, as an ImageBitmap
-  const generate = async ({ settings, prompt, canvas, ratio, size, signal }) => {
+  // `canvas`: what is sent; `mask`: the selection on it, black on white (for the models that take
+  // one). Resolves with the model's picture, as an ImageBitmap; `onCost` hears what it cost.
+  const generate = async ({ settings, prompt, canvas, mask, ratio, size, signal, onCost }) => {
     const service = settings.service;
     const key = (settings.keys[service] || "").trim();
     if (!key) throw new GenerativeError("nokey");
@@ -265,9 +409,31 @@
     const words = (prompt || "").trim();
     const asked = words ? `${words}\n\n${KEEP_FRAMING}` : DEFAULT_PROMPT;
     const image = await encode(canvas);
+    const masked = mask && takesMask(service, model) ? await encodeMask(mask) : null;
     const run = service === "fal" ? viaFal : viaGoogle;
-    return run({ key, model, prompt: asked, image, ratio, size, signal });
+    const quality = qualityOf(settings, service, model);
+    const { picture, usage } = await run({ key, model, prompt: asked, image, mask: masked, quality, ratio, size, signal });
+    const cost = costOf(settings, service, model, { size, usage, megapixels: (picture.width * picture.height) / 1e6 });
+    if (cost) {
+      addSpent(cost.usd);
+      if (onCost) onCost(cost);
+    }
+    return picture;
+  };
+  // A mask needs both a part to draw and a part to keep, or Ideogram refuses it: without one
+  // (a selection over the whole area), the model gets no mask and redraws everything
+  const encodeMask = async (mask) => {
+    const data = mask.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, mask.width, mask.height).data;
+    let black = false;
+    let white = false;
+    for (let i = 0; i < data.length && !(black && white); i += 4) {
+      if (data[i] < 128) black = true;
+      else white = true;
+    }
+    if (!black || !white) return null;
+    const blob = await new Promise((resolve) => mask.toBlob(resolve, "image/png"));
+    return blob ? { mime: "image/png", data: await base64Of(blob) } : null;
   };
 
-  window.TypeRGenerative = { SERVICES, DEFAULT_PROMPT, load, save, modelOf, modelsOf, slugOf, ready, ratiosFor, generate, GenerativeError };
+  window.TypeRGenerative = { SERVICES, DEFAULT_PROMPT, load, save, modelOf, modelsOf, slugOf, ready, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent };
 })();
