@@ -68,6 +68,11 @@
           <div class="tabs" id="tabs" role="tablist"></div>
           <div class="tabbar__thumb" id="tabs-thumb" aria-hidden="true"></div>
           <button class="tabbar__more" id="tabs-more" type="button" aria-haspopup="menu" hidden></button>
+          <div class="pager" id="pager" hidden>
+            <button class="pager__step" id="pager-prev" type="button"></button>
+            <button class="pager__at" id="pager-at" type="button" aria-haspopup="menu" aria-expanded="false"></button>
+            <button class="pager__step" id="pager-next" type="button"></button>
+          </div>
         </div>
         <div class="stage" id="stage" tabindex="0">
           <canvas class="stage__canvas" id="canvas"></canvas>
@@ -100,6 +105,7 @@
             <p class="start__flow" id="start-flow"></p>
             <div class="start__actions">
               <button type="button" class="btn btn--main" id="start-open"></button>
+              <button type="button" class="btn" id="start-folder"></button>
               <button type="button" class="btn" id="start-kit"></button>
               <button type="button" class="btn" id="start-new"></button>
               <button type="button" class="btn" id="start-practice"></button>
@@ -176,6 +182,7 @@
   <noscript><p>TypeR Studio for Web needs JavaScript.</p></noscript>
 
   <script>window.TYPER_I18N.apply()</script>
+  <script src="keyclick.js"></script>
   <script src="fonts.js"></script>
   <script src="kit.js"></script>
   <script src="inpaint.js"></script>
@@ -185,6 +192,7 @@
   <script src="session.js"></script>
   <script src="recent.js"></script>
   <script src="workspace.js"></script>
+  <script src="generative.js"></script>
   <script src="app.js"></script>
   <script src="sfx.js"></script>
   <script src="sfx-guide.js"></script>

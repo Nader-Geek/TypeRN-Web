@@ -389,12 +389,53 @@
     });
   }, true);
 
+  // The pages given to Import pages are the app's chapter, the one its pager and Page Down /
+  // Page Up go through, script or not. The same button, lit, unlinks them. And the other way
+  // round: a chapter opened in the app is given to this button (pagesFromApp, below).
+  let fromApp = false;
+  document.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!fromApp && input instanceof HTMLInputElement && input.dataset.tour === "import-pages-input" && window.parent.TypeRApp) window.parent.TypeRApp.setPages(input.files, true);
+  }, true);
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest && event.target.closest('[data-tour="import-pages"]');
+    if (!fromApp && button && button.classList.contains("is-active") && window.parent.TypeRApp) window.parent.TypeRApp.setPages(null, true);
+  }, true);
+  const pagesFromApp = {
+    // Made again in this window: the panel reads each file's path, which only this window's files have
+    importPages(files) {
+      const input = document.querySelector('[data-tour="import-pages-input"]');
+      if (!input) return;
+      const list = new DataTransfer();
+      files.forEach((file) => list.items.add(new File([file], file.name, { type: file.type, lastModified: file.lastModified })));
+      fromApp = true;
+      try {
+        input.files = list.files;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      } finally {
+        fromApp = false;
+      }
+    },
+    unlinkPages() {
+      const button = document.querySelector('[data-tour="import-pages"].is-active');
+      if (!button) return;
+      fromApp = true;
+      try {
+        button.click();
+      } finally {
+        fromApp = false;
+      }
+    },
+  };
+
   // Keys for TypeR's shortcut poll, read in the page and in the panel
   const track = (event) => {
     photoshop.setKeys({ meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, key: event.type === "keydown" ? photoshop.keyName(event) : "" });
     if (window.parent.TypeRApp) window.parent.TypeRApp.showSampling(event);
   };
   window.addEventListener("keydown", track, true);
+  // The keys that stand for the mouse's buttons click in the panel too (keyclick.js)
+  if (window.parent.TypeRKeyClick) window.parent.TypeRKeyClick.watch(window);
   window.addEventListener("keydown", (event) => {
     if (window.parent.TypeRApp) window.parent.TypeRApp.handleKey(event, true);
   });
@@ -439,6 +480,8 @@
   });
 
   window.__typerWeb = {
+    importPages: pagesFromApp.importPages,
+    unlinkPages: pagesFromApp.unlinkPages,
     getFile: (path) => files[path],
     setFile: (path, value) => { files[path] = value; },
   };
