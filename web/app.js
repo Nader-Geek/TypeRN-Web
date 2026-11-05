@@ -5057,6 +5057,15 @@
         if (doc !== app.doc) switchDoc(doc);
       });
       tab.addEventListener("pointerdown", (event) => dragTab(event, tab, doc));
+      // A middle click closes it, as in a browser; without the scrolling it starts on Windows
+      tab.addEventListener("mousedown", (event) => {
+        if (event.button === 1) event.preventDefault();
+      });
+      tab.addEventListener("auxclick", (event) => {
+        if (event.button !== 1) return;
+        event.preventDefault();
+        closeDoc(doc);
+      });
       ui.tabs.appendChild(tab);
     });
     fitTabs();
