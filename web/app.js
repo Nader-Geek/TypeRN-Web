@@ -3796,8 +3796,10 @@
       event.preventDefault();
       return;
     }
-    // On a Mac, Ctrl + click also asks for the menu: with the wand, Ctrl means something else
-    const macWandClick = IS_MAC && event.ctrlKey && app.tool === "wand";
+    // On a Mac, Ctrl + click also asks for the menu: with the wand, and on an end of an SFX's
+    // path, Ctrl means something else
+    const sfxEnd = gesture && gesture.kind === "sfx" && (gesture.mode === "end0" || gesture.mode === "end1");
+    const macWandClick = IS_MAC && event.ctrlKey && (app.tool === "wand" || sfxEnd);
     // The editor keeps the browser's menu: that's where spelling suggestions are
     if (event.target === ui.editor && !macWandClick) return;
     event.preventDefault();
