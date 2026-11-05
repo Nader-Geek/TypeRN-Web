@@ -44,6 +44,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "These layers have too little in common to be aligned.": "Deze lagen hebben te weinig gemeen om uitgelijnd te worden.",
     "The layers are already aligned.": "De lagen zijn al uitgelijnd.",
     "Layers aligned: {count}. With too little in common, {failed} stayed in place.": "Uitgelijnde lagen: {count}. Met te weinig gemeen bleven er {failed} staan.",
+    "Layers aligned: {count}. Reposition only moves, but {resized} of them weren't the size of the reference: they were resized too, as by Collage.": "Lagen uitgelijnd: {count}. Positie wijzigen verplaatst alleen, maar {resized} hadden niet de grootte van de referentie: ze zijn ook geschaald, zoals bij Collage.",
     "Layers aligned: {count}.": "Uitgelijnde lagen: {count}.",
     "Images": "Afbeeldingen",
     "Open documents ({count})": "Geopende documenten ({count})",

@@ -44,6 +44,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "These layers have too little in common to be aligned.": "لا تشترك هذه الطبقات في ما يكفي لمحاذاتها.",
     "The layers are already aligned.": "الطبقات محاذاة بالفعل.",
     "Layers aligned: {count}. With too little in common, {failed} stayed in place.": "الطبقات المحاذاة: {count}. بقيت {failed} في مكانها لقلّة ما تشترك فيه.",
+    "Layers aligned: {count}. Reposition only moves, but {resized} of them weren't the size of the reference: they were resized too, as by Collage.": "الطبقات المحاذاة: {count}. «تغيير الموضع» ينقل فقط، لكن {resized} منها لم تكن بحجم المرجع: فغُيّر حجمها أيضًا كما في «كولاج».",
     "Layers aligned: {count}.": "الطبقات المحاذاة: {count}.",
     "Images": "الصور",
     "Open documents ({count})": "المستندات المفتوحة ({count})",

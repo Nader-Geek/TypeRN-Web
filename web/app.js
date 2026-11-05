@@ -7163,6 +7163,8 @@
     else if (!result.moved && result.failed) toast(T("These layers have too little in common to be aligned."), true);
     else if (!result.moved) toast(T("The layers are already aligned."));
     else if (result.failed) toast(fill(T("Layers aligned: {count}. With too little in common, {failed} stayed in place."), { count: result.moved, failed: result.failed }), true);
+    // Reposition only moves: a layer of another size (a page made again by an image model) was resized too
+    else if (result.resized) toast(fill(T("Layers aligned: {count}. Reposition only moves, but {resized} of them weren't the size of the reference: they were resized too, as by Collage."), { count: result.moved, resized: result.resized }), true);
     else toast(fill(T("Layers aligned: {count}."), { count: result.moved }));
   };
 

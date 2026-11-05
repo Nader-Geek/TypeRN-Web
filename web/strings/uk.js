@@ -44,6 +44,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "These layers have too little in common to be aligned.": "Ці шари мають замало спільного для вирівнювання.",
     "The layers are already aligned.": "Шари вже вирівняні.",
     "Layers aligned: {count}. With too little in common, {failed} stayed in place.": "Вирівняно шарів: {count}. Замало спільного — {failed} лишилися на місці.",
+    "Layers aligned: {count}. Reposition only moves, but {resized} of them weren't the size of the reference: they were resized too, as by Collage.": "Вирівняно шарів: {count}. «Переміщення» лише зсуває, але {resized} не мали розміру опорного шару: їх також масштабовано, як у «Колажі».",
     "Layers aligned: {count}.": "Вирівняно шарів: {count}.",
     "Images": "Зображення",
     "Open documents ({count})": "Відкриті документи ({count})",

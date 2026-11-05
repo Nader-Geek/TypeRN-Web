@@ -44,6 +44,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "These layers have too little in common to be aligned.": "เลเยอร์เหล่านี้มีส่วนร่วมกันน้อยเกินไปที่จะจัดแนว",
     "The layers are already aligned.": "เลเยอร์จัดแนวอยู่แล้ว",
     "Layers aligned: {count}. With too little in common, {failed} stayed in place.": "จัดแนวเลเยอร์แล้ว: {count} เลเยอร์ อีก {failed} เลเยอร์อยู่กับที่เพราะมีส่วนร่วมกันน้อยเกินไป",
+    "Layers aligned: {count}. Reposition only moves, but {resized} of them weren't the size of the reference: they were resized too, as by Collage.": "จัดแนว Layer แล้ว: {count} จัดตำแหน่งใหม่ ย้ายตำแหน่งเท่านั้น แต่ {resized} Layer มีขนาดไม่เท่ากับ Layer อ้างอิง จึงปรับขนาดด้วย เหมือน คอลลาจ",
     "Layers aligned: {count}.": "จัดแนวเลเยอร์แล้ว: {count}",
     "Images": "รูปภาพ",
     "Open documents ({count})": "เอกสารที่เปิดอยู่ ({count})",

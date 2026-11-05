@@ -880,9 +880,55 @@ const refine = (ref, layer, W, kind) => {
 /* ============================== the layers together ============================== */
 
 const ECC_KIND = { reposition: "t", collage: "s", perspective: "h" };
+// How far a pair may be from the movement and still agree, in detail pixels: strict first, then
+// looser for a page drawn again (by hand or by an image model), a few pixels off here and there
+const LIMITS = [3, 7.5, 15];
 const DETAILS_AREA = 2.2e6;
 const FINE_AREA = 3.5e6;
 const DETAILS = 2500;
+
+// The pairs that agree, over the whole layer rather than a corner of it: a looser limit is
+// only trusted when what it finds holds the layer together
+const spreadOver = (one, px, py, size) => {
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+  one.inliers.forEach((k) => {
+    left = Math.min(left, px[k]);
+    right = Math.max(right, px[k]);
+    top = Math.min(top, py[k]);
+    bottom = Math.max(bottom, py[k]);
+  });
+  return right - left >= size.w * 0.4 && bottom - top >= size.h * 0.4;
+};
+
+// The movement that suits the whole layer best, from one that suits some of it: again and again,
+// from the pairs it leaves close, close meaning a few times how far off they typically are. A page
+// drawn again a little off everywhere gets the movement in between; a clean one keeps its own.
+const settle = (kind, h, px, py, qx, qy, floor, cap, size) => {
+  const m = px.length;
+  const all = new Int32Array(m).map((_, i) => i);
+  let best = h;
+  let spread = 0;
+  for (let round = 0; round < 8; round++) {
+    const off = [];
+    for (let k = 0; k < m; k++) {
+      const [x, y] = project(best, px[k], py[k]);
+      off.push(Math.hypot(x - qx[k], y - qy[k]));
+    }
+    const near = off.filter((value) => value < cap).sort((a, b) => a - b);
+    if (near.length < NEED[kind] * 4) break;
+    spread = 1.4826 * near[Math.floor(near.length / 2)];
+    const keep = Array.from(all).filter((k) => off[k] < Math.max(floor, 2.5 * spread));
+    const next = fitOf(kind, px, py, qx, qy, keep);
+    if (!sane(next, size.w, size.h)) break;
+    const change = apart(next, best, size.w, size.h);
+    best = next;
+    if (change < 0.05) break;
+  }
+  return { h: best, spread };
+};
 
 // How a layer goes onto another: its matrix in full-size places, how many pairs agree, and
 // whether that's enough to be sure (Brown and Lowe's test, as in panorama stitchers)
@@ -901,8 +947,6 @@ const between = (moving, target, projection, detailScale, random) => {
     qx[i] = toFull(target.details.xs[pairs[2 * i + 1]], target.detailScale.sx);
     qy[i] = toFull(target.details.ys[pairs[2 * i + 1]], target.detailScale.sy);
   }
-  const limit = 3 / detailScale;
-  const found = ["t", "s", "a", "h"].map((kind) => Object.assign({ kind }, ransac(kind, px, py, qx, qy, limit, moving.full, random))).filter((one) => one.h);
   const sure = (one) => {
     let inside = 0;
     for (let i = 0; i < m; i++) {
@@ -911,7 +955,12 @@ const between = (moving, target, projection, detailScale, random) => {
     }
     return one.count >= 10 && one.count > 5.9 + 0.22 * inside;
   };
-  const passing = found.filter(sure);
+  let passing = [];
+  for (let at = 0; at < LIMITS.length && !passing.length; at++) {
+    const limit = LIMITS[at] / detailScale;
+    const found = ["t", "s", "a", "h"].map((kind) => Object.assign({ kind }, ransac(kind, px, py, qx, qy, limit, moving.full, random))).filter((one) => one.h);
+    passing = found.filter((one) => sure(one) && (at === 0 || spreadOver(one, px, py, moving.full)));
+  }
   if (!passing.length) return null;
   const most = Math.max(...passing.map((one) => one.count));
   let chosen = passing.find((one) => one.count >= most * 0.97);
@@ -925,8 +974,15 @@ const between = (moving, target, projection, detailScale, random) => {
     const h = own && own.count >= richest.count * 0.97 ? own.h : fitOf(wanted, px, py, qx, qy, richest.inliers);
     if (!sane(h, moving.full.w, moving.full.h)) return null;
     chosen = { h, count: richest.count, kind: wanted };
+    // Moving alone can't lay a page of another size on the reference (one made again by an image
+    // model, scanned at another resolution): it is resized and turned too, as by Collage, and said
+    const scaled = wanted === "t" && fitOf("s", px, py, qx, qy, richest.inliers);
+    if (scaled && sane(scaled, moving.full.w, moving.full.h) && apart(scaled, h, moving.full.w, moving.full.h) > 3) {
+      chosen = { h: scaled, count: richest.count, kind: "s", resized: true };
+    }
   }
-  return { h: chosen.h, count: chosen.count, kind: chosen.kind };
+  const settled = settle(chosen.kind, chosen.h, px, py, qx, qy, LIMITS[0] / detailScale, LIMITS[LIMITS.length - 1] / detailScale, moving.full);
+  return { h: settled.h, count: chosen.count, kind: chosen.kind, spread: settled.spread, resized: Boolean(chosen.resized) };
 };
 
 const analyse = ({ layers, projection }, progress = () => {}) => {
@@ -953,7 +1009,7 @@ const analyse = ({ layers, projection }, progress = () => {}) => {
     for (let j = i + 1; j < n; j++) {
       if (items[i].fixed && items[j].fixed) continue;
       const link = between(items[j], items[i], projection, detailScale, random);
-      if (link) links.push({ from: j, to: i, h: link.h, count: link.count, kind: link.kind });
+      if (link) links.push({ from: j, to: i, h: link.h, count: link.count, kind: link.kind, spread: link.spread, resized: link.resized });
       done++;
       say(0.35 + (done / pairsTotal) * 0.3);
     }
@@ -986,7 +1042,7 @@ const analyse = ({ layers, projection }, progress = () => {}) => {
     // The child's places to the parent's
     const h = link.from === child ? link.h : inverse(link.h);
     placed.set(child, null);
-    order.push({ child, parent, h, kind: link.kind });
+    order.push({ child, parent, h, kind: link.kind, spread: link.spread, resized: link.resized });
   }
   const ladders = new Map();
   const ladder = (index) => {
@@ -996,13 +1052,14 @@ const analyse = ({ layers, projection }, progress = () => {}) => {
   order.forEach((step, index) => {
     const ref = items[step.parent];
     const layer = items[step.child];
-    const kind = ECC_KIND[projection] || (step.kind === "h" ? "h" : "a");
+    const kind = step.resized ? "s" : ECC_KIND[projection] || (step.kind === "h" ? "h" : "a");
     let h = step.h;
     const W = inverse(h);
     if (W) {
       const result = refine({ full: ref.full, ladder: ladder(step.parent) }, { full: layer.full, ladder: ladder(step.child) }, W, kind);
-      // The pixels have the last word, unless they take the layer far from where its details put it
-      if (result.moved && apart(result.W, W, ref.full.w, ref.full.h) <= Math.max(4, 6 / detailScale)) {
+      // The pixels have the last word, unless they take the layer far from where its details put
+      // it: further than its details themselves disagree, on a page drawn again
+      if (result.moved && apart(result.W, W, ref.full.w, ref.full.h) <= Math.max(4, 6 / detailScale, 4 * (step.spread || 0))) {
         const back = inverse(result.W);
         if (back && sane(back, layer.full.w, layer.full.h)) h = back;
       }
@@ -1013,6 +1070,7 @@ const analyse = ({ layers, projection }, progress = () => {}) => {
   const ref = items[reference];
   const moves = [];
   const failed = [];
+  const rescaled = [];
   items.forEach((item, index) => {
     if (index === reference || item.fixed) return;
     const local = placed.get(index);
@@ -1025,15 +1083,17 @@ const analyse = ({ layers, projection }, progress = () => {}) => {
     const shift = [Math.round(page[2]), Math.round(page[5])];
     const offShift = apart(page, translate(page[2], page[5]), item.full.w, item.full.h);
     const toWhole = Math.hypot(page[2] - shift[0], page[5] - shift[1]);
-    // Moving only, or as good as moved by whole pixels: the pixels stay as they are
-    if (projection === "reposition" || (offShift < 0.1 && toWhole < 0.1)) {
+    // Moving only, or as good as moved by whole pixels: the pixels stay as they are. With
+    // Reposition, a layer that had to be resized too is drawn again all the same.
+    if ((projection === "reposition" && offShift < 1) || (offShift < 0.1 && toWhole < 0.1)) {
       if (shift[0] || shift[1]) moves.push({ id: item.id, shift });
       return;
     }
+    if (projection === "reposition") rescaled.push(item.id);
     if (apart(page, IDENTITY, item.full.w, item.full.h) < 0.02) return;
     moves.push({ id: item.id, matrix: page });
   });
-  return { reference: ref.id, moves, failed };
+  return { reference: ref.id, moves, failed, resized: rescaled };
 };
 
 /* ============================== new pixels ============================== */
