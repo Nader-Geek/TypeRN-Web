@@ -1955,6 +1955,11 @@
 
   const fileStamp = (file) => `${file.size}:${file.lastModified}`;
 
+  // The file on disk behind a file the panel picked (bridge.js): Save writes over it. Told
+  // by name, size and date, since the panel's input may hand on a copy of the File
+  const fileHandles = new Map();
+  const handleKey = (file) => `${file.name}|${fileStamp(file)}`;
+
   // Browsers limit a canvas's size and don't say so: past it, it stays blank. iPhones and
   // iPads stop at about 16.7 million pixels. A pixel in its far corner tells.
   const fitting = new Map();
@@ -5067,12 +5072,14 @@
     },
     // A PNG, a JPEG or a PSD, picked by the user or by TypeR's page sync
     async openBlob(file, name, path, handle) {
+      handle = handle || fileHandles.get(handleKey(file)) || null;
       const key = path || ops.registerFile(file);
       // The same name isn't the same file: every chapter has its 01.psd, and a file can
       // change on disk while its document is kept in the browser
       const stamp = fileStamp(file);
       const known = app.docs.find((doc) => doc.path === key && (!doc.stamp || doc.stamp === stamp));
       if (known) {
+        if (handle && !known.handle) known.handle = handle;
         setDoc(known);
         return known;
       }
@@ -5132,6 +5139,9 @@
       doc.stamp = fileStamp(file);
     },
     fileStamp,
+    rememberHandle(file, handle) {
+      fileHandles.set(handleKey(file), handle);
+    },
     registerFile(file) {
       const key = "web-file://" + file.name;
       app.files.set(key, file);

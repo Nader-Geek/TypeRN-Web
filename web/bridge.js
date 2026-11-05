@@ -363,6 +363,32 @@
     if (document.documentElement.classList.contains("t-touch") && input instanceof HTMLInputElement && input.type === "file") input.removeAttribute("accept");
   }, true);
 
+  // The panel's Import pages button is a plain file input: its files can be read, not written
+  // back, so Save always asked where. Where the browser has a real picker, the panel gets the
+  // same files from it, each with the file on disk behind it, and Save writes over the PSD
+  const PICKER_TYPES = { ".psd": "image/vnd.adobe.photoshop", ".psb": "image/vnd.adobe.photoshop", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
+  document.addEventListener("click", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== "file" || shell.touch || typeof window.showOpenFilePicker !== "function") return;
+    const extensions = input.accept.split(",").map((item) => item.trim().toLowerCase());
+    if (!extensions.includes(".psd") || !extensions.every((item) => PICKER_TYPES[item])) return;
+    event.preventDefault();
+    const accept = {};
+    extensions.forEach((item) => (accept[PICKER_TYPES[item]] = accept[PICKER_TYPES[item]] || []).push(item));
+    window.showOpenFilePicker({ multiple: input.multiple, types: [{ description: "Photoshop, PNG, JPEG", accept }] }).then(async (handles) => {
+      const list = new DataTransfer();
+      for (const handle of handles) {
+        const file = await handle.getFile();
+        photoshop.ops.rememberHandle(file, handle);
+        list.items.add(file);
+      }
+      input.files = list.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }, (error) => {
+      if (error.name !== "AbortError") console.error(error);
+    });
+  }, true);
+
   // Keys for TypeR's shortcut poll, read in the page and in the panel
   const track = (event) => {
     photoshop.setKeys({ meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, key: event.type === "keydown" ? photoshop.keyName(event) : "" });
