@@ -44,6 +44,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "These layers have too little in common to be aligned.": "Bu katmanların hizalanacak kadar ortak noktası yok.",
     "The layers are already aligned.": "Katmanlar zaten hizalı.",
     "Layers aligned: {count}. With too little in common, {failed} stayed in place.": "Hizalanan katmanlar: {count}. Ortak noktası çok az olan {failed} katman yerinde kaldı.",
+    "Layers aligned: {count}. Reposition only moves, but {resized} of them weren't the size of the reference: they were resized too, as by Collage.": "Hizalanan katmanlar: {count}. Yeniden Konumlandır yalnızca taşır, ancak {resized} tanesi referansla aynı boyutta değildi: Kolaj'daki gibi yeniden boyutlandırıldılar.",
     "Layers aligned: {count}.": "Hizalanan katmanlar: {count}.",
     "Images": "Görseller",
     "Open documents ({count})": "Açık belgeler ({count})",

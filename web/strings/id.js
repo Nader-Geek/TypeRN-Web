@@ -44,6 +44,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "These layers have too little in common to be aligned.": "Lapisan-lapisan ini terlalu sedikit kesamaannya untuk disejajarkan.",
     "The layers are already aligned.": "Lapisan sudah sejajar.",
     "Layers aligned: {count}. With too little in common, {failed} stayed in place.": "Lapisan disejajarkan: {count}. Karena terlalu sedikit kesamaan, {failed} tetap di tempatnya.",
+    "Layers aligned: {count}. Reposition only moves, but {resized} of them weren't the size of the reference: they were resized too, as by Collage.": "Lapisan disejajarkan: {count}. Ubah Posisi hanya memindahkan, tetapi {resized} di antaranya tidak seukuran referensi: ukurannya juga diubah, seperti dengan Kolase.",
     "Layers aligned: {count}.": "Lapisan disejajarkan: {count}.",
     "Images": "Gambar",
     "Open documents ({count})": "Dokumen terbuka ({count})",

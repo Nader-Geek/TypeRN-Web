@@ -44,6 +44,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "These layers have too little in common to be aligned.": "Các lớp này có quá ít điểm chung để căn chỉnh.",
     "The layers are already aligned.": "Các lớp đã được căn chỉnh.",
     "Layers aligned: {count}. With too little in common, {failed} stayed in place.": "Đã căn chỉnh {count} lớp. Do quá ít điểm chung, {failed} lớp giữ nguyên vị trí.",
+    "Layers aligned: {count}. Reposition only moves, but {resized} of them weren't the size of the reference: they were resized too, as by Collage.": "Đã căn chỉnh layer: {count}. Đặt lại vị trí chỉ di chuyển, nhưng {resized} layer không cùng kích thước với layer tham chiếu: chúng cũng được đổi kích thước, như với Ghép ảnh.",
     "Layers aligned: {count}.": "Đã căn chỉnh {count} lớp.",
     "Images": "Hình ảnh",
     "Open documents ({count})": "Tài liệu đang mở ({count})",

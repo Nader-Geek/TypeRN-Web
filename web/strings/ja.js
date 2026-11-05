@@ -44,6 +44,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "These layers have too little in common to be aligned.": "これらのレイヤーは共通部分が少なすぎて整列できません。",
     "The layers are already aligned.": "レイヤーはすでに整列しています。",
     "Layers aligned: {count}. With too little in common, {failed} stayed in place.": "整列したレイヤー：{count}。共通部分が少なすぎる {failed} 枚はそのままです。",
+    "Layers aligned: {count}. Reposition only moves, but {resized} of them weren't the size of the reference: they were resized too, as by Collage.": "整列したレイヤー：{count}。「位置の変更」は移動だけですが、{resized} 枚は基準と同じサイズではなかったため、「コラージュ」のように拡大・縮小もしました。",
     "Layers aligned: {count}.": "整列したレイヤー：{count}。",
     "Images": "画像",
     "Open documents ({count})": "開いているドキュメント（{count}）",

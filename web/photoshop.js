@@ -3716,7 +3716,7 @@
           commitState(doc, "Auto-Align Layers", { layers: before.map((layer) => changed.get(layer.id) || layer) });
           firePanelEvent(EVENT_HISTORY);
         }
-        return { moved: changed.size, failed: found.failed.length, total: picked.length };
+        return { moved: changed.size, failed: found.failed.length, resized: (found.resized || []).filter((id) => changed.has(id)).length, total: picked.length };
       } finally {
         aligner.stop();
       }

@@ -44,6 +44,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "These layers have too little in common to be aligned.": "这些图层的共同内容太少，无法对齐。",
     "The layers are already aligned.": "图层已经对齐。",
     "Layers aligned: {count}. With too little in common, {failed} stayed in place.": "已对齐图层：{count}。{failed} 个图层因共同内容太少而保持不动。",
+    "Layers aligned: {count}. Reposition only moves, but {resized} of them weren't the size of the reference: they were resized too, as by Collage.": "已对齐图层：{count}。“调整位置”只做移动，但其中 {resized} 个与参考图层大小不同：也像“拼贴”一样调整了大小。",
     "Layers aligned: {count}.": "已对齐图层：{count}。",
     "Images": "图像",
     "Open documents ({count})": "打开的文档（{count}）",

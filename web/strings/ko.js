@@ -44,6 +44,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "These layers have too little in common to be aligned.": "이 레이어들은 공통된 부분이 너무 적어 정렬할 수 없습니다.",
     "The layers are already aligned.": "레이어가 이미 정렬되어 있습니다.",
     "Layers aligned: {count}. With too little in common, {failed} stayed in place.": "정렬된 레이어: {count}. 공통된 부분이 너무 적은 {failed}개는 제자리에 있습니다.",
+    "Layers aligned: {count}. Reposition only moves, but {resized} of them weren't the size of the reference: they were resized too, as by Collage.": "정렬된 레이어: {count}. 위치 변경은 이동만 하지만 {resized}개는 기준 레이어와 크기가 달라 콜라주처럼 크기도 조정했습니다.",
     "Layers aligned: {count}.": "정렬된 레이어: {count}.",
     "Images": "이미지",
     "Open documents ({count})": "열린 문서 ({count})",
