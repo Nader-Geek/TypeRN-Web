@@ -1,6 +1,8 @@
 // Writes web/desktop-update.json, signed: the file installed apps look at to follow the site.
-// Run it just before committing what you publish. Without it the apps simply stay on their
-// version; if it describes files that aren't online yet, they refuse the update and try later.
+// It describes a commit (HEAD unless another is named), not the working tree: other changes
+// under way are left out, and the update matches what the push puts online. Commit the file
+// alone on top, then push: the pre-push hook (.githooks) refuses a main whose update is out of
+// date, since apps refuse a whole update when a single file online differs from it.
 
 const { execFileSync } = require("child_process");
 const crypto = require("crypto");
@@ -16,13 +18,13 @@ if (!fs.existsSync(privatePath)) {
   process.exit(1);
 }
 
-const { id, files } = describe();
+const ref = process.argv[2] || "HEAD";
+const commit = execFileSync("git", ["rev-parse", "--verify", `${ref}^{commit}`], { cwd: REPO, encoding: "utf8" }).trim();
+const { id, files } = describe(commit);
 const payload = JSON.stringify({ id, builtAt: Date.now(), minShell: pkg.minContentShell, files });
 const signature = crypto.sign(null, Buffer.from(payload), fs.readFileSync(privatePath)).toString("base64");
 const target = path.join(REPO, "web", "desktop-update.json");
 fs.writeFileSync(target, JSON.stringify({ payload, signature }));
 
 const bytes = Object.values(files).reduce((total, file) => total + file.size, 0);
-console.log(`Update ${id}: ${Object.keys(files).length} files, ${(bytes / 1048576).toFixed(1)} MB, written to web/desktop-update.json.`);
-const dirty = execFileSync("git", ["status", "--porcelain", "--", "web", "assets", "i18n.js", "images"], { cwd: REPO, encoding: "utf8" }).split("\n").filter(Boolean).filter((line) => !line.endsWith("web/desktop-update.json"));
-if (dirty.length) console.log(`Note: ${dirty.length} files aren't committed yet. The update describes them as they are now, so publish them together.`);
+console.log(`Update ${id}: ${Object.keys(files).length} files, ${(bytes / 1048576).toFixed(1)} MB, from ${commit.slice(0, 7)}, written to web/desktop-update.json.`);

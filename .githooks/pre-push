@@ -1,0 +1,27 @@
+#!/bin/sh
+# Installed TypeR Studio apps follow the site through web/desktop-update.json, signed. They take
+# an update only when every file online is the one it names, so a push of main without a fresh
+# one leaves them all on their version. This refuses such a push; when main is the branch in
+# hand, it signs and commits the update first, and the push only needs to be run again.
+# Enabled per clone with: git config core.hooksPath .githooks
+
+root=$(git rev-parse --show-toplevel) || exit 1
+zero=0000000000000000000000000000000000000000
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$remote_ref" = "refs/heads/main" ] || continue
+  [ "$local_sha" = "$zero" ] && continue
+  node "$root/desktop/scripts/check-web-update.js" "$local_sha" && continue
+
+  if [ "$local_sha" = "$(git rev-parse HEAD)" ] && node "$root/desktop/scripts/publish-web.js" "$local_sha" &&
+    git commit --quiet --no-verify --only -m "chore(web): sign the update the desktop apps follow" -- web/desktop-update.json; then
+    echo "Signed update committed on top ($(git rev-parse --short HEAD)). Run the push again." >&2
+  else
+    echo "Sign it on that commit, commit web/desktop-update.json alone, then push again:" >&2
+    echo "  node desktop/scripts/publish-web.js $local_sha" >&2
+  fi
+  status=1
+done
+
+exit $status
