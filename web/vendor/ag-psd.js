@@ -13602,7 +13602,7 @@ function writePsd(writer, psd, options = {}) {
                 writeLayerInfoData(writer, layers, psd, globalAlpha, opt);
             });
         }
-        writeAdditionalLayerInfo(writer, psd, psd, opt);
+        writeAdditionalLayerInfo(writer, psd, psd, opt, true);
     }, undefined, !!opt.psb);
     writer.tempBuffer = undefined;
     // image data
@@ -13961,7 +13961,10 @@ function writeGlobalLayerMaskInfo(writer, info) {
         }
     });
 }
-function writeAdditionalLayerInfo(writer, target, psd, options) {
+// TypeR: the document's own blocks, after the layers, start on a multiple of 4 bytes in
+// Photoshop, with the padding left out of their length. Padded to 2, a 'LMsk' (14 bytes) put
+// every block after it out of step, and Photoshop refused the whole file as "not compatible".
+function writeAdditionalLayerInfo(writer, target, psd, options, global = false) {
     for (const handler of additionalInfo_1.infoHandlers) {
         let key = handler.key;
         if (key === 'Txt2' && options.invalidateTextLayers)
@@ -13976,9 +13979,9 @@ function writeAdditionalLayerInfo(writer, target, psd, options) {
                 key === 'lmfx' || key === 'lrFX' || key === 'cinf' || key === 'PlLd' || key === 'Anno' || key === 'CAI ' || key === 'OCIO' || key === 'GenI' || key === 'FEid' || key === 'curv' || key === 'CgEd' || key === 'vibA' || key === 'blwh' || key === 'grdm';
             writeSignature(writer, large ? '8B64' : '8BIM');
             writeSignature(writer, key);
-            writeSection(writer, fourBytes ? 4 : 2, () => {
+            writeSection(writer, global || fourBytes ? 4 : 2, () => {
                 handler.write(writer, target, psd, options);
-            }, writeTotalLength, large);
+            }, writeTotalLength && !global, large);
         }
     }
 }
