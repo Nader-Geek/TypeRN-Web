@@ -164,16 +164,72 @@
     return out;
   };
 
-  // One line of a paragraph into lines that fit: at spaces and after hyphens, and
-  // inside a word only when the word alone is wider than the box
-  const wrapRuns = (runs, width, resolution) => {
+  // Auto hyphenation, as Photoshop's Hyphenate option of a paragraph: the patterns of the
+  // text's language, loaded on first use (the page is drawn again once they are there)
+  const HYPHEN_LANGUAGES = {
+    englishLanguage: "en", ukenglishLanguage: "en", standardFrenchLanguage: "fr", canadianFrenchLanguage: "fr",
+    germanLanguageReformed1996: "de", standardGermanLanguage: "de", oldGermanLanguage: "de", swissGermanLanguage: "de", swissGermanLanguageOldRules: "de",
+    spanishLanguage: "es", italianLanguage: "it", standardPortugueseLanguage: "pt", brazilianPortugueseLanguage: "pt",
+    russianLanguage: "ru", turkishLanguage: "tr", ukranianLanguage: "uk",
+  };
+  const hyphenLoads = new Set();
+  const hyphenLanguage = (style) => {
+    const Hyphenation = window.TypeRHyphenation;
+    const language = Hyphenation && HYPHEN_LANGUAGES[(style && style.textLanguage) || app.textDefaults.language];
+    if (!language) return null;
+    if (Hyphenation.isLoaded(language)) return language;
+    if (!hyphenLoads.has(language)) {
+      hyphenLoads.add(language);
+      Hyphenation.load(language).then(() => Fonts.refresh && Fonts.refresh(), () => {});
+    }
+    return null;
+  };
+  // Photoshop's defaults: words of 6 letters or more, 2 letters at least on each side
+  const hyphenRulesOf = (paragraph) => (paragraph && paragraph.hyphenate === true ? {
+    wordSize: paragraph.hyphenateWordSize || 6,
+    pre: paragraph.hyphenatePreLength || 2,
+    post: paragraph.hyphenatePostLength || 2,
+    capitalized: paragraph.hyphenateCapitalized !== false,
+  } : null);
+
+  // One line of a paragraph into lines that fit: at spaces and after hyphens, at a
+  // syllable with a hyphen when the paragraph hyphenates, and inside a word only when
+  // the word alone is wider than the box
+  const wrapRuns = (runs, width, resolution, hyphenRules) => {
     const text = runs.map((run) => run.text).join("");
     const tooWide = (from, to) => measureRuns(sliceRuns(runs, from, to), resolution).advance > width;
+    const withHyphen = (from, to) => {
+      const out = sliceRuns(runs, from, to);
+      const last = out[out.length - 1];
+      if (last) out[out.length - 1] = { text: last.text + "-", style: last.style };
+      return out;
+    };
     const lines = [];
     const pushLine = (from, to) => {
       let end = to;
       while (end > from && text[end - 1] === " ") end--;
       lines.push(sliceRuns(runs, from, end));
+    };
+    // Where the word from `start` to `end` can be cut with a hyphen so that the line from
+    // `lineStart` fits, the latest such place; -1 when none
+    const hyphenCut = (lineStart, start, end) => {
+      if (!hyphenRules) return -1;
+      const word = text.slice(start, end);
+      const lead = /^[^\p{L}]*/u.exec(word)[0].length;
+      const core = /^[\p{L}'’]+/u.exec(word.slice(lead));
+      if (!core || core[0].length < hyphenRules.wordSize) return -1;
+      if (!hyphenRules.capitalized && /^\p{Lu}/u.test(core[0])) return -1;
+      const style = sliceRuns(runs, start + lead, start + lead + 1)[0];
+      const language = hyphenLanguage(style && style.style);
+      if (!language) return -1;
+      const points = window.TypeRHyphenation.breakPoints(core[0], language)
+        .filter((point) => point >= hyphenRules.pre && core[0].length - point >= hyphenRules.post)
+        .sort((a, b) => b - a);
+      for (const point of points) {
+        const cut = start + lead + point;
+        if (measureRuns(withHyphen(lineStart, cut), resolution).advance <= width) return cut;
+      }
+      return -1;
     };
     let lineStart = 0;
     let i = 0;
@@ -191,9 +247,18 @@
         end += next[0].length;
       }
       if (end > lineStart && tooWide(lineStart, end)) {
+        const cut = hyphenCut(lineStart, i, end);
+        if (cut > 0) {
+          lines.push(withHyphen(lineStart, cut));
+          lineStart = cut;
+          i = cut;
+          continue;
+        }
         if (i > lineStart) {
           pushLine(lineStart, i);
           lineStart = i;
+          // The word starts the next line: a hyphen may fit it there before any cut
+          if (hyphenRules) continue;
         }
         while (end - lineStart > 1 && tooWide(lineStart, end)) {
           let cut = lineStart + 1;
@@ -290,7 +355,7 @@
     if (frame) {
       const wrapped = [];
       lines.forEach((runs) => {
-        if (runs.length) wrapped.push(...wrapRuns(runs, frame.width, resolution));
+        if (runs.length) wrapped.push(...wrapRuns(runs, frame.width, resolution, hyphenRulesOf(paragraph)));
         else wrapped.push(runs);
       });
       lines = wrapped;
