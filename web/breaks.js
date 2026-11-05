@@ -162,6 +162,9 @@
     lines.style.lineHeight = "1.25";
     lines.style.textAlign = paragraph.alignment || "center";
     lines.style.textTransform = style.fontCaps === "allCaps" ? "uppercase" : "none";
+    // Uppercase follows the text language, as on the page: a Turkish i becomes İ
+    if (style.textLanguage === "turkishLanguage") lines.lang = "tr";
+    else lines.removeAttribute("lang");
     let row = null;
     const startRow = () => {
       row = document.createElement("div");

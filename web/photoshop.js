@@ -74,8 +74,11 @@
 
   // Canvas has no switch for ligatures, but a zero-width non-joiner between two letters
   // stops them and leaves their kerning alone. Other scripts need their letters joined.
+  // All Caps follows the text language, as in Photoshop: in Turkish, i becomes İ, not I
+  const CASE_LOCALES = { turkishLanguage: "tr" };
   const shownText = ({ text, style }) => {
-    const cased = style.fontCaps === "allCaps" ? text.toUpperCase() : text;
+    const locale = CASE_LOCALES[style.textLanguage];
+    const cased = style.fontCaps === "allCaps" ? (locale ? text.toLocaleUpperCase(locale) : text.toUpperCase()) : text;
     return style.ligature === false ? cased.replace(/(\p{Script=Latin})(?=\p{Script=Latin})/gu, "$1‌") : cased;
   };
 
