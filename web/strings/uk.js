@@ -182,6 +182,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Expand…": "Розширити…",
     "Export as JPEG…": "Експортувати як JPEG…",
     "Export as PNG…": "Експортувати як PNG…",
+    "Export as WebP…": "Експортувати як WebP…",
+    "This browser can't write WebP.": "Цей браузер не вміє зберігати WebP.",
     "Eyedropper": "Піпетка",
     "Faux bold": "Псевдожирний",
     "Faux italic": "Псевдокурсив",

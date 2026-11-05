@@ -182,6 +182,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Expand…": "Espandi…",
     "Export as JPEG…": "Esporta come JPEG…",
     "Export as PNG…": "Esporta come PNG…",
+    "Export as WebP…": "Esporta come WebP…",
+    "This browser can't write WebP.": "Questo browser non può scrivere WebP.",
     "Eyedropper": "Contagocce",
     "Faux bold": "Grassetto simulato",
     "Faux italic": "Corsivo simulato",
