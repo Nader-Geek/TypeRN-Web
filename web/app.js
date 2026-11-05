@@ -2679,6 +2679,15 @@
   // prompt, or none to take the text out and redraw what it hid. The picture comes from the
   // person's own key, at Google (Gemini) or fal.ai, and lands on a new layer, aligned on the page.
   const gen = { open: false, prompt: "", focus: false };
+  // A price in dollars, as the services bill it: cents, or a tenth of a cent for the cheap ones
+  const money = (usd) => {
+    const digits = usd >= 0.1 ? 2 : usd >= 0.01 ? 3 : 4;
+    try {
+      return new Intl.NumberFormat((window.TYPER_I18N && window.TYPER_I18N.lang) || "en", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: digits }).format(usd);
+    } catch (error) {
+      return `$${usd.toFixed(digits)}`;
+    }
+  };
   // Settings > Generative Fill: both services' keys, the model used, and models added by their
   // slug. Nothing is kept until the dialog's Save.
   const generativePane = () => {
@@ -2687,6 +2696,7 @@
     const models = Object.assign({}, saved.models);
     const custom = {};
     Object.keys(Gen.SERVICES).forEach((name) => { custom[name] = (saved.custom[name] || []).slice(); });
+    const quality = Object.assign({}, saved.quality);
     let service = saved.service;
     const pane = document.createElement("div");
     pane.className = "settings__pane gensettings";
@@ -2723,17 +2733,72 @@
     options(serviceSelect, Object.keys(Gen.SERVICES).map((name) => [name, Gen.SERVICES[name].name]));
     serviceSelect.value = service;
     const modelSelect = document.createElement("select");
+    // Each model with what a picture costs, and the quality for those priced by it
+    const qualitySelect = document.createElement("select");
+    const qualityField = field(T("Quality"), qualitySelect);
+    const price = hint("");
+    const QUALITY_NAMES = { very_low: T("Very low"), low: T("Low"), medium: T("Medium"), high: T("High") };
+    const showPrice = () => {
+      const model = modelSelect.value;
+      const one = Gen.priceOf({ quality }, service, model);
+      const qualities = Gen.qualitiesOf(service, model);
+      qualityField.hidden = !qualities;
+      if (qualities) {
+        options(qualitySelect, qualities.map(([value, usd]) => [value, `${QUALITY_NAMES[value] || value} · ${money(usd)}`]));
+        qualitySelect.value = Gen.qualityOf({ quality }, service, model);
+      }
+      if (!one) price.textContent = T("Price unknown for this model: see its page at the service.");
+      else if (one.unit !== "image") price.textContent = fill(T("{price} per {unit}."), { price: money(one.usd), unit: one.unit });
+      else if (Math.abs(one.large - one.usd) > 1e-9) price.textContent = fill(T("{price} per picture, {large} for a large selection (sent at 2K)."), { price: money(one.usd), large: money(one.large) });
+      else price.textContent = fill(T("{price} per picture."), { price: money(one.usd) });
+    };
     const showModels = () => {
-      options(modelSelect, Gen.modelsOf({ custom }, service));
+      options(modelSelect, Gen.modelsOf({ custom }, service).map(([id, text]) => {
+        const one = Gen.priceOf({ quality }, service, id);
+        return [id, one && one.unit === "image" ? `${text} · ${money(one.usd)}` : text];
+      }));
       modelSelect.value = Gen.modelOf({ models, custom }, service);
+      showPrice();
     };
     serviceSelect.addEventListener("change", () => {
       service = serviceSelect.value;
       showModels();
     });
-    modelSelect.addEventListener("change", () => { models[service] = modelSelect.value; });
+    modelSelect.addEventListener("change", () => {
+      models[service] = modelSelect.value;
+      showPrice();
+    });
+    qualitySelect.addEventListener("change", () => {
+      quality[modelSelect.value] = qualitySelect.value;
+      showModels();
+    });
     showModels();
-    pane.append(hint(T("Generative Fill sends the selection, with what surrounds it, to an image model. Use your own key: it stays on this device and goes only to the service it belongs to, which bills you.")), field(T("Service"), serviceSelect), field(T("Model"), modelSelect));
+    // What it has cost so far, on this device
+    const total = hint("");
+    total.className = "modal__hint gensettings__spent";
+    const showSpent = () => {
+      const so = Gen.spent();
+      total.textContent = "";
+      if (!so.count) {
+        total.textContent = T("Nothing spent on this device yet.");
+        return;
+      }
+      const text = document.createElement("span");
+      text.textContent = fill(T("Spent on this device since {date}: {total}."), { total: money(so.usd), date: new Date(so.since).toLocaleDateString((window.TYPER_I18N && window.TYPER_I18N.lang) || undefined) });
+      const zero = document.createElement("button");
+      zero.type = "button";
+      zero.className = "btn btn--small";
+      zero.textContent = T("Reset");
+      zero.addEventListener("click", () => {
+        Gen.resetSpent();
+        showSpent();
+      });
+      total.append(text, zero);
+    };
+    showSpent();
+    // fal.ai's prices, read again when they're a day old
+    Gen.refreshPrices(saved).then((changed) => { if (changed && pane.isConnected) showModels(); });
+    pane.append(hint(T("Generative Fill sends the selection, with what surrounds it, to an image model. Use your own key: it stays on this device and goes only to the service it belongs to, which bills you.")), field(T("Service"), serviceSelect), field(T("Model"), modelSelect), price, qualityField, total);
     // The keys, one per service
     pane.appendChild(heading(T("API keys")));
     const keyInputs = {};
@@ -2846,7 +2911,7 @@
       save: () => {
         Object.keys(keyInputs).forEach((name) => { keys[name] = keyInputs[name].value.trim(); });
         models[service] = modelSelect.value;
-        if (!Gen.save({ service, keys, models, custom })) toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
+        if (!Gen.save({ service, keys, models, custom, quality })) toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
       },
     };
   };
@@ -2872,6 +2937,8 @@
   // and the page shows where each one is going.
   const GEN_AT_ONCE = 3;
   const genJobs = [];
+  // What the pictures made since the app opened cost
+  let genSpent = 0;
   let genJobCount = 0;
   let genTrayOpen = true;
   const STORE_GEN_TIMES = "typer.web.generative.times";
@@ -2918,6 +2985,8 @@
       return;
     }
     job.state = "drawing";
+    // A model added by its slug gets its price from fal.ai before its picture comes back
+    Gen.refreshPrices(job.account);
     job.started = Date.now();
     renderGenTray();
     const model = Gen.modelOf(job.account);
@@ -2933,7 +3002,19 @@
         draw: async (canvas, info) => {
           job.thumb = genThumb(canvas, info.inside);
           renderGenTray();
-          const picture = await Gen.generate({ settings: job.account, prompt: job.prompt, canvas, ratio: info.ratio, size: info.size, signal: job.controller.signal });
+          const picture = await Gen.generate({
+            settings: job.account,
+            prompt: job.prompt,
+            canvas,
+            mask: info.mask,
+            ratio: info.ratio,
+            size: info.size,
+            signal: job.controller.signal,
+            onCost: (cost) => {
+              job.cost = cost;
+              genSpent += cost.usd;
+            },
+          });
           noteTime(model, Date.now() - job.started);
           job.state = "aligning";
           job.percent = 0;
@@ -3062,7 +3143,10 @@
       case "drawing": return `${T("Generating…")} ${seconds} s`;
       case "aligning": return T("Aligning…");
       case "settling": return T("Ready, lands when you finish your action");
-      case "done": return job.message ? `${T("Done")} · ${job.message}` : fill(T("Done in {seconds} s"), { seconds });
+      case "done": {
+        const cost = job.cost ? ` · ${job.cost.estimate ? "≈ " : ""}${money(job.cost.usd)}` : "";
+        return job.message ? `${T("Done")}${cost} · ${job.message}` : fill(T("Done in {seconds} s"), { seconds }) + cost;
+      }
       default: return job.message || T("Generative Fill didn't go through.");
     }
   };
@@ -3096,7 +3180,7 @@
     title.textContent = T("Generative Fill");
     const count = document.createElement("span");
     count.className = "gentray__count";
-    count.textContent = [running && fill(T("{count} running"), { count: running }), waiting && fill(T("{count} waiting"), { count: waiting })].filter(Boolean).join(" · ");
+    count.textContent = [running && fill(T("{count} running"), { count: running }), waiting && fill(T("{count} waiting"), { count: waiting }), genSpent > 0 && fill(T("{total} this session"), { total: money(genSpent) })].filter(Boolean).join(" · ");
     const arrow = document.createElement("span");
     arrow.className = "gentray__arrow";
     arrow.innerHTML = genTrayOpen ? ICON.down : ICON.up;
@@ -3143,7 +3227,7 @@
           if (job.kind === "key" || job.kind === "nokey") actions.appendChild(iconButton("key", T("Generative Fill settings"), false, () => generativeSettings()));
           if (app.docs.includes(job.doc)) {
             actions.appendChild(iconButton("redo", T("Try again"), false, () => {
-              Object.assign(job, { state: "waiting", message: "", kind: "", started: 0, ended: 0, percent: 0, controller: new AbortController(), account: Gen.load() });
+              Object.assign(job, { state: "waiting", message: "", kind: "", cost: null, started: 0, ended: 0, percent: 0, controller: new AbortController(), account: Gen.load() });
               startJobs();
               renderGenTray();
             }));

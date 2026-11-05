@@ -6442,19 +6442,8 @@
         sctx.imageSmoothingQuality = "high";
         sctx.drawImage(area, 0, 0, sent.width, sent.height);
       }
-      const size = Math.max(width, height) > 1400 ? "2K" : "1K";
-      const picture = await draw(sent, { ratio: shape.label, size, inside: { left: (b.left - x0) * scale, top: (b.top - y0) * scale, width: b.width * scale, height: b.height * scale } });
-      // Meanwhile the page may have closed
-      if (!app.docs.includes(doc)) return { outcome: "gone" };
-      progress(0.05);
-      // First laid over the area as it is, stretched to it
-      const made = newCanvas(width, height);
-      const mctx = made.getContext("2d", { willReadFrequently: true });
-      mctx.imageSmoothingQuality = "high";
-      mctx.drawImage(picture, 0, 0, width, height);
-      if (picture.close) picture.close();
-      // Then aligned on what surrounds the selection: the selection itself, a little grown,
-      // differs on purpose (its text is gone) and says nothing about where the picture goes
+      // The selection, a little grown: where the picture may differ from the page. Models that
+      // take a mask get it black on white, at the size sent; the aligner leaves it out.
       const hole = newCanvas(width, height);
       const hctx = hole.getContext("2d", { willReadFrequently: true });
       const clip = selectionCanvas(selection);
@@ -6465,6 +6454,30 @@
       }
       hctx.drawImage(clip, b.left - x0, b.top - y0);
       const holeData = hctx.getImageData(0, 0, width, height).data;
+      const mask = newCanvas(sent.width, sent.height);
+      const kctx = mask.getContext("2d", { willReadFrequently: true });
+      const black = newCanvas(width, height);
+      const bctx = black.getContext("2d");
+      bctx.drawImage(hole, 0, 0);
+      bctx.globalCompositeOperation = "source-in";
+      bctx.fillStyle = "#000";
+      bctx.fillRect(0, 0, width, height);
+      kctx.fillStyle = "#fff";
+      kctx.fillRect(0, 0, mask.width, mask.height);
+      kctx.drawImage(black, 0, 0, mask.width, mask.height);
+      const size = Math.max(width, height) > 1400 ? "2K" : "1K";
+      const picture = await draw(sent, { ratio: shape.label, size, mask, inside: { left: (b.left - x0) * scale, top: (b.top - y0) * scale, width: b.width * scale, height: b.height * scale } });
+      // Meanwhile the page may have closed
+      if (!app.docs.includes(doc)) return { outcome: "gone" };
+      progress(0.05);
+      // First laid over the area as it is, stretched to it
+      const made = newCanvas(width, height);
+      const mctx = made.getContext("2d", { willReadFrequently: true });
+      mctx.imageSmoothingQuality = "high";
+      mctx.drawImage(picture, 0, 0, width, height);
+      if (picture.close) picture.close();
+      // Then aligned on what surrounds the selection: the selection itself, a little grown (the
+      // hole), differs on purpose (its text is gone) and says nothing about where the picture goes
       const holed = (canvas) => {
         const data = canvas.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, width, height).data;
         for (let i = 3; i < data.length; i += 4) if (holeData[i]) data[i] = 0;
