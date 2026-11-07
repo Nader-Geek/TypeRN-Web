@@ -34,7 +34,16 @@
         ["ideogram/v4.5/edit", "Ideogram 4.5 Edit"],
       ],
     },
+    // No key and no bill: the model runs in this browser (lama-worker.js)
+    local: {
+      name: "On this device",
+      local: true,
+      models: [["lama-manga", "LaMa Manga"]],
+    },
   };
+  // What the local models draw: a square of this many pixels, nothing else
+  const LOCAL_SIZE = 512;
+  const isLocal = (service) => Boolean(SERVICES[service] && SERVICES[service].local);
 
   // What a picture costs, in US dollars, as the services listed it on 2026-11-05. Google bills
   // tokens: its rates per million (in, text and thinking out, image out) give the cost of each
@@ -99,6 +108,7 @@
   // A model as people find it: fal.ai's page address or its slug ("fal-ai/flux-pro/kontext"),
   // Google's id ("gemini-3-pro-image", or "models/…"). Null when it can't be one.
   const slugOf = (service, text) => {
+    if (isLocal(service)) return null;
     let slug = String(text || "").trim();
     if (service === "fal") {
       slug = slug.replace(/^https?:\/\/(www\.)?fal\.ai\/models\//, "").replace(/^https?:\/\/(queue\.)?fal\.run\//, "").replace(/[?#].*$/, "").replace(/\/(api|playground|llms\.txt)\/?$/, "").replace(/^\/+|\/+$/g, "");
@@ -121,6 +131,7 @@
   // What one picture costs, as the settings show it: { usd, large, unit, live } where `usd` is at
   // the usual size (1K) and `large` for a big selection (sent at 2K). Null when no price is known.
   const priceOf = (settings, service, model) => {
+    if (isLocal(service)) return { usd: 0, large: 0, unit: "image", free: true };
     const price = PRICES[`${service}:${model}`];
     const live = service === "fal" ? livePrices[model] : null;
     if (price && price.qualities) {
@@ -139,6 +150,7 @@
   // What a picture just made cost: Google's from the tokens it counted, fal.ai's from its price.
   // `megapixels`: the picture's size, for the models billed by it.
   const costOf = (settings, service, model, { size, usage, megapixels } = {}) => {
+    if (isLocal(service)) return null;
     const price = PRICES[`${service}:${model}`];
     if (service === "google" && price && usage && price.tokens) {
       const [input, text, image] = price.tokens;
@@ -209,7 +221,11 @@
       // Nothing kept anyway
     }
   };
-  const ready = (settings) => Boolean((settings.keys[settings.service] || "").trim());
+  const ready = (settings) => isLocal(settings.service) || Boolean((settings.keys[settings.service] || "").trim());
+  // A local model takes no prompt: it redraws the selection from what surrounds it
+  const takesPrompt = (settings) => !isLocal(settings.service);
+  // The size a model draws at, when it's a fixed square: the area sent is chosen for it
+  const fixedSize = (settings) => (isLocal(settings.service) ? LOCAL_SIZE : 0);
 
   // The shapes the models draw: the area sent grows to the nearest one, so nothing is squeezed
   const RATIOS = ["1:1", "4:5", "5:4", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"];
@@ -217,7 +233,7 @@
   const knowsLongRatios = (model) => /3\.1-flash|nano-banana-2/.test(model);
   // Models that draw at 1K, 2K or 4K; the others at about one megapixel
   const knowsSizes = (model) => /gemini-3|nano-banana-2|nano-banana-pro/.test(model) && !/lite/.test(model);
-  const ratiosFor = (model) => (/kontext/.test(model) ? RATIOS.filter((r) => r !== "4:5" && r !== "5:4") : knowsLongRatios(model) ? RATIOS.concat(LONG_RATIOS) : RATIOS)
+  const ratiosFor = (model) => (model === "lama-manga" ? ["1:1"] : /kontext/.test(model) ? RATIOS.filter((r) => r !== "4:5" && r !== "5:4") : knowsLongRatios(model) ? RATIOS.concat(LONG_RATIOS) : RATIOS)
     .map((label) => {
       const [w, h] = label.split(":").map(Number);
       return { label, value: w / h };
@@ -401,8 +417,9 @@
   // `canvas`: what is sent; resolves with the model's picture, as an ImageBitmap
   // `canvas`: what is sent; `mask`: the selection on it, black on white (for the models that take
   // one). Resolves with the model's picture, as an ImageBitmap; `onCost` hears what it cost.
-  const generate = async ({ settings, prompt, canvas, mask, ratio, size, signal, onCost }) => {
+  const generate = async ({ settings, prompt, canvas, mask, ratio, size, signal, onCost, onProgress }) => {
     const service = settings.service;
+    if (isLocal(service)) return viaLocal({ canvas, mask, signal, onProgress });
     const key = (settings.keys[service] || "").trim();
     if (!key) throw new GenerativeError("nokey");
     const model = modelOf(settings);
@@ -435,5 +452,100 @@
     return blob ? { mime: "image/png", data: await base64Of(blob) } : null;
   };
 
-  window.TypeRGenerative = { SERVICES, DEFAULT_PROMPT, load, save, modelOf, modelsOf, slugOf, ready, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent };
+  /* ------------------------- on this device: LaMa Manga ------------------------- */
+
+  // One worker for the app, kept while it's used, let go after a while without (its model holds
+  // about a gigabyte of memory, on the graphics card or not)
+  const LOCAL_IDLE = 5 * 60 * 1000;
+  const MODEL_URL = "https://huggingface.co/mayocream/lama-manga-onnx/resolve/b55497aadbfcb9740e1ed16f008268d71b4f3f79/lama-manga.onnx";
+  let worker = null;
+  let workerJobs = 0;
+  let idleTimer = 0;
+  let nextId = 0;
+  const pending = new Map();
+  const startWorker = () => {
+    clearTimeout(idleTimer);
+    if (worker) return worker;
+    try {
+      worker = new Worker("lama-worker.js");
+    } catch (error) {
+      throw new GenerativeError("local", "This browser can't run the model in the background.");
+    }
+    worker.onmessage = (event) => {
+      const answer = event.data || {};
+      const job = pending.get(answer.id);
+      if (!job) return;
+      if (answer.progress) {
+        job.onProgress(answer.progress);
+        return;
+      }
+      pending.delete(answer.id);
+      if (answer.error) job.reject(new GenerativeError(answer.error.kind === "download" ? "download" : "local", answer.error.message));
+      else job.resolve(answer);
+    };
+    worker.onerror = (event) => {
+      console.warn("TypeR web: LaMa Manga's worker stopped", event.message || event);
+      pending.forEach((job) => job.reject(new GenerativeError("local", event.message || "")));
+      pending.clear();
+      worker = null;
+    };
+    return worker;
+  };
+  const releaseWorker = () => {
+    workerJobs -= 1;
+    if (workerJobs > 0) return;
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      if (workerJobs > 0 || !worker) return;
+      worker.terminate();
+      worker = null;
+    }, LOCAL_IDLE);
+  };
+  const viaLocal = async ({ canvas, mask, signal, onProgress }) => {
+    // The area, square, at the model's size: what is under the black of the mask gets drawn
+    const square = document.createElement("canvas");
+    square.width = LOCAL_SIZE;
+    square.height = LOCAL_SIZE;
+    const sctx = square.getContext("2d", { willReadFrequently: true });
+    sctx.imageSmoothingQuality = "high";
+    sctx.fillStyle = "#fff";
+    sctx.fillRect(0, 0, LOCAL_SIZE, LOCAL_SIZE);
+    sctx.drawImage(canvas, 0, 0, LOCAL_SIZE, LOCAL_SIZE);
+    const image = sctx.getImageData(0, 0, LOCAL_SIZE, LOCAL_SIZE).data;
+    const hole = new Uint8Array(LOCAL_SIZE * LOCAL_SIZE);
+    if (mask) {
+      sctx.drawImage(mask, 0, 0, LOCAL_SIZE, LOCAL_SIZE);
+      const m = sctx.getImageData(0, 0, LOCAL_SIZE, LOCAL_SIZE).data;
+      // Any grey at the edge of the mask counts, so no stroke of a letter stays half there
+      for (let i = 0; i < hole.length; i++) hole[i] = m[i * 4] < 250 ? 1 : 0;
+    } else hole.fill(1);
+    if (signal && signal.aborted) throw new DOMException("Aborted", "AbortError");
+    const id = ++nextId;
+    const thread = startWorker();
+    workerJobs += 1;
+    try {
+      const answer = await new Promise((resolve, reject) => {
+        pending.set(id, { resolve, reject, onProgress: onProgress || (() => {}) });
+        // A stopped job's answer is let go: the run itself can't be stopped halfway
+        if (signal) signal.addEventListener("abort", () => {
+          if (pending.delete(id)) reject(new DOMException("Aborted", "AbortError"));
+        }, { once: true });
+        thread.postMessage({ id, image: image.buffer, mask: hole.buffer }, [image.buffer, hole.buffer]);
+      });
+      console.info(`TypeR web: LaMa Manga drew in ${answer.ms} ms on ${answer.device === "webgpu" ? "the graphics card" : "the processor"}`);
+      return await createImageBitmap(new ImageData(new Uint8ClampedArray(answer.image), LOCAL_SIZE, LOCAL_SIZE));
+    } finally {
+      releaseWorker();
+    }
+  };
+  // Whether the model is already on this device (its download done)
+  const localReady = async () => {
+    try {
+      return Boolean(await (await caches.open("typer-models-1")).match(MODEL_URL));
+    } catch (error) {
+      return false;
+    }
+  };
+
+  window.TypeRGenerative = { SERVICES, DEFAULT_PROMPT, LOCAL_SIZE, load, save, modelOf, modelsOf, slugOf, ready, isLocal, takesPrompt, fixedSize, localReady, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent };
 })();

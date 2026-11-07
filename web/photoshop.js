@@ -6384,7 +6384,10 @@
     // (no gesture under way). The new layer becomes the active one only if the active layers
     // are still those of the start.
     // A generation that waited its turn passes its own `doc`, `selection` and `activeIds`.
-    async generativeFill({ draw, ratios, name, settle, doc: wanted, selection: chosen, activeIds, hide }, progress = () => {}) {
+    // `fixed`: the model draws a square of that many pixels, in place to the pixel (LaMa Manga,
+    // on this device): the area is that square at the page's own size when the selection fits
+    // in it, and the picture needs no aligning
+    async generativeFill({ draw, ratios, name, settle, doc: wanted, selection: chosen, activeIds, hide, fixed }, progress = () => {}) {
       const doc = wanted || app.doc;
       if (!doc || !app.docs.includes(doc)) return { outcome: "gone" };
       const selection = chosen || doc.state.selection;
@@ -6416,6 +6419,15 @@
         if (z > limit) return [limit - Math.round(length), limit];
         return [Math.round(a), Math.round(a) + Math.round(length)];
       };
+      // A fixed square bigger than the area: the area grows to it, so nothing is scaled
+      if (fixed && x1 - x0 < fixed && y1 - y0 < fixed) {
+        const cx = (x0 + x1) / 2;
+        const cy = (y0 + y1) / 2;
+        x0 = cx - fixed / 2;
+        x1 = cx + fixed / 2;
+        y0 = cy - fixed / 2;
+        y1 = cy + fixed / 2;
+      }
       [x0, x1] = inside(x0, x1, doc.width);
       [y0, y1] = inside(y0, y1, doc.height);
       const width = x1 - x0;
@@ -6432,8 +6444,8 @@
       actx.drawImage(drawn, 0, 0);
       // A big area goes smaller, a small one bigger: the models draw at one to four megapixels
       // anyway, and some refuse a picture under 256 pixels a side
-      const LONGEST = 2048;
-      const SHORTEST = 512;
+      const LONGEST = fixed || 2048;
+      const SHORTEST = fixed || 512;
       const scale = Math.min(LONGEST / Math.max(width, height), Math.max(1, SHORTEST / Math.min(width, height)));
       let sent = area;
       if (scale !== 1) {
@@ -6486,15 +6498,15 @@
       // Each way of laying it is judged on the same ground: how far its grey levels stay from
       // the page's around the selection. Kept as it came, moved and resized by a direct search
       // (enough for the drift of such models), or as Auto-Align Layers' engine finds it.
-      const judge = fitGround(area, made, hole, x0, y0);
-      const candidates = [{ how: "as is", m: null, error: judge.error(null) }];
-      const searched = judge.search();
+      const judge = fixed ? null : fitGround(area, made, hole, x0, y0);
+      const candidates = [{ how: "as is", m: null, error: fixed ? 0 : judge.error(null) }];
+      const searched = fixed ? null : judge.search();
       if (searched) candidates.push({ how: "search", m: searched, error: judge.error(searched) });
       progress(0.2);
-      const reference = holed(area);
-      const moving = holed(made);
+      const reference = fixed ? null : holed(area);
+      const moving = fixed ? null : holed(made);
       let aligner = null;
-      try {
+      if (!fixed) try {
         aligner = await startAligner();
         const found = await aligner.ask("analyse", {
           layers: [
@@ -6537,9 +6549,11 @@
       if (placed.canvas !== made) lctx.drawImage(placed.canvas, placed.left - x0, placed.top - y0);
       // Models shift the tones (a cream paper, a grain, greys a little off): around the selection,
       // the picture's levels are matched to the page's, and the same levels go inside
-      const laidData = lctx.getImageData(0, 0, width, height);
-      matchLevels(laidData.data, actx.getImageData(0, 0, width, height).data, holeData);
-      lctx.putImageData(laidData, 0, 0);
+      if (!fixed) {
+        const laidData = lctx.getImageData(0, 0, width, height);
+        matchLevels(laidData.data, actx.getImageData(0, 0, width, height).data, holeData);
+        lctx.putImageData(laidData, 0, 0);
+      }
       progress(0.95);
       const pixels = newCanvas(b.width, b.height);
       pixels.getContext("2d").drawImage(laid, x0 - b.left, y0 - b.top);

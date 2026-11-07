@@ -2688,6 +2688,8 @@
       return `$${usd.toFixed(digits)}`;
     }
   };
+  // A service as people read it: the local one in their language
+  const serviceName = (name) => (Gen.isLocal(name) ? T("On this device") : Gen.SERVICES[name].name);
   // Settings > Generative Fill: both services' keys, the model used, and models added by their
   // slug. Nothing is kept until the dialog's Save.
   const generativePane = () => {
@@ -2730,7 +2732,7 @@
     };
     // What Generate uses
     const serviceSelect = document.createElement("select");
-    options(serviceSelect, Object.keys(Gen.SERVICES).map((name) => [name, Gen.SERVICES[name].name]));
+    options(serviceSelect, Object.keys(Gen.SERVICES).map((name) => [name, serviceName(name)]));
     serviceSelect.value = service;
     const modelSelect = document.createElement("select");
     // Each model with what a picture costs, and the quality for those priced by it
@@ -2747,7 +2749,13 @@
         options(qualitySelect, qualities.map(([value, usd]) => [value, `${QUALITY_NAMES[value] || value} · ${money(usd)}`]));
         qualitySelect.value = Gen.qualityOf({ quality }, service, model);
       }
-      if (!one) price.textContent = T("Price unknown for this model: see its page at the service.");
+      if (one && one.free) {
+        // Free, after a download: says whether it's done
+        price.textContent = T("Free, without a key: the model runs in this browser and takes no prompt, it redraws the selection from what surrounds it. It downloads once (234 MB), then works offline.");
+        Gen.localReady().then((here) => {
+          if (here && price.isConnected && Gen.isLocal(service)) price.textContent += ` ${T("Already downloaded on this device.")}`;
+        });
+      } else if (!one) price.textContent = T("Price unknown for this model: see its page at the service.");
       else if (one.unit !== "image") price.textContent = fill(T("{price} per {unit}."), { price: money(one.usd), unit: one.unit });
       else if (Math.abs(one.large - one.usd) > 1e-9) price.textContent = fill(T("{price} per picture, {large} for a large selection (sent at 2K)."), { price: money(one.usd), large: money(one.large) });
       else price.textContent = fill(T("{price} per picture."), { price: money(one.usd) });
@@ -2755,7 +2763,7 @@
     const showModels = () => {
       options(modelSelect, Gen.modelsOf({ custom }, service).map(([id, text]) => {
         const one = Gen.priceOf({ quality }, service, id);
-        return [id, one && one.unit === "image" ? `${text} · ${money(one.usd)}` : text];
+        return [id, one && one.free ? `${text} · ${T("Free of charge")}` : one && one.unit === "image" ? `${text} · ${money(one.usd)}` : text];
       }));
       modelSelect.value = Gen.modelOf({ models, custom }, service);
       showPrice();
@@ -2802,7 +2810,7 @@
     // The keys, one per service
     pane.appendChild(heading(T("API keys")));
     const keyInputs = {};
-    Object.keys(Gen.SERVICES).forEach((name) => {
+    Object.keys(Gen.SERVICES).filter((name) => !Gen.isLocal(name)).forEach((name) => {
       const one = Gen.SERVICES[name];
       const box = document.createElement("span");
       box.className = "gensettings__key";
@@ -2854,8 +2862,8 @@
     const adder = document.createElement("div");
     adder.className = "gensettings__add";
     const addService = document.createElement("select");
-    options(addService, Object.keys(Gen.SERVICES).map((name) => [name, Gen.SERVICES[name].name]));
-    addService.value = service === "google" ? "fal" : service;
+    options(addService, Object.keys(Gen.SERVICES).filter((name) => !Gen.isLocal(name)).map((name) => [name, Gen.SERVICES[name].name]));
+    addService.value = "fal";
     const slugInput = document.createElement("input");
     slugInput.type = "text";
     slugInput.spellcheck = false;
@@ -2921,9 +2929,11 @@
     return Gen.load();
   };
   const generativeMessage = (error, settings) => {
-    const service = Gen.SERVICES[settings.service].name;
+    const service = serviceName(settings.service);
     const detail = error && error.detail ? ` (${error.detail})` : "";
     switch (error && error.kind) {
+      case "download": return T("LaMa Manga couldn't be downloaded. Check the connection and try again.") + detail;
+      case "local": return T("LaMa Manga couldn't run in this browser.") + detail;
       case "key": return fill(T("{service} refused the key. Check it in Generative Fill's settings."), { service }) + detail;
       case "quota": return fill(T("{service} says the quota or the balance is used up."), { service }) + detail;
       case "blocked": return T("The model refused this picture or this prompt.") + detail;
@@ -2998,6 +3008,7 @@
         hide: job.hide,
         name: job.name || (job.prompt ? job.prompt.replace(/\s+/g, " ").slice(0, 60) : T("Generative Fill")),
         ratios: Gen.ratiosFor(model),
+        fixed: Gen.fixedSize(job.account),
         settle: settleFor(job),
         draw: async (canvas, info) => {
           job.thumb = genThumb(canvas, info.inside);
@@ -3010,6 +3021,14 @@
             ratio: info.ratio,
             size: info.size,
             signal: job.controller.signal,
+            // On this device, the first time: the model's download, then its start
+            onProgress: (step) => {
+              if (step.phase === "download") job.download = step.total ? step.loaded / step.total : 0;
+              else if (step.phase === "start") {
+                job.download = null;
+                job.started = Date.now();
+              }
+            },
             onCost: (cost) => {
               job.cost = cost;
               genSpent += cost.usd;
@@ -3103,7 +3122,7 @@
       selection: doc.state.selection,
       activeIds: doc.state.activeIds.slice(),
       size: [doc.width, doc.height],
-      prompt: gen.prompt.trim(),
+      prompt: Gen.takesPrompt(account) ? gen.prompt.trim() : "",
       account,
       state: "waiting",
       percent: 0,
@@ -3140,7 +3159,7 @@
     const seconds = job.started ? Math.max(0, Math.round(((job.ended || Date.now()) - job.started) / 1000)) : 0;
     switch (job.state) {
       case "waiting": return T("Waiting…");
-      case "drawing": return `${T("Generating…")} ${seconds} s`;
+      case "drawing": return job.download !== null && job.download !== undefined ? fill(T("Downloading the model… {percent} %"), { percent: Math.floor(job.download * 100) }) : `${T("Generating…")} ${seconds} s`;
       case "aligning": return T("Aligning…");
       case "settling": return T("Ready, lands when you finish your action");
       case "done": {
@@ -3151,6 +3170,7 @@
     }
   };
   const genFraction = (job) => {
+    if (job.state === "drawing" && job.download !== null && job.download !== undefined) return job.download * 0.9;
     if (job.state === "drawing") return Math.min(0.9, ((Date.now() - job.started) / expectedTime(Gen.modelOf(job.account))) * 0.85);
     if (job.state === "aligning") return 0.9 + job.percent * 0.08;
     if (job.state === "settling") return 0.98;
@@ -3227,7 +3247,7 @@
           if (job.kind === "key" || job.kind === "nokey") actions.appendChild(iconButton("key", T("Generative Fill settings"), false, () => generativeSettings()));
           if (app.docs.includes(job.doc)) {
             actions.appendChild(iconButton("redo", T("Try again"), false, () => {
-              Object.assign(job, { state: "waiting", message: "", kind: "", cost: null, started: 0, ended: 0, percent: 0, controller: new AbortController(), account: Gen.load() });
+              Object.assign(job, { state: "waiting", message: "", kind: "", cost: null, started: 0, ended: 0, percent: 0, download: null, controller: new AbortController(), account: Gen.load() });
               startJobs();
               renderGenTray();
             }));
@@ -3284,19 +3304,20 @@
       schedule(false);
       return;
     }
+    const promptless = !Gen.takesPrompt(Gen.load());
     const values = await dialog({
       title: T("Generative Fill"),
-      body: T("Leave the prompt empty to take the text out and redraw what it hid."),
+      body: promptless ? T("LaMa Manga redraws the selection from what surrounds it, on this device.") : T("Leave the prompt empty to take the text out and redraw what it hid."),
       ok: T("Generate"),
       also: T("Settings…"),
-      fields: [{ id: "prompt", label: T("Prompt"), value: gen.prompt }],
+      fields: promptless ? [] : [{ id: "prompt", label: T("Prompt"), value: gen.prompt }],
     });
     if (!values) return;
     if (values.also) {
       await generativeSettings();
       return;
     }
-    gen.prompt = values.prompt;
+    if (!promptless) gen.prompt = values.prompt;
     runGenerative();
   };
   const buildSelectionBar = () => {
@@ -3344,8 +3365,11 @@
     const input = document.createElement("input");
     input.type = "text";
     input.className = "ctxbar__prompt";
-    input.value = gen.prompt;
-    input.placeholder = T("Describe it, or leave empty to remove the text");
+    // A model on this device takes no prompt: it only redraws what the selection hides
+    const promptless = !Gen.takesPrompt(Gen.load());
+    input.value = promptless ? "" : gen.prompt;
+    input.placeholder = promptless ? T("LaMa Manga redraws the selection, no prompt needed") : T("Describe it, or leave empty to remove the text");
+    input.disabled = promptless;
     input.setAttribute("aria-label", T("Prompt"));
     input.spellcheck = settings.spellcheck;
     input.addEventListener("input", () => { gen.prompt = input.value; });
@@ -3372,7 +3396,7 @@
     taskBar.append(back, input, go, keyButton, separator(), deselect, separator(), hide);
     if (gen.focus) {
       gen.focus = false;
-      requestAnimationFrame(() => input.focus());
+      requestAnimationFrame(() => (promptless ? go : input).focus());
     }
   };
   const placeSelectionBar = () => {
@@ -3382,7 +3406,7 @@
       taskBar.hidden = true;
       return;
     }
-    const key = JSON.stringify(["selection", gen.open, settings.spellcheck, Boolean(Gen)]);
+    const key = JSON.stringify(["selection", gen.open, settings.spellcheck, Boolean(Gen), Boolean(Gen) && Gen.takesPrompt(Gen.load())]);
     if (key !== taskBarKey) {
       const typing = taskBar.contains(document.activeElement) && document.activeElement.tagName === "INPUT";
       taskBarKey = key;
