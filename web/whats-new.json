@@ -1,4 +1,8 @@
 {"notes": [
+  {"id":"2ae3334928da","at":"2026-11-07T19:58:24+01:00","kind":"feat","text":"Rate TypeR Studio and say what's missing (Help → Send Feedback…)","lang":{"fr":"Notez TypeR Studio et dites ce qui manque (Aide → Envoyer un avis…)"}},
+  {"id":"10377390bd17","at":"2026-11-07T18:38:57+01:00","kind":"feat","text":"Pick the Generative Fill model right from its bar","lang":{"fr":"Choisir le modèle du Remplissage génératif directement depuis sa barre"}},
+  {"id":"889532cc778a","at":"2026-11-07T18:38:57+01:00","kind":"feat","text":"A Setup Assistant guides your first start (Help → Setup Assistant…)","lang":{"fr":"Un assistant de configuration vous guide au premier lancement (Aide → Assistant de configuration…)"}},
+  {"id":"eefe350aa6ab","at":"2026-11-07T18:38:42+01:00","kind":"feat","text":"See what's new at start, and anytime in Help → What's New","lang":{"fr":"Les nouveautés s'affichent au démarrage, et à tout moment dans Aide → Nouveautés"}},
   {"id":"ce9672e9e1c7","at":"2026-11-07T17:35:09+01:00","kind":"feat","text":"Generative Fill with LaMa Manga, run on the device","lang":{"fr":"Remplissage génératif avec LaMa Manga, calculé sur l’appareil"}},
   {"id":"0db9d051cf77","at":"2026-11-05T18:48:23+01:00","kind":"feat","text":"Export pages as WebP, alone or in Batch Save","lang":{"fr":"Export des pages en WebP, une à une ou avec Enregistrer par lot"}},
   {"id":"cc26c567c789","at":"2026-11-05T18:48:23+01:00","kind":"fix","text":"PSD files saved by TypeR open in Photoshop without an error","lang":{"fr":"Les PSD enregistrés par TypeR s’ouvrent dans Photoshop sans erreur"}},
