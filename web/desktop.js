@@ -88,20 +88,21 @@
     }
   };
 
-  // Asked once, on a first start: someone who already made styles here keeps them
-  const offerPhotoshopSettings = async () => {
-    if (!Desktop.findPhotoshopSettings) return;
-    const App = window.TypeRApp;
+  // Someone who already made styles here keeps them: the question at start doesn't come then.
+  // The setup assistant still offers them, saying what they replace.
+  const hasOwnStyles = () => {
     const Kit = window.TypeRKit;
-    try {
-      if (window.localStorage.getItem(OFFERED)) return;
-    } catch (error) {
-      return;
-    }
-    const own = Kit.storedPaths();
-    if (own.some((file) => Kit.keeps(file) && styleCount(Kit.read(file)) > 0)) return;
+    return Kit.storedPaths().some((file) => Kit.keeps(file) && styleCount(Kit.read(file)) > 0);
+  };
+
+  // TypeR for Photoshop's files, made ready for here: { files, styles, replaces }, or null
+  // without them. `overOwn` finds them even when there are styles here already.
+  const findPhotoshopSettings = async ({ overOwn = false } = {}) => {
+    const replaces = hasOwnStyles();
+    if (!Desktop.findPhotoshopSettings || (replaces && !overOwn)) return null;
+    const Kit = window.TypeRKit;
     const found = await Desktop.findPhotoshopSettings();
-    if (!found || !found.files) return;
+    if (!found || !found.files) return null;
     const files = {};
     let styles = 0;
     Object.keys(found.files).forEach((name) => {
@@ -129,29 +130,52 @@
         console.warn("TypeR Studio: a file of TypeR for Photoshop can't be read", name, error);
       }
     });
-    if (!Object.keys(files).length) return;
-    const [title, text, count, yes, no, done] = words();
+    return Object.keys(files).length ? { files, styles, replaces } : null;
+  };
+
+  // The panel isn't running: its files are replaced whole, profiles included
+  const takePhotoshopSettings = async ({ files }) => {
+    const Kit = window.TypeRKit;
+    try {
+      window.localStorage.setItem(OFFERED, "taken");
+    } catch (error) {
+      console.warn("TypeR Studio: no storage", error);
+    }
+    await Promise.all(Kit.storedPaths().filter((file) => Kit.keeps(file) && !files[file]).map((file) => Kit.forget(file)));
+    const kept = await Promise.all(Object.keys(files).map((file) => Kit.keep(file, files[file])));
+    if (kept.every(Boolean)) window.TypeRApp.toast(words()[5]);
+  };
+
+  // Asked once, on a first start, when the setup assistant (onboarding.js) didn't ask it
+  const offerPhotoshopSettings = async () => {
+    const App = window.TypeRApp;
+    try {
+      if (window.localStorage.getItem(OFFERED)) return;
+    } catch (error) {
+      return;
+    }
+    const found = await findPhotoshopSettings();
+    if (!found) return;
+    const [title, text, count, yes, no] = words();
     const body = document.createElement("div");
     body.style.display = "grid";
     body.style.gap = "8px";
-    [text, styles ? App.fill(count, { count: styles }) : null].filter(Boolean).forEach((line) => {
+    [text, found.styles ? App.fill(count, { count: found.styles }) : null].filter(Boolean).forEach((line) => {
       const p = document.createElement("p");
       p.textContent = line;
       body.appendChild(p);
     });
     const answer = await App.dialog({ title, body, ok: yes, cancel: no });
-    try {
-      window.localStorage.setItem(OFFERED, answer ? "taken" : "declined");
-    } catch (error) {
-      console.warn("TypeR Studio: no storage", error);
+    if (answer) await takePhotoshopSettings(found);
+    else {
+      try {
+        window.localStorage.setItem(OFFERED, "declined");
+      } catch (error) {
+        console.warn("TypeR Studio: no storage", error);
+      }
     }
-    if (!answer) return;
-    // The panel hasn't started yet: its files are replaced whole, profiles included
-    await Promise.all(own.filter((file) => Kit.keeps(file) && !files[file]).map((file) => Kit.forget(file)));
-    const kept = await Promise.all(Object.keys(files).map((file) => Kit.keep(file, files[file])));
-    if (kept.every(Boolean)) App.toast(done);
   };
-  window.TypeRStudio = { beforePanel: offerPhotoshopSettings };
+  window.TypeRStudio = { beforePanel: offerPhotoshopSettings, findPhotoshopSettings, takePhotoshopSettings, OFFERED };
 
   /* ----------------------------------- once it's up ------------------------------------ */
 

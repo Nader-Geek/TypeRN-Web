@@ -38,6 +38,11 @@ const launch = async (profile, env = {}, args = [], ready = booted) => {
   page.on("pageerror", (error) => problems.push(String(error).slice(0, 200)));
   page.on("requestfailed", (request) => problems.push(`failed ${request.url()}`));
   page.on("response", (response) => { if (response.status() >= 400) problems.push(`${response.status()} ${response.url()}`); });
+  // A new profile meets the setup assistant first: skipped, unless the test is about it
+  if (ready === booted) {
+    await page.waitForFunction(() => document.querySelector("dialog.onboard[open]") || (window.TypeRApp && window.TypeRApp.booted), null, { timeout: 30000 });
+    if (await page.$("dialog.onboard[open]")) await page.click("dialog.onboard .onboard__skip");
+  }
   await page.waitForFunction(ready, null, { timeout: 30000 });
   return { app, page, problems, bootMs: Date.now() - started };
 };
@@ -304,12 +309,21 @@ const main = async () => {
     "storage.before-import": "{}",
   };
   Object.entries(pluginFiles).forEach(([name, text]) => fs.writeFileSync(path.join(plugin, name), text));
-  const offered = () => document.querySelector("#modal[open]") || (window.TypeRApp && window.TypeRApp.booted);
-  const modalText = (page) => page.evaluate(() => { const modal = document.querySelector("#modal[open]"); return modal ? modal.innerText : null; });
+  // A first start goes through the setup assistant (web/onboarding.js): its styles step offers them
+  const offered = () => document.querySelector("dialog.onboard[open], #modal[open]") || (window.TypeRApp && window.TypeRApp.booted);
+  const modalText = (page) => page.evaluate(() => { const modal = document.querySelector("dialog.onboard[open], #modal[open]"); return modal ? modal.innerText : null; });
   const profile3 = path.join(WORK, "profile3");
   run = await launch(profile3, { TYPER_PHOTOSHOP_DIRS: plugin }, [], offered);
-  step("a first start offers TypeR for Photoshop's settings", /\b3\b/.test((await modalText(run.page)) || ""), ((await modalText(run.page)) || "no dialog").split("\n").filter(Boolean)[0]);
-  await run.page.click("#modal .modal__foot .btn:last-child");
+  await run.page.click("dialog.onboard .onboard__foot .btn--main").catch(() => {});
+  await wait(300);
+  const stylesStep = await run.page.evaluate(() => {
+    const on = document.querySelector("dialog.onboard .onboard__choice.is-on");
+    return on ? on.innerText : null;
+  }).catch(() => null);
+  step("a first start offers TypeR for Photoshop's settings", /\b3\b/.test(stylesStep || ""), (stylesStep || "no card").split("\n").filter(Boolean)[0]);
+  // Taken with Next, then the rest is skipped
+  await run.page.click("dialog.onboard .onboard__foot .btn--main");
+  await run.page.click("dialog.onboard .onboard__skip");
   await run.page.waitForFunction(booted, null, { timeout: 30000 });
   await wait(1500);
   const taken = await run.page.evaluate(() => {
@@ -320,6 +334,11 @@ const main = async () => {
   step("its profiles and styles are taken", taken.active === "/typer/storage_profile_p1" && taken.styles.join() === "m1,m2" && taken.paths.join() === "/typer/storage,/typer/storage_profile_p1,/typer/storage_profiles", JSON.stringify({ active: taken.active, styles: taken.styles }));
   step("without what only the plugin needs", !taken.base.mcpOperations && taken.base.autoUpdate === false && taken.base.tabs[0].images.length === 0 && taken.base.tabs[0].name === "105" && /panel\/index\.html/.test(taken.frame));
   step("the plugin's files are left as they were", Object.entries(pluginFiles).every(([name, text]) => fs.readFileSync(path.join(plugin, name), "utf8") === text));
+  const again = await run.page.evaluate(async () => {
+    const found = await window.TypeRStudio.findPhotoshopSettings({ overOwn: true });
+    return { again: Boolean(found && found.replaces), atStart: await window.TypeRStudio.findPhotoshopSettings() };
+  });
+  step("Help → Setup Assistant… offers them again, saying they replace these", again.again && again.atStart === null);
   await close(run);
   run = await launch(profile3, { TYPER_PHOTOSHOP_DIRS: plugin }, [], offered);
   step("and it's offered only once", (await modalText(run.page)) === null);

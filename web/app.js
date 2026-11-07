@@ -4827,33 +4827,40 @@
 
   // A trackpad's two fingers always pan and its pinch always zooms: a browser reports a pinch
   // as the wheel with Ctrl, without the key being down. The rest depends on Settings.
-  ui.stage.addEventListener("wheel", (event) => {
-    if (!app.doc) return;
-    event.preventDefault();
-    movingQuickly();
-    const rect = ui.stage.getBoundingClientRect();
+  // What a turn of the wheel does in a way of using it: { zoom } (the power of e it divides the
+  // zoom by) or { pan: [x, y] }. The setup assistant tries each way with it.
+  const wheelGesture = (event, way = settings.wheel) => {
     const mouse = wheelIsMouse(event);
     const pixels = WHEEL_PIXELS[event.deltaMode];
     // A notch moves the same on every mouse, even those that report 4 pixels for it
     const notch = (delta) => (mouse && delta ? Math.sign(delta) * Math.max(50, Math.min(120, Math.abs(delta))) : delta);
     const x = notch(event.deltaX * pixels);
     const y = notch(event.deltaY * pixels);
-    const zoomBy = (power) => zoomTo(view().zoom * Math.exp(-power), event.clientX - rect.left, event.clientY - rect.top);
-    const wheelZooms = settings.wheel === "zoom";
+    const wheelZooms = way === "zoom";
     // A notch spread over small events adds up to the same 120 as one whole notch
-    const zoom = () => zoomBy(y * (mouse || wheelZooms ? 0.0015 : 0.003));
-    const sideways = () => panBy(-(y || x), 0);
+    const zoom = () => ({ zoom: y * (mouse || wheelZooms ? 0.0015 : 0.003) });
+    const sideways = () => ({ pan: [-(y || x), 0] });
     const command = event.metaKey || (event.ctrlKey && app.keys.ctrl);
-    if (event.ctrlKey && !command && !mouse) zoomBy(event.deltaY * pixels * 0.01);
-    else if (settings.wheel !== "pan") {
-      if (command || event.ctrlKey) zoom();
-      else if (event.altKey) panBy(0, -y);
-      else if (event.shiftKey) sideways();
-      else if (wheelZooms || mouse) zoom();
-      else panBy(-x, -y);
-    } else if (event.altKey) zoom();
-    else if (command || event.ctrlKey || event.shiftKey) sideways();
-    else panBy(-x, -y);
+    if (event.ctrlKey && !command && !mouse) return { zoom: event.deltaY * pixels * 0.01 };
+    if (way !== "pan") {
+      if (command || event.ctrlKey) return zoom();
+      if (event.altKey) return { pan: [0, -y] };
+      if (event.shiftKey) return sideways();
+      if (wheelZooms || mouse) return zoom();
+      return { pan: [-x, -y] };
+    }
+    if (event.altKey) return zoom();
+    if (command || event.ctrlKey || event.shiftKey) return sideways();
+    return { pan: [-x, -y] };
+  };
+  ui.stage.addEventListener("wheel", (event) => {
+    if (!app.doc) return;
+    event.preventDefault();
+    movingQuickly();
+    const rect = ui.stage.getBoundingClientRect();
+    const move = wheelGesture(event);
+    if (move.pan) panBy(...move.pan);
+    else zoomTo(view().zoom * Math.exp(-move.zoom), event.clientX - rect.left, event.clientY - rect.top);
   }, { passive: false });
 
   /* -------------------------------- typing -------------------------------- */
@@ -8577,7 +8584,8 @@
   });
 
   /* The style kits TypeR exports: the styles join TypeR, the fonts stay in the browser */
-  const importKits = async (files) => {
+  // `restart: false` leaves the panel to be started by the caller (the setup assistant's end)
+  const importKits = async (files, { restart = true } = {}) => {
     const list = Array.from(files);
     if (!list.length) return;
     working(T("Importing your styles and fonts…"));
@@ -8618,7 +8626,7 @@
       storage = storage || Kit.freshStorage(false);
       parsed.forEach((data) => Kit.mergeInto(storage, data, stats));
       if (!(await Kit.keep(path, JSON.stringify(storage)))) refused.push(T("Your styles"));
-      startPanel();
+      if (restart) startPanel();
     }
     await Fonts.ready(Array.from(stats.fonts));
     working(null);
@@ -9874,6 +9882,7 @@
     ]],
     ["Help", [
       { label: "TypeR Tutorial", action: () => startPanel({ tour: true }) },
+      { label: "Setup Assistant…", action: () => setupAgain() },
       { label: "What's New", action: () => window.TypeRWhatsNew && window.TypeRWhatsNew.show() },
       { label: "Keyboard Shortcuts", action: () => showShortcuts() },
       ...(Shell.touch ? [] : [{ label: "SFX Guide", action: () => window.TypeRSFXGuide && window.TypeRSFXGuide.show() }]),
@@ -11269,6 +11278,24 @@
     });
   };
 
+  // What the setup assistant leaves to do once it's closed. The panel's files change only while
+  // it isn't running.
+  const applySetup = async (plan) => {
+    if (plan.photoshop && window.TypeRStudio) await window.TypeRStudio.takePhotoshopSettings(plan.photoshop).catch((error) => console.warn("TypeR Studio: Photoshop's settings", error));
+    if (plan.kits && plan.kits.length) await importKits(plan.kits, { restart: false });
+    // Without the tutorial asked for, a new panel doesn't start it by itself
+    if (!plan.tour && !Shell.touch && !Kit.storedPaths().some((path) => Kit.keeps(path))) await Kit.keep(`${Kit.ROOT}/storage`, JSON.stringify(Kit.freshStorage(false)));
+  };
+  // Help → Setup Assistant…: the same steps, from what is set now
+  const setupAgain = async () => {
+    if (!window.TypeROnboarding || ui.modal.open) return;
+    const plan = await window.TypeROnboarding.run({ again: true });
+    if (!plan || !(plan.photoshop || (plan.kits && plan.kits.length) || plan.tour)) return;
+    await closePanel();
+    await applySetup(plan);
+    startPanel({ tour: plan.tour });
+  };
+
   const boot = async () => {
     await PS.ops.fontsReady();
     await Promise.all([Fonts.restore().catch(() => null), Kit.loadFiles().catch(() => null)]);
@@ -11276,10 +11303,17 @@
     // One thing at a time: the panel's tutorial starts once these are read. What's new comes
     // first, since it says nothing on the very first start, when the beta is said.
     if (window.TypeRWhatsNew) await window.TypeRWhatsNew.atStart().catch((error) => console.warn("TypeR web: what's new", error));
-    await showBetaOnce();
-    // TypeR Studio offers to start from TypeR for Photoshop's settings (desktop.js)
-    if (window.TypeRStudio) await window.TypeRStudio.beforePanel().catch((error) => console.warn("TypeR Studio: Photoshop's settings", error));
-    startPanel();
+    // Someone new is walked through the choices that matter (onboarding.js): it says the beta
+    // and offers TypeR for Photoshop's settings itself
+    const Onboarding = window.TypeROnboarding;
+    const plan = Onboarding && Onboarding.due() ? await Onboarding.run().catch((error) => console.warn("TypeR web: the setup assistant", error)) : null;
+    if (plan) await applySetup(plan);
+    else {
+      await showBetaOnce();
+      // TypeR Studio offers to start from TypeR for Photoshop's settings (desktop.js)
+      if (window.TypeRStudio) await window.TypeRStudio.beforePanel().catch((error) => console.warn("TypeR Studio: Photoshop's settings", error));
+    }
+    startPanel({ tour: Boolean(plan && plan.tour) });
     await window.TypeRSession.restore({
       progress: (name) => working(name ? fill(T("Opening {name}…"), { name }) : null),
       failed: (name, error) => toast(fill(T("{name} can't be read: {error}"), { name, error: error.message || error }), true),
@@ -11312,6 +11346,33 @@
   boot();
 
   window.TypeRApp = {
+    // For the setup assistant (onboarding.js)
+    setup: {
+      lang,
+      LANGUAGES,
+      IS_MAC,
+      DESKTOP,
+      DISCORD,
+      wheelGesture,
+      useInstalledFonts,
+      serviceName,
+      money,
+      preferences: () => ({ wheel: settings.wheel, textLanguage: app.textDefaults.language }),
+      setPreferences({ wheel, textLanguage }) {
+        if (wheel) settings.wheel = wheel;
+        if (textLanguage) app.textDefaults.language = textLanguage;
+        keepSettings();
+        characterKey = "";
+        renderCharacter();
+      },
+      betaSeen() {
+        try {
+          window.localStorage.setItem(SEEN_BETA, "1");
+        } catch (error) {
+          // Said again next time, nothing else
+        }
+      },
+    },
     handleKey,
     generate: generateIn,
     showSampling,
