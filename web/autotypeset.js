@@ -20,7 +20,7 @@
   function entry(item, index, fallback) {
     const text = clean(typeof item === "string" ? item : item && (item.translatedText ?? item.text ?? item.content ?? item.translation ?? item.value));
     if (!text) return null;
-    return { id:"ats-"+index+"-"+Math.random().toString(36).slice(2,7), page:pageName(item && typeof item==="object" ? (item.page ?? item.pageName ?? item.image ?? item.file ?? item.filename) : null, fallback), text, bounds:item && typeof item==="object" ? getBounds(item) : null };
+    return { id:"ats-"+index+"-"+Math.random().toString(36).slice(2,7), page:pageName(item && typeof item==="object" ? (item.page ?? item.pageName ?? item.image ?? item.file ?? item.filename) : null, fallback), text, bounds:item && typeof item==="object" ? getBounds(item) : null, centerX:num(item && item.centerX), centerY:num(item && item.centerY), fontSize:num(item && item.fontSize) };
   }
   function parseText(source) {
     let page="Current page"; const out=[];
@@ -69,7 +69,7 @@
       const b=e.bounds||{};
       return '<article class="ats__entry" data-id="'+esc(e.id)+'"><textarea class="ats__text" aria-label="Translation text">'+esc(e.text)+'</textarea><div class="ats__coords">'+
       [['x',b.left],['y',b.top],['w',b.left!=null?b.right-b.left:""],['h',b.top!=null?b.bottom-b.top:""]].map(pair=>'<label>'+pair[0].toUpperCase()+'<input data-b="'+pair[0]+'" type="number" min="0" step="1" value="'+(pair[1]??"")+'"></label>').join("")+
-      '</div><small>'+(e.bounds?"إحداثيات محددة":"أدخل حدود الفقاعة بالبكسل")+'</small><button type="button" class="ats__remove" aria-label="Remove line">×</button></article>';
+      '</div><small>'+(e.bounds?"إحداثيات محددة":"أدخل حدود الفقاعة بالبكسل")+(e.centerX!=null||e.centerY!=null?" · مركز OCR: "+(e.centerX??"—")+", "+(e.centerY??"—")+(e.fontSize!=null?" · حجم: "+e.fontSize:""):"")+'</small><button type="button" class="ats__remove" aria-label="Remove line">×</button></article>';
     }).join("");
     host.querySelector(".ats__empty").hidden=items.length>0;
     host.querySelector(".ats__apply").disabled=!items.length;
@@ -83,7 +83,7 @@
     state.entries=parsed;state.fileName=file.name;state.page=pageNames()[0]||"";state.errors=[];render();
   }
   function exportData() {
-    const data={version:1,source:state.fileName,pages:pageNames().map(name=>({image:name,texts:state.entries.filter(e=>e.page===name).map(e=>({text:e.text,...(e.bounds?{bounds:e.bounds}:{})}))}))};
+    const data={version:1,source:state.fileName,pages:pageNames().map(name=>({image:name,texts:state.entries.filter(e=>e.page===name).map(e=>({text:e.text,...(e.bounds?{bounds:e.bounds}:{}),...(e.centerX!=null?{centerX:e.centerX}:{}),...(e.centerY!=null?{centerY:e.centerY}:{}),...(e.fontSize!=null?{fontSize:e.fontSize}:{})}))}))};
     const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
     const a=document.createElement("a");a.href=url;a.download=(state.fileName.replace(/\.[^.]+$/,"")||"translations")+".autotypeset.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
