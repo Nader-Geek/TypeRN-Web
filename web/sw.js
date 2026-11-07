@@ -9,7 +9,7 @@
 const CACHE = "typer-web-1";
 // A slow connection gets the copy after this long, and the answer goes in the copy for next time
 const WAIT = 1500;
-const CORE = ["./", "app.css", "touch.css", "shell.js", "keyclick.js", "fonts.js", "kit.js", "inpaint.js", "photoshop.js", "psd.js", "indesign.js", "psd-worker.js", "align-worker.js", "lama-worker.js", "session.js", "recent.js", "workspace.js", "generative.js", "whats-new.js", "whats-new.json", "onboarding.js", "app.js", "sfx.js", "sfx-guide.js", "sfx.css", "hyphenation.js", "breaks.js", "touch.js", "bridge.js", "manifest.webmanifest", "vendor/ag-psd.js", "../i18n.js", "panel/index.html"];
+const CORE = ["./", "app.css", "touch.css", "shell.js", "keyclick.js", "fonts.js", "kit.js", "inpaint.js", "photoshop.js", "psd.js", "indesign.js", "psd-worker.js", "align-worker.js", "lama-worker.js", "session.js", "recent.js", "workspace.js", "generative.js", "whats-new.js", "whats-new.json", "feedback.js", "onboarding.js", "app.js", "sfx.js", "sfx-guide.js", "sfx.css", "hyphenation.js", "breaks.js", "touch.js", "bridge.js", "manifest.webmanifest", "vendor/ag-psd.js", "../i18n.js", "panel/index.html"];
 
 const keyOf = (url) => {
   const { origin, pathname } = new URL(url, self.location.href);

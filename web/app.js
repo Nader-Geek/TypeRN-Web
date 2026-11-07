@@ -9936,6 +9936,7 @@
       DESKTOP
         ? { label: "Download the Photoshop Plugin", action: () => window.open(EXTENSION_ZIP, "_blank", "noopener") }
         : { label: "Download…", action: () => showDownloads() },
+      { label: "Send Feedback…", action: () => window.TypeRFeedback && window.TypeRFeedback.show() },
       { label: "Report a Problem", action: () => window.open("https://github.com/ScanR/TypeR/issues/new", "_blank", "noopener") },
       { label: "Discord Server", action: () => window.open(DISCORD, "_blank", "noopener") },
       { label: "Support the Project", action: () => window.open(KOFI, "_blank", "noopener") },
