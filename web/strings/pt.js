@@ -789,5 +789,13 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Downloading the model… {percent} %": "Baixando o modelo… {percent} %",
     "LaMa Manga redraws the selection, no prompt needed": "O LaMa Manga redesenha a seleção, sem prompt",
     "LaMa Manga redraws the selection from what surrounds it, on this device.": "O LaMa Manga redesenha a seleção a partir do que a cerca, neste dispositivo.",
+    "What's New": "Novidades",
+    "New features": "Novidades",
+    "Bug fixes": "Correções",
+    "And {count} more.": "E mais {count}.",
+    "Since you last opened TypeR Studio": "Desde a última vez que você abriu o TypeR Studio",
+    "Lately in TypeR Studio": "Recentemente no TypeR Studio",
+    "What's new can't be read right now.": "As novidades não podem ser lidas agora.",
+    "Don't show me this again": "Não mostrar novamente",
   },
 });

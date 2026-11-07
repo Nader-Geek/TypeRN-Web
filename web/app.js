@@ -9874,6 +9874,7 @@
     ]],
     ["Help", [
       { label: "TypeR Tutorial", action: () => startPanel({ tour: true }) },
+      { label: "What's New", action: () => window.TypeRWhatsNew && window.TypeRWhatsNew.show() },
       { label: "Keyboard Shortcuts", action: () => showShortcuts() },
       ...(Shell.touch ? [] : [{ label: "SFX Guide", action: () => window.TypeRSFXGuide && window.TypeRSFXGuide.show() }]),
       null,
@@ -11272,7 +11273,9 @@
     await PS.ops.fontsReady();
     await Promise.all([Fonts.restore().catch(() => null), Kit.loadFiles().catch(() => null)]);
     initFontBar();
-    // One thing at a time: the panel's tutorial starts once this is read
+    // One thing at a time: the panel's tutorial starts once these are read. What's new comes
+    // first, since it says nothing on the very first start, when the beta is said.
+    if (window.TypeRWhatsNew) await window.TypeRWhatsNew.atStart().catch((error) => console.warn("TypeR web: what's new", error));
     await showBetaOnce();
     // TypeR Studio offers to start from TypeR for Photoshop's settings (desktop.js)
     if (window.TypeRStudio) await window.TypeRStudio.beforePanel().catch((error) => console.warn("TypeR Studio: Photoshop's settings", error));

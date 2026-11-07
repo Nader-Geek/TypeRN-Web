@@ -789,5 +789,13 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Downloading the model… {percent} %": "모델 다운로드 중… {percent} %",
     "LaMa Manga redraws the selection, no prompt needed": "LaMa Manga가 선택 영역을 다시 그립니다. 프롬프트 불필요",
     "LaMa Manga redraws the selection from what surrounds it, on this device.": "LaMa Manga가 이 기기에서 선택 영역을 주변을 바탕으로 다시 그립니다.",
+    "What's New": "새로운 기능",
+    "New features": "새로운 기능",
+    "Bug fixes": "버그 수정",
+    "And {count} more.": "외 {count}개.",
+    "Since you last opened TypeR Studio": "TypeR Studio를 마지막으로 연 이후",
+    "Lately in TypeR Studio": "최근 TypeR Studio",
+    "What's new can't be read right now.": "지금은 새로운 내용을 읽을 수 없습니다.",
+    "Don't show me this again": "다시 표시하지 않음",
   },
 });
