@@ -1,19 +1,23 @@
 // Is the signed update in a commit the one of that commit's files? Installed apps take an
 // update only when every file online is the one it names: a push of the site without a fresh
-// update leaves them all on their version. Exit code 0 when it matches, 1 when it doesn't.
-// Used by .githooks/pre-push.
+// update leaves them all on their version. Its notes (web/whats-new.json) have to name every
+// feat(web) and fix(web) commit up to it, so the apps say what's new. Exit code 0 when all
+// matches, 1 when it doesn't. Used by .githooks/pre-push.
 
 const { execFileSync } = require("child_process");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { REPO, describe } = require("./site-files");
+const WhatsNew = require("./whats-new");
 
 const ref = process.argv[2] || "HEAD";
 const stale = (why) => {
   console.error(`The desktop update in ${ref.slice(0, 12)} is out of date: ${why}`);
   process.exit(1);
 };
+
+if (WhatsNew.fileAt(ref) !== WhatsNew.notesAt(ref)) stale(`${WhatsNew.FILE} doesn't list what's new up to it`);
 
 let signed;
 try {

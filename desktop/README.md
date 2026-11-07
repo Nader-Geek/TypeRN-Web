@@ -34,6 +34,20 @@ npm run publish-web  # écrit web/desktop-update.json, signé
 - Si une mise à jour de `web/` a besoin d'une app plus récente, monter `minContentShell` dans
   `package.json` : les apps plus anciennes attendront leur propre mise à jour.
 
+## Les nouveautés affichées au démarrage
+
+Au lancement, l'app (bureau et web) montre ce qui est arrivé depuis la dernière ouverture, à partir
+de `web/whats-new.json`. Le hook pre-push écrit ce fichier depuis les commits `feat(web)` et
+`fix(web)`, le commite avec la signature, dans un seul commit `chore`. Rien à faire de plus.
+
+- La note, c'est le sujet du commit, en anglais. Pour le français, une ligne dans le corps :
+  `Note-fr: Nouvelle Gomme magique (Maj+E)`. `Note-en:` remplace le sujet s'il est trop technique.
+- Pour un commit déjà fait : `desktop/scripts/whats-new-translations.json`, par les 12 premiers
+  caractères du hash. À commiter avant de pousser.
+- Un premier lancement ne montre rien. Aide → Nouveautés remontre les 7 derniers jours.
+- « Ne plus afficher » coupe la fenêtre au démarrage ; la décocher depuis Aide → Nouveautés la remet.
+- Comment écrire des notes claires : voir `AGENTS.md` à la racine.
+
 ## Construire les installateurs
 
 ### Mac, signé et notarisé
