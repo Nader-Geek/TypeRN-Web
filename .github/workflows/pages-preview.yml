@@ -1,0 +1,50 @@
+name: Preview Auto Typesetting on GitHub Pages
+
+on:
+  push:
+    branches:
+      - feature/auto-typesetting
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-preview
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out preview branch
+        uses: actions/checkout@v4
+
+      - name: Check JavaScript syntax
+        run: node --check web/autotypeset.js
+
+      - name: Prepare the web app and its required shared assets
+        run: |
+          mkdir -p _site/assets _site/images
+          cp -R web _site/web
+          cp -R assets/brand _site/assets/brand
+          if [ -d assets/fonts ]; then cp -R assets/fonts _site/assets/fonts; fi
+          cp i18n.js _site/i18n.js
+          cp images/icon.png images/kofi.svg _site/images/
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload preview site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy preview
+        id: deployment
+        uses: actions/deploy-pages@v4
