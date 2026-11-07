@@ -1,14 +1,11 @@
 .taste-skill/
 .DS_Store
 node_modules/
-site/dist/
 test-results/
 playwright-report/
 *.tsbuildinfo
 *.log
 
-# Commercial lettering fonts, unused by the site: their web licences aren't covered
+# Commercial lettering fonts, unused by TypeR Studio and the site: their web licences aren't covered
 assets/fonts/wild-words-*.woff2
 assets/fonts/fight-to-the-finish-*.woff2
-site/public/assets/fonts/wild-words-*.woff2
-site/public/assets/fonts/fight-to-the-finish-*.woff2

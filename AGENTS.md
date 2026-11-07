@@ -1,5 +1,14 @@
 # TypeR-Web : consignes pour les agents
 
+## Ce dépôt et le site
+
+Ce dépôt, c'est TypeR Studio : l'app web (`web/`) et l'app de bureau (`desktop/`). Le site
+typer.hayasaku.fr est dans [ScanR/TypeR-Site](https://github.com/ScanR/TypeR-Site), qui le publie
+avec les fichiers d'ici à côté : `web/`, `i18n.js`, `assets/brand/`, `assets/fonts/`,
+`images/icon.png` et `images/kofi.svg`. Les apps installées les téléchargent à ces adresses : ne
+pas les déplacer ni les renommer. Un push de `main` ici demande au site de se republier
+(`.github/workflows/site.yml`).
+
 ## Les nouveautés affichées aux utilisateurs
 
 Au démarrage, TypeR Studio (bureau et web) montre ce qui a changé depuis la dernière ouverture. Ces
@@ -14,7 +23,7 @@ est donc lu par les utilisateurs. Il doit être écrit pour eux, pas pour un dé
   « Corrections ».
 - Tout ce que l'utilisateur ne voit pas ne doit pas apparaître : refactorisation, tests, outils,
   performance invisible, synchronisation du panneau, correctif d'un bug jamais publié. Utiliser
-  `chore(web)`, `refactor(web)`, `test(web)`, ou une autre portée (`site`, `desktop`).
+  `chore(web)`, `refactor(web)`, `test(web)`, ou une autre portée (`desktop`).
 - Un changement visible = un commit. Ne pas mélanger plusieurs nouveautés sans rapport dans un
   même commit, ni découper une nouveauté en plusieurs `feat` qui n'ont de sens qu'ensemble.
 

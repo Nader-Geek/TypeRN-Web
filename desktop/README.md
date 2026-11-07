@@ -21,7 +21,13 @@ qui est copié : les polices commerciales ignorées restent donc hors de l'app.
 npm run publish-web  # écrit web/desktop-update.json, signé
 ```
 
-À lancer juste avant de committer ce qu'on publie, puis pousser le tout sur `main`.
+À lancer juste avant de committer ce qu'on publie, puis pousser le tout sur `main`. Le hook
+pre-push le fait de lui-même.
+
+Le site typer.hayasaku.fr est publié depuis [ScanR/TypeR-Site](https://github.com/ScanR/TypeR-Site),
+avec les fichiers de ce dépôt à côté. Un push de `main` lui demande de se republier
+(`.github/workflows/site.yml`, avec le secret `SITE_DISPATCH_TOKEN`). Il vérifie que les fichiers
+mis en ligne sont bien ceux de la mise à jour signée, et refuse de publier sinon.
 
 - Les apps regardent ce fichier au lancement, puis toutes les 6 heures. Elles téléchargent seulement
   les fichiers changés, les vérifient, puis basculent au lancement suivant, ou tout de suite si
