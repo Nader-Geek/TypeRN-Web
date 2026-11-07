@@ -9496,7 +9496,7 @@
 
   // Each one always leads to the latest release
   const EXTENSION_ZIP = "https://github.com/ScanR/TypeR/releases/latest/download/TypeR.zip";
-  const STUDIO_RELEASE = "https://github.com/ScanR/TypeR-Web/releases/latest/download/";
+  const STUDIO_RELEASE = "https://github.com/ScanR/TypeR-Studio/releases/latest/download/";
   const showDownloads = () => {
     const body = document.createElement("div");
     body.className = "downloads";

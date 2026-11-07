@@ -1,8 +1,9 @@
-# TypeR-Web : consignes pour les agents
+# TypeR Studio : consignes pour les agents
 
 ## Ce dépôt et le site
 
-Ce dépôt, c'est TypeR Studio : l'app web (`web/`) et l'app de bureau (`desktop/`). Le site
+Ce dépôt, `ScanR/TypeR-Studio` (anciennement `ScanR/TypeR-Web`, que GitHub redirige : ne jamais
+recréer un dépôt de ce nom), c'est TypeR Studio : l'app web (`web/`) et l'app de bureau (`desktop/`). Le site
 typer.hayasaku.fr est dans [ScanR/TypeR-Site](https://github.com/ScanR/TypeR-Site), qui le publie
 avec les fichiers d'ici à côté : `web/`, `i18n.js`, `assets/brand/`, `assets/fonts/`,
 `images/icon.png` et `images/kofi.svg`. Les apps installées les téléchargent à ces adresses : ne

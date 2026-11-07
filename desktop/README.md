@@ -98,7 +98,9 @@ Sans certificat de signature, Windows affiche l'avertissement SmartScreen à l'i
 ### Publier l'app elle-même
 
 Les installateurs dépassent la limite de 100 Mo par fichier de GitHub : ils vont dans les Releases de
-`ScanR/TypeR-Web`, où `electron-updater` les cherche.
+`ScanR/TypeR-Studio`, où `electron-updater` les cherche. Les apps publiées avant le renommage du
+dépôt (0.1.1 et avant) cherchent encore `ScanR/TypeR-Web` : GitHub les redirige. Ne jamais recréer
+de dépôt `ScanR/TypeR-Web`, sinon ces apps ne trouveraient plus leurs mises à jour.
 
 ```sh
 GH_TOKEN=... CSC_NAME="Adrien Devoe (4A2K68QQ82)" APPLE_KEYCHAIN_PROFILE=typer-studio npx electron-builder --mac --win --publish always
