@@ -114,6 +114,7 @@
     up: SVG('<path d="M12 20V4M5 11l7-7 7 7"/>'),
     down: SVG('<path d="M12 4v16M5 13l7 7 7-7"/>'),
     back: SVG('<path d="m15 5-7 7 7 7"/>'),
+    chevronDown: SVG('<path d="m6 9 6 6 6-6"/>'),
     forward: SVG('<path d="m9 5 7 7-7 7"/>'),
     script: SVG('<path d="M6 3h9l4 4v14H6ZM14 3v5h5M9 12h7M9 16h7"/>'),
     styles: SVG('<path d="M4 7V5h10v2M9 5v14M7 19h4M14 13v-1.500h7V13M17.500 11.500V19M16 19h3"/>'),
@@ -2667,6 +2668,8 @@
   // Pressing it leaves the text being typed as it is; the page under it doesn't see the click
   taskBar.addEventListener("pointerdown", (event) => {
     event.stopPropagation();
+    // The page never hears it, so the model's menu is closed from here (its button toggles it)
+    if (contextMenu && !event.target.closest(".ctxbar__model")) closeContextMenu();
     if (!ui.editor.hidden && event.target.closest("button")) event.preventDefault();
   });
   taskBar.addEventListener("dblclick", (event) => event.stopPropagation());
@@ -3392,8 +3395,50 @@
     go.className = "btn btn--main btn--small";
     go.textContent = T("Generate");
     go.addEventListener("click", runGenerative);
+    // The model, changed here as in Settings: a small button, its menu every service's models,
+    // grouped, the choice kept at once
+    const account = Gen.load();
+    const current = Gen.modelsOf(account).find(([id]) => id === Gen.modelOf(account));
+    const modelPick = document.createElement("button");
+    modelPick.type = "button";
+    modelPick.className = "ctxbar__model";
+    modelPick.innerHTML = ICON.sparkles + ICON.chevronDown;
+    modelPick.title = `${T("Model")}: ${current ? current[1] : Gen.modelOf(account)} (${serviceName(account.service)})`;
+    modelPick.setAttribute("aria-label", modelPick.title);
+    modelPick.setAttribute("aria-haspopup", "menu");
+    let menuWasOpen = false;
+    modelPick.addEventListener("pointerdown", () => { menuWasOpen = Boolean(contextMenu); });
+    modelPick.addEventListener("click", (event) => {
+      if (menuWasOpen || (event.detail === 0 && contextMenu)) {
+        menuWasOpen = false;
+        closeContextMenu();
+        return;
+      }
+      const choose = (name, id) => {
+        const now = Gen.load();
+        now.service = name;
+        now.models[name] = id;
+        if (!Gen.save(now)) toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
+        taskBarKey = "";
+        schedule(false);
+      };
+      const entries = [];
+      Object.keys(Gen.SERVICES).forEach((name) => {
+        if (entries.length) entries.push(null);
+        entries.push({ heading: serviceName(name) });
+        Gen.modelsOf(account, name).forEach(([id, text]) => {
+          entries.push({ label: text, check: () => account.service === name && Gen.modelOf(account) === id, action: () => choose(name, id) });
+        });
+      });
+      const box = modelPick.getBoundingClientRect();
+      openContextMenu(box.left, box.bottom + 4, entries);
+      if (event.detail === 0 && contextMenu) {
+        const row = contextMenu.querySelector(".menu__item");
+        if (row) row.focus();
+      }
+    });
     const keyButton = iconButton("key", T("Generative Fill settings"), false, () => generativeSettings());
-    taskBar.append(back, input, go, keyButton, separator(), deselect, separator(), hide);
+    taskBar.append(back, modelPick, input, go, keyButton, separator(), deselect, separator(), hide);
     if (gen.focus) {
       gen.focus = false;
       requestAnimationFrame(() => (promptless ? go : input).focus());
@@ -3406,7 +3451,8 @@
       taskBar.hidden = true;
       return;
     }
-    const key = JSON.stringify(["selection", gen.open, settings.spellcheck, Boolean(Gen), Boolean(Gen) && Gen.takesPrompt(Gen.load())]);
+    const account = Gen && Gen.load();
+    const key = JSON.stringify(["selection", gen.open, settings.spellcheck, Boolean(Gen), Boolean(Gen) && [account.service, Gen.modelOf(account), account.custom]]);
     if (key !== taskBarKey) {
       const typing = taskBar.contains(document.activeElement) && document.activeElement.tagName === "INPUT";
       taskBarKey = key;
@@ -10563,6 +10609,14 @@
         const sep = document.createElement("div");
         sep.className = "menu__sep";
         list.appendChild(sep);
+        return;
+      }
+      // A group's title, not a command
+      if (item.heading) {
+        const head = document.createElement("div");
+        head.className = "menu__heading";
+        head.textContent = item.heading;
+        list.appendChild(head);
         return;
       }
       const row = document.createElement("button");

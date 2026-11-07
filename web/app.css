@@ -270,6 +270,11 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .ctxbar__gen svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .ctxbar__gen svg { color: var(--blue, #4a9dff); }
 .ctxbar__prompt { width: min(300px, 42vw); height: 24px; }
+.ctxbar__model { display: inline-flex; align-items: center; gap: 1px; height: 24px; padding: 0 3px 0 5px; border-radius: 3px; color: var(--blue, #4a9dff); }
+.ctxbar__model:hover { background: var(--ui-3); }
+.ctxbar__model svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ctxbar__model svg:last-child { width: 11px; height: 11px; color: var(--muted); }
+.menu__heading { padding: 5px 14px 3px; color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .ctxbar__state { min-width: 92px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .ctxbar__hide svg { width: 12px; height: 12px; }
 @keyframes ctxbar-in { from { opacity: 0; transform: translateY(-3px); } }
