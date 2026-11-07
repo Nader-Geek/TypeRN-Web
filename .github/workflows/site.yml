@@ -1,0 +1,31 @@
+# typer.hayasaku.fr is published from ScanR/TypeR-Site, with this repository's files beside the
+# site (web/ and the rest the installed apps download). A push of main here asks it to publish
+# again. SITE_DISPATCH_TOKEN: a fine-grained token on ScanR/TypeR-Site only, with "Contents: read
+# and write". Without it, nothing is asked and nothing fails.
+name: Publish on the site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "assets/brand/**"
+      - "assets/fonts/**"
+      - "i18n.js"
+      - "images/icon.png"
+      - "images/kofi.svg"
+      - "desktop/src/update-key.pub.pem"
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then echo "No SITE_DISPATCH_TOKEN: the site isn't asked to publish."; exit 0; fi
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/ScanR/TypeR-Site/dispatches \
+            -d '{"event_type":"studio-updated"}'
