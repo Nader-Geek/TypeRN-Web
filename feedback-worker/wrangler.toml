@@ -1,0 +1,14 @@
+name = "typer-feedback"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+workers_dev = false
+routes = [{ pattern = "feedback.teamscanr.fr", custom_domain = true }]
+
+# A few messages a minute from one address: enough for a person, not for a flood
+[[ratelimits]]
+name = "LIMIT"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 3
+  period = 60
