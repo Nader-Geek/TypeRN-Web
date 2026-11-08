@@ -9701,6 +9701,7 @@
       { label: "Export as WebP…", enabled: () => hasDoc() && canWriteWebp, action: () => exportImage("image/webp") },
       { label: "Export for InDesign (IDML)…", enabled: hasDoc, action: exportInDesign },
       { label: "Batch Save…", action: batchSave },
+      { label: "Auto-place from Manga-AutoTranslate…", action: () => window.TypeRAutoPlace.openDialog() },
       null,
       { label: "Import Styles and Fonts (.zip, .json)…", action: () => $("file-kit").click() },
       // The app sees the computer's fonts from the start: there's nothing to ask for
