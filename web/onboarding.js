@@ -120,6 +120,25 @@
     return { box, pick };
   };
 
+  // A bubble's text selected with the Move tool, with or without its frame and handles: on top
+  // of a card's words
+  const example = (controls) => (words) => {
+    const handles = controls
+      ? [[74, 47], [110, 47], [146, 47], [146, 61], [146, 75], [110, 75], [74, 75], [74, 61]]
+        .map(([x, y]) => `<rect class="onboard__ex-handle" x="${x - 3}" y="${y - 3}" width="6" height="6"/>`).join("")
+      : "";
+    // Controls: the arrows that turn it, past a corner. Without: the pointer that drags it.
+    const cursor = controls
+      ? '<g class="onboard__ex-cursor" transform="translate(155 38)"><path class="onboard__ex-halo" d="M-9 -1A10 10 0 0 1 1 9"/><path d="M-9 -1A10 10 0 0 1 1 9"/><path class="onboard__ex-head" d="M-13 -1L-8 -5.5V3.5ZM1 13L-3.5 8H5.5Z"/></g>'
+      : '<path class="onboard__ex-pointer" d="M122 60v15l4-3.5 2.5 5.5 2.2-1-2.5-5.5h5.3z"/>';
+    words.insertAdjacentHTML("afterbegin", `<svg class="onboard__example" viewBox="0 0 220 112" aria-hidden="true">
+      <rect class="onboard__ex-page" width="220" height="112"/>
+      <path class="onboard__ex-bubble" d="M110 24c33 0 58 16 58 37s-25 37-58 37c-7 0-14-1-20-2l-22 12 9-17c-12-7-25-17-25-30 0-21 25-37 58-37z"/>
+      <text class="onboard__ex-text" x="110" y="67" text-anchor="middle">TypeR!</text>
+      ${controls ? '<rect class="onboard__ex-frame" x="74" y="47" width="72" height="28"/>' : ""}${handles}${cursor}
+    </svg>`);
+  };
+
   /* -------------------------------- the steps -------------------------------- */
 
   // Each step: { id, when(), title, build(pane, state) → { leave() } }. `leave` keeps what was
@@ -295,9 +314,59 @@
           }
           draw();
         }, { passive: false });
+        // Holding the wheel down drags the page, as in the workspace
+        let drag = null;
+        pad.addEventListener("pointerdown", (event) => {
+          if (event.button !== 1) return;
+          event.preventDefault();
+          tip.hidden = true;
+          drag = { id: event.pointerId, x: event.clientX - view.x, y: event.clientY - view.y };
+          pad.setPointerCapture(event.pointerId);
+          pad.classList.add("is-panning");
+        });
+        pad.addEventListener("pointermove", (event) => {
+          if (!drag || event.pointerId !== drag.id) return;
+          view.x = event.clientX - drag.x;
+          view.y = event.clientY - drag.y;
+          draw();
+        });
+        const drop = (event) => {
+          if (!drag || event.pointerId !== drag.id) return;
+          drag = null;
+          pad.classList.remove("is-panning");
+        };
+        pad.addEventListener("pointerup", drop);
+        pad.addEventListener("pointercancel", drop);
+        // Keeps the browser from starting its own scrolling on a wheel click
+        pad.addEventListener("mousedown", (event) => { if (event.button === 1) event.preventDefault(); });
+        pad.addEventListener("auxclick", (event) => { if (event.button === 1) event.preventDefault(); });
         return {
           leave: () => {
             setup.setPreferences({ wheel: way });
+            return true;
+          },
+        };
+      },
+    },
+    {
+      id: "transform",
+      // On a touch screen the handles are always there
+      when: () => !window.TypeRShell.touch,
+      title: () => T("Transform Controls"),
+      build(pane) {
+        const setup = App().setup;
+        el("p", "onboard__lead", pane, T("With the Move tool, a frame with handles can appear around the text or image you select."));
+        let on = setup.preferences().transformControls;
+        const keys = setup.shortcut("Free Transform");
+        const menu = `${T("Edit")} → ${T("Free Transform")}${keys ? ` (${keys})` : ""}`;
+        choices(pane, [
+          { id: "on", title: T("With Transform Controls"), text: T("Drag a handle to resize it, or just outside a corner to rotate it."), extra: example(true) },
+          { id: "off", title: T("Without Transform Controls"), text: fill(T("Nothing covers the lettering: drag to move it. {menu} still resizes and rotates it."), { menu }), extra: example(false) },
+        ], on ? "on" : "off", (id) => { on = id === "on"; }).box.classList.add("onboard__choices--row");
+        el("p", "onboard__meta", pane, fill(T("You can change this at any time with the “{name}” box, in the Move tool's options."), { name: T("Show Transform Controls") }));
+        return {
+          leave: () => {
+            setup.setPreferences({ transformControls: on });
             return true;
           },
         };
@@ -376,14 +445,69 @@
           link.target = "_blank";
           link.rel = "noopener";
         };
+        // On this device: LaMa Manga, and in the desktop app FLUX too, picked in a list. What the
+        // model is follows the pick; FLUX's size and whether it runs here come from the app.
+        const locals = {};
+        const localModel = (service) => (words) => {
+          const models = Gen.modelsOf(saved, service);
+          const about = el("p", null, words);
+          let select = null;
+          let turn = 0;
+          const describe = () => {
+            const model = select ? select.value : models[0][0];
+            const name = (models.find(([id]) => id === model) || [model, model])[1];
+            const mine = ++turn;
+            if (!Gen.isFlux(model)) {
+              about.textContent = T("LaMa Manga, without a key. It downloads once (234 MB) the first time it's used, then works offline. It takes no prompt: it redraws the selection from what surrounds it.");
+              return;
+            }
+            about.textContent = "";
+            Gen.localStatus().catch(() => null).then((now) => {
+              if (mine !== turn) return;
+              const here = now && now.models && now.models[model];
+              if (now && !now.available) about.textContent = setup.cantRunText(now, name);
+              else {
+                about.textContent = fill(T("{model}, without a key. It downloads once ({size}) the first time it's used, then works offline. It follows your prompt if you write one; without one, it takes the text out."), { model: name, size: setup.sizeText(here ? (here.installed ? here.size : here.download) : 6e9) });
+                if (here && here.installed) about.textContent += ` ${T("Already downloaded on this device.")}`;
+                about.textContent += ` ${T("It needs a powerful computer: at least 16 GB of memory, and a good graphics card or a recent Mac. A fill then takes about a minute; without them, much longer.")}`;
+              }
+            });
+          };
+          if (models.length > 1) {
+            const row = el("div", "onboard__row", words);
+            select = el("select", null, row);
+            select.setAttribute("aria-label", T("Model"));
+            models.forEach(([id, text]) => {
+              const option = el("option", null, select, text);
+              option.value = id;
+            });
+            select.value = Gen.modelOf(saved, service);
+            // The room each one takes on the disk, and whether it's already there
+            Promise.all([Gen.localStatus().catch(() => null), Gen.localReady().catch(() => false)]).then(([now, lama]) => {
+              Array.from(select.options).forEach((option) => {
+                const flux = Gen.isFlux(option.value);
+                const here = flux ? now && now.models && now.models[option.value] : { size: Gen.LAMA_SIZE, installed: lama };
+                if (here && here.size) option.textContent += ` · ${setup.sizeText(here.size)}${here.installed ? ` · ${T("Downloaded")}` : ""}`;
+              });
+            });
+            select.addEventListener("change", () => {
+              describe();
+              cards.pick(service, false);
+            });
+            locals[service] = select;
+          }
+          // The list first, then what the model picked is
+          words.appendChild(about);
+          describe();
+        };
         // Free and ready without a key comes first
         const services = Object.keys(Gen.SERVICES).sort((a, b) => Number(Gen.isLocal(b)) - Number(Gen.isLocal(a)));
         const list = services.map((service) => (Gen.isLocal(service)
-          ? { id: service, title: `${setup.serviceName(service)} · ${T("Free of charge")}`, text: T("LaMa Manga, without a key. It downloads once (234 MB) the first time it's used, then works offline. It takes no prompt: it redraws the selection from what surrounds it.") }
+          ? { id: service, title: `${setup.serviceName(service)} · ${T("Free of charge")}`, extra: localModel(service) }
           : { id: service, title: Gen.SERVICES[service].name, text: fill(T("Follows a prompt. Your key stays on this device and goes only to {service}, which bills you."), { service: Gen.SERVICES[service].name }), extra: keyed(service) }));
         list.push({ id: "later", title: T("Later"), text: T("Generative Fill asks for it the first time you use it.") });
         let choice = Gen.ready(saved) ? saved.service : "later";
-        choices(pane, list, choice, (id) => {
+        const cards = choices(pane, list, choice, (id) => {
           choice = id;
           if (keys[id] && !keys[id].value) setTimeout(() => keys[id].focus());
         });
@@ -391,6 +515,7 @@
           leave: () => {
             const now = Gen.load();
             Object.keys(keys).forEach((service) => { now.keys[service] = keys[service].value.trim(); });
+            if (locals[choice]) now.models[choice] = locals[choice].value;
             if (choice !== "later") now.service = choice;
             if (!Gen.save(now)) App().toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
             return true;
@@ -413,7 +538,7 @@
         el("p", "onboard__lead", pane, T("How would you like to start?"));
         let choice = state.again ? "start" : "tour";
         choices(pane, [
-          { id: "tour", title: T("Take the tutorial"), text: T("TypeR walks you through a practice page: load a script, pick a style, then click a bubble to place its line.") },
+          { id: "tour", title: T("Take the tutorial"), text: window.TypeRGuide ? T("Short lessons on a practice chapter, in the real workspace: finding your way, cleaning, the script, styles and typesetting.") : T("TypeR walks you through a practice page: load a script, pick a style, then click a bubble to place its line.") },
           { id: "start", title: T("Start working"), text: fill(T("The tutorial stays in {menu}."), { menu: menu("TypeR Tutorial") }) },
         ], choice, (id) => { choice = id; });
         el("p", "onboard__meta", pane, later);

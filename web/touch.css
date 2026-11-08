@@ -244,7 +244,13 @@ html.touch .character__row .icon-btn { font-size: 16px; }
 /* the font list, as a sheet */
 html.touch .font-menu { left: 0 !important; right: 0 !important; top: auto !important; bottom: var(--kb) !important; width: auto !important; max-height: min(72dvh, calc(100dvh - var(--kb) - 60px)) !important; height: min(72dvh, calc(100dvh - var(--kb) - 60px)); border-radius: 12px 12px 0 0; padding-bottom: var(--safe-b); box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.5); }
 html.touch .font-menu__search { height: 44px; margin: 10px; }
-html.touch .font-menu__item { height: 50px; padding: 0 16px; font-size: 20px; line-height: 50px; contain-intrinsic-size: auto 50px; }
+html.touch .font-menu__head { margin: 10px; gap: 6px; }
+html.touch .font-menu__item { height: 50px; padding: 0 6px 0 16px; contain-intrinsic-size: auto 50px; }
+html.touch .font-menu__name { font-size: 20px; line-height: 50px; }
+html.touch .font-menu__filter, html.touch .font-menu__star { width: 44px; height: 44px; }
+html.touch .font-menu__filter svg, html.touch .font-menu__star svg { width: 20px; height: 20px; }
+/* No pointer to show it: the star is always there */
+html.touch .font-menu__item .font-menu__star:not(.is-on) { visibility: visible; }
 html.touch .font-menu__more { min-height: 48px; font-size: 15px; }
 
 /* line breaks */

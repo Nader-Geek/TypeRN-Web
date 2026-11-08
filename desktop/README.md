@@ -52,7 +52,8 @@ de `web/whats-new.json`. Le hook pre-push écrit ce fichier depuis les commits `
   caractères du hash. À commiter avant de pousser.
 - Un premier lancement ne montre rien. Aide → Nouveautés remontre les 7 derniers jours.
 - « Ne plus afficher » coupe la fenêtre au démarrage ; la décocher depuis Aide → Nouveautés la remet.
-- Comment écrire des notes claires : voir `AGENTS.md` à la racine.
+- Une note claire : une phrase courte, les mots de l'interface, le résultat plutôt que la cause,
+  aucun nom de fichier ni jargon.
 
 ## Construire les installateurs
 

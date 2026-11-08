@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, screen, session, shell } = require("electron");
 const content = require("./content");
+const localAI = require("./local-ai");
 
 const SCHEME = "typer";
 const HOST = "app";
@@ -32,6 +33,11 @@ let pageAlive = false;
 let pageReady = false;
 let lastCrash = 0;
 let strings = {};
+// The page has a question for when the window closes (web/feedback.js): asked once, then the
+// window closes for good. A page that doesn't take it up in time doesn't keep it open.
+let farewell = false;
+let farewellDone = false;
+const FAREWELL_WAIT = 1500;
 const waitingPaths = [];
 
 /* -------------------------------- the app's files -------------------------------- */
@@ -228,7 +234,18 @@ const createWindow = () => {
     clearTimeout(win.keepTimer);
     win.keepTimer = setTimeout(keepBounds, 500);
   }));
-  win.on("close", keepBounds);
+  win.on("close", (event) => {
+    keepBounds();
+    if (!farewell || farewellDone || !pageReady) return;
+    farewellDone = true;
+    event.preventDefault();
+    win.farewellShown = false;
+    win.webContents.send("farewell");
+    const asked = win;
+    setTimeout(() => {
+      if (!asked.isDestroyed() && !asked.farewellShown) asked.close();
+    }, FAREWELL_WAIT);
+  });
   win.on("closed", () => {
     win = null;
     pageAlive = false;
@@ -268,7 +285,10 @@ const createWindow = () => {
     }
     const answer = dialog.showMessageBoxSync(win, { type: "error", message: strings.crashed || "TypeR Studio stopped working, maybe for lack of memory.", buttons: [strings.tryAgain || "Try Again", strings.quit || "Quit"], defaultId: 0, cancelId: 1 });
     if (answer === 0) win.reload();
-    else app.quit();
+    else {
+      farewellDone = true;
+      app.quit();
+    }
   });
 
   // Never came up: choose() drops a downloaded version at the next launch. What's in the
@@ -402,11 +422,50 @@ ipcMain.on("text-edit", (event, command) => {
   if (Object.values(TEXT_EDITS).includes(command) && win) win.webContents[command]();
 });
 ipcMain.on("set-strings", (event, given) => { strings = given; });
+// Tests close the window themselves: no question in their way, unless it's the one tested
+ipcMain.on("set-farewell", (event, on) => { farewell = Boolean(on) && (!isTest || process.env.TYPER_TEST_FAREWELL === "1"); });
+ipcMain.on("farewell-shown", () => { if (win) win.farewellShown = true; });
+ipcMain.on("farewell-done", () => {
+  farewellDone = true;
+  if (win) win.close();
+});
 ipcMain.handle("photoshop-settings", () => findPhotoshopSettings().catch((error) => {
   console.warn("TypeR for Photoshop's settings:", error.message);
   return null;
 }));
+// Generative Fill with FLUX on this computer (local-ai.js). Only this window may ask, only for a
+// model the app knows; downloads and fills can be stopped by the id the page gave them.
+const fromPage = (event) => Boolean(win) && event.sender === win.webContents;
+const localJobs = new Map();
+const localJob = async (event, id, run) => {
+  if (!fromPage(event)) throw new Error("Not allowed.");
+  const key = String(id);
+  const controller = new AbortController();
+  localJobs.set(key, controller);
+  const tell = (progress) => { if (!event.sender.isDestroyed()) event.sender.send("local-ai-progress", Object.assign({ id: key }, progress)); };
+  try {
+    return { ok: true, value: await run(controller.signal, tell) };
+  } catch (error) {
+    if (!(error instanceof localAI.LocalError)) console.warn("Local Generative Fill:", error);
+    return { ok: false, kind: error.kind || "other", message: String(error.message || error).slice(0, 500) };
+  } finally {
+    localJobs.delete(key);
+  }
+};
+ipcMain.handle("local-ai-status", (event) => (fromPage(event) ? localAI.status() : null));
+ipcMain.handle("local-ai-install", (event, id, model) => localJob(event, id, (signal, tell) => localAI.install(String(model), signal, tell)));
+ipcMain.handle("local-ai-remove", (event, model) => (fromPage(event) ? localAI.remove(String(model)) : null));
+ipcMain.handle("local-ai-generate", (event, id, request) => localJob(event, id, (signal, tell) => {
+  const { model, image, mask, prompt, width, height } = request || {};
+  if (!(image instanceof Uint8Array) || !(mask instanceof Uint8Array) || !Number.isFinite(width) || !Number.isFinite(height) || width > 2048 || height > 2048) throw new localAI.LocalError("other", "Bad request.");
+  return localAI.generate({ model: String(model), image, mask, prompt: String(prompt || ""), width, height }, signal, tell);
+}));
+ipcMain.on("local-ai-cancel", (event, id) => {
+  const controller = fromPage(event) && localJobs.get(String(id));
+  if (controller) controller.abort();
+});
 ipcMain.on("reload-for-update", () => {
+  farewellDone = true;
   app.relaunch();
   app.quit();
 });

@@ -62,7 +62,7 @@ export default {
     const stars = "★".repeat(rating) + "☆".repeat(5 - rating);
     const details = [app, `lang: ${lang}`, days !== null ? `${days} day${days === 1 ? "" : "s"} of use` : ""].filter(Boolean).join(" · ");
     const embed = {
-      title: `${stars}  ${rating}/5`,
+      title: `${data.kind === "first" ? "First experience · " : ""}${stars}  ${rating}/5`,
       description: text ? plain(text) : "*No comment*",
       color: COLORS[rating],
       footer: { text: details },

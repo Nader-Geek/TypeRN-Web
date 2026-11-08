@@ -216,7 +216,7 @@
         antiAlias: ANTI_ALIAS_IN[text.antiAlias] || "antiAliasSmooth",
         textClickPoint: { horizontal: (originX / doc.width) * 100, vertical: (originY / doc.height) * 100 },
         textStyleRange: ranges,
-        paragraphStyleRange: [{ from: 0, to: value.length, paragraphStyle: Object.assign({ alignment, autoLeadingPercentage: (text.paragraphStyle && text.paragraphStyle.autoLeading) || 1.2 }, text.paragraphStyle && text.paragraphStyle.hanging ? { hangingRoman: true } : {}) }],
+        paragraphStyleRange: [{ from: 0, to: value.length, paragraphStyle: Object.assign({ alignment, autoLeadingPercentage: (text.paragraphStyle && text.paragraphStyle.autoLeading) || 1.2 }, text.paragraphStyle && text.paragraphStyle.hanging ? { hangingRoman: true } : {}, bounds && text.paragraphStyle && text.paragraphStyle.autoHyphenate === true ? { hyphenate: true } : {}) }],
         textShape: [bounds
           ? { textType: "box", orientation: text.orientation === "vertical" ? "vertical" : "horizontal", box: { width: (bounds[2] - bounds[0]) * scale, height: (bounds[3] - bounds[1]) * scale, autoHeight: false } }
           : { textType: "point", orientation: text.orientation === "vertical" ? "vertical" : "horizontal" }],
@@ -261,6 +261,37 @@
     ring(stroke.size, stroke.color);
     ctx.drawImage(bitmap, pad, pad);
     return { canvas, pad };
+  };
+
+  // TypeR used to save a stroked text's pixels with their stroke drawn in, under the same stroke
+  // as a layer style: drawn again around them, it came back twice as thick. Photoshop's own
+  // pixels are only the letters, in their colours: many opaque pixels in the stroke's colour
+  // and in none of the letters' are a stroke drawn in. A stroke of the letters' own colour
+  // can't be told apart.
+  const strokeDrawnIn = (bitmap, stroke, params) => {
+    if (!bitmap || !bitmap.width || !bitmap.height) return false;
+    const near = (a, b) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b) < 90;
+    const letters = params.layerText.textStyleRange.map(({ textStyle }) => (textStyle.color ? { r: textStyle.color.red, g: textStyle.color.green, b: textStyle.color.blue } : { r: 0, g: 0, b: 0 }));
+    const rings = [stroke.color].concat(stroke.outer ? [stroke.outer.color] : []).filter((color) => !letters.some((letter) => near(letter, color)));
+    if (!rings.length) return false;
+    let data;
+    try {
+      data = bitmap.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, bitmap.width, bitmap.height).data;
+    } catch (error) {
+      return false;
+    }
+    let opaque = 0;
+    let ringed = 0;
+    const pixel = { r: 0, g: 0, b: 0 };
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 200) continue;
+      opaque++;
+      pixel.r = data[i];
+      pixel.g = data[i + 1];
+      pixel.b = data[i + 2];
+      if (rings.some((color) => near(pixel, color)) && !letters.some((letter) => near(pixel, letter))) ringed++;
+    }
+    return opaque > 0 && ringed > opaque * 0.15;
   };
 
   /* --------------------------- SFX in the file's XMP --------------------------- */
@@ -400,7 +431,9 @@
             layer.raster = { bitmap: node.canvas, left: node.left || 0, top: node.top || 0 };
             // The letters at the layer's Fill, over their stroke
             const amount = engine.fillOf(layer);
-            if (layer.stroke) {
+            // Shown as they are, and saved again as an edited text: the file comes out right
+            if (layer.stroke && amount === 1 && !layer.knockout && strokeDrawnIn(node.canvas, layer.stroke, params)) layer.raster.strokeDrawnIn = true;
+            else if (layer.stroke) {
               const { canvas, pad } = strokedDisplay(node.canvas, layer.stroke);
               if (amount < 1) {
                 const c = canvas.getContext("2d");
@@ -533,7 +566,8 @@
       antiAlias: ANTI_ALIAS_OUT[lt.antiAlias] || "smooth",
       shapeType: box ? "box" : "point",
       style: styleToPsd(ranges[0] ? ranges[0].textStyle : {}, doc.resolution),
-      paragraphStyle: Object.assign({ justification: JUSTIFY_OUT[paragraph && paragraph.alignment] || "center" }, paragraph && paragraph.hangingRoman ? { hanging: true } : {}),
+      // Photoshop hyphenates unless told not to: it would cut words TypeR keeps whole
+      paragraphStyle: Object.assign({ justification: JUSTIFY_OUT[paragraph && paragraph.alignment] || "center", autoHyphenate: Boolean(paragraph && paragraph.hyphenate) }, paragraph && paragraph.hangingRoman ? { hanging: true } : {}),
     };
     if (box) {
       // A little room, so that Photoshop's own line heights don't hide the last line.
@@ -637,7 +671,7 @@
       return node;
     }
     if (layer.kind === "text") {
-      if (layer.raster && layer.raw && layer.raw.text) {
+      if (layer.raster && !layer.raster.strokeDrawnIn && layer.raw && layer.raw.text) {
         // Not edited: Photoshop's own text and pixels, only moved if the user moved it
         const moveX = layer.raster.left - (layer.raw.left || 0);
         const moveY = layer.raster.top - (layer.raw.top || 0);
@@ -653,8 +687,9 @@
       }
       flags.editedText = true;
       node.text = textToPsd(layer, doc);
-      // A hollow text's pixels are its letters, which Photoshop hides at Fill 0%: its stroke is drawn from them
-      const visual = engine.visualOf(Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined }, layer.knockout || engine.fillOf(layer) < 1 ? { knockout: false, stroke: null } : null), doc);
+      // A text's pixels are only its letters, even a hollow one's, which Photoshop hides at
+      // Fill 0%: Photoshop draws the layer style's stroke around them
+      const visual = engine.visualOf(Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined, knockout: false, stroke: null, raster: null }), doc);
       if (visual) place(node, visual.canvas, visual.x, visual.y);
       if (layer.knockout) node.fillOpacity = 0;
       else if (node.fillOpacity === 0) node.fillOpacity = 1;

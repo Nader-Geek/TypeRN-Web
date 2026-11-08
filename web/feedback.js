@@ -1,7 +1,10 @@
 // "What do you think of TypeR Studio?": one to five stars and what's missing, sent to the TypeR
 // team's Discord through feedback-worker/ (the webhook stays there, out of these public files).
-// Asked by itself only of those who came back to the app on several days, at a quiet moment
-// (nothing open, nothing being drawn or typed); Help → Send Feedback… brings it anytime.
+// Asked by itself twice at most in someone's life with the app: about their first experience, as
+// TypeR Studio closes after a first session long enough to judge (the desktop app; a browser
+// can't show anything as a tab closes, so the web asks at the next start), then of those who
+// came back on several days, at a quiet moment (nothing open, nothing being drawn or typed).
+// Help → Send Feedback… brings it anytime.
 
 (function () {
   "use strict";
@@ -22,6 +25,10 @@
   // Someone who used the app before this was counted: on their way to the questions already
   const USED = ["typer.web.settings", "typer.web.activeDocument", "typer.web.swatches", "typer.web.shortcuts", "typer.web.fontbarClosed"];
   const USED_DAYS = 3;
+  // A first session shorter than this has nothing to judge: the question waits for a longer one
+  const FIRST_SESSION = 3 * 60 * 1000;
+  // At the next start, about the first experience: sooner than the other question
+  const FIRST_AFTER_START = 30 * 1000;
   const DAY = 86400000;
 
   const App = () => window.TypeRApp;
@@ -65,6 +72,9 @@
     const stored = read();
     if (stored === undefined) return null;
     const state = stored || { days: returning ? USED_DAYS : 0, first: Date.now(), asks: 0 };
+    // About the first experience: someone new only. "due" until a session lasts long enough,
+    // "ready" then, "asked" once shown. Those counted before it existed, on their first days, too.
+    if (!state.welcome) state.welcome = (stored ? state.days <= 2 : !returning) ? "due" : "skip";
     if (state.last !== today()) {
       state.days = (state.days || 0) + 1;
       state.last = today();
@@ -90,10 +100,12 @@
 
   let open = false;
 
-  const send = async (rating, text, state) => {
+  const send = async (rating, text, state, first) => {
     const desktop = window.TypeRDesktop;
     const touch = window.TypeRShell && window.TypeRShell.touch;
+    // Asked as the window closes, a network that never answers mustn't keep it open
     const response = await fetch(ENDPOINT, {
+      signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(8000) : undefined,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -102,12 +114,14 @@
         app: desktop ? `Desktop (${desktop.platform === "mac" ? "Mac" : "Windows"})` : touch ? "Web (touch)" : "Web",
         lang: lang(),
         days: state ? state.days : undefined,
+        kind: first ? "first" : undefined,
       }),
     });
     if (!response.ok) throw new Error(String(response.status));
   };
 
-  const ask = async () => {
+  // first: about the first experience, its own words
+  const ask = async ({ first } = {}) => {
     if (!App() || open) return;
     const state = read();
     const draft = (state && state.draft) || {};
@@ -119,8 +133,9 @@
     logo.src = "../assets/brand/typer-logo.png";
     logo.alt = "";
     const heading = el("div", "fb__heading", hero);
-    el("h2", "fb__title", heading, T("What do you think of TypeR Studio?"));
-    el("p", "fb__intro", heading, T("Your opinion helps decide what comes next."));
+    const title = first ? T("What did you think of your first experience?") : T("What do you think of TypeR Studio?");
+    el("h2", "fb__title", heading, title);
+    el("p", "fb__intro", heading, first ? T("TypeR Studio keeps evolving and aims to become the tool of your dreams!") : T("Your opinion helps decide what comes next."));
 
     const main = el("div", "fb__main", body);
     const stars = el("div", "fb__stars", main);
@@ -157,7 +172,7 @@
     area.value = draft.text || "";
     el("p", "fb__note", main, T("Sent to the TypeR team with the app's language, web or desktop, and how many days you've used it. Nothing else."));
 
-    const pending = App().dialog({ title: T("What do you think of TypeR Studio?"), body, cancel: T("Not Now"), ok: T("Send") });
+    const pending = App().dialog({ title, body, cancel: T("Not Now"), ok: T("Send") });
     const modal = body.closest("dialog");
     const yes = modal && modal.querySelector(".modal__foot .btn--main");
     if (modal) {
@@ -198,8 +213,9 @@
       return false;
     }
     try {
-      await send(rating, text, read());
-      update({ sent: Date.now(), draft: null });
+      await send(rating, text, read(), first);
+      // A word on the first experience still leaves the question asked after a few days
+      update(first ? { firstSent: Date.now(), draft: null } : { sent: Date.now(), draft: null });
       App().toast(T("Thank you! Your feedback was sent."));
       return true;
     } catch (error) {
@@ -242,9 +258,63 @@
     }, AFTER_START);
   };
 
+  /* --------------------------- about the first experience --------------------------- */
+
+  const welcomeReady = () => {
+    const state = read();
+    return Boolean(state) && state.welcome === "ready" && !state.off;
+  };
+  const askWelcome = () => {
+    update({ welcome: "asked" });
+    return ask({ first: true });
+  };
+
+  // The next start, when the session that made it ready ended without the question
+  const welcomeLater = () => {
+    setTimeout(function check() {
+      if (!welcomeReady()) return;
+      if (!quiet()) {
+        setTimeout(check, CHECK_EVERY);
+        return;
+      }
+      askWelcome().catch((error) => console.warn("TypeR web: feedback", error));
+    }, FIRST_AFTER_START);
+  };
+
+  // The desktop app asks the page before its window closes (desktop/src/main.js). An older app
+  // can't: the question comes at the next start, as on the web.
+  const desktop = window.TypeRDesktop;
+  const atClose = Boolean(desktop && desktop.onFarewell && desktop.setFarewell && desktop.closeNow);
+  if (atClose) {
+    desktop.onFarewell(async () => {
+      // Something already open on screen: the next start, rather than over it
+      if (!welcomeReady() || open || document.querySelector("dialog[open]")) {
+        desktop.closeNow();
+        return;
+      }
+      if (desktop.farewellShown) desktop.farewellShown();
+      await askWelcome().catch((error) => console.warn("TypeR web: feedback", error));
+      desktop.closeNow();
+    });
+  }
+
+  // Long enough to judge: asked as it closes, or at the next start
+  const firstSession = () => {
+    setTimeout(() => {
+      const state = read();
+      if (!state || state.welcome !== "due") return;
+      update({ welcome: "ready" });
+      if (atClose && !state.off) desktop.setFarewell(true);
+    }, FIRST_SESSION);
+  };
+
   const start = () => {
     const state = countDay();
-    if (due(state)) later(state);
+    if (!state) return;
+    // One question a session
+    if (state.welcome === "ready" && !state.off) welcomeLater();
+    else if (due(state)) later(state);
+    else if (state.welcome === "due" && !state.off) firstSession();
   };
   if (App() && App().booted) start();
   else window.addEventListener("typer-booted", start, { once: true });

@@ -2661,6 +2661,18 @@
 
   /* ------------------------------- staying in step ------------------------------- */
 
+  // The panel is there only while it's of use: with the SFX tool, or an SFX selected. It
+  // opens and closes when that changes, so it can still be closed or opened by hand meanwhile.
+  let wantedBefore = null;
+  const followContext = () => {
+    const workspace = window.TypeRWorkspace;
+    if (!workspace || window.TypeRShell.touch) return;
+    const wanted = app.tool === "sfx" || Boolean(activeSfx());
+    if (wanted === wantedBefore) return;
+    wantedBefore = wanted;
+    if (workspace.isVisible("sfx") !== wanted) workspace.setVisible("sfx", wanted);
+  };
+
   let pending = 0;
   const refresh = () => {
     if (pending) return;
@@ -2669,6 +2681,7 @@
       // A letter picked in an SFX that isn't active any more is let go
       const group = activeSfx();
       if (picked && (!group || group.id !== picked.group)) picked = null;
+      followContext();
       drawOverlay();
       renderPanel(false);
       // The options bar follows the SFX selected, and what is done to it
@@ -2678,7 +2691,7 @@
   PS.on((type, detail) => {
     // A part of the page redrawn is a stroke or a drag going on: only the SFX tool's own matter
     if (type === "render" && detail && app.tool !== "sfx") return;
-    if (type === "render" || type === "history" || type === "view" || type === "document" || type === "selection") refresh();
+    if (type === "render" || type === "history" || type === "view" || type === "document" || type === "selection" || type === "tabs") refresh();
     if (type === "paste" && detail) fromScript(detail.layers);
   });
   Fonts.onChange(() => {
@@ -2736,6 +2749,7 @@
       renderPanel(true);
       if (window.TypeRSFXGuide) window.TypeRSFXGuide.toolChosen();
     } else preview = null;
+    followContext();
     drawOverlay();
   };
 

@@ -19,4 +19,18 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
   reloadForUpdate: () => ipcRenderer.send("reload-for-update"),
   // The Photoshop plugin's storage files on this computer, read only, or null
   findPhotoshopSettings: () => ipcRenderer.invoke("photoshop-settings"),
+  // A question as the window closes (web/feedback.js): said when there is one, then answered
+  setFarewell: (on) => ipcRenderer.send("set-farewell", on),
+  onFarewell: (listener) => ipcRenderer.on("farewell", () => listener()),
+  farewellShown: () => ipcRenderer.send("farewell-shown"),
+  closeNow: () => ipcRenderer.send("farewell-done"),
+  // Generative Fill with FLUX on this computer: nothing is downloaded until a model is installed
+  localAI: {
+    status: () => ipcRenderer.invoke("local-ai-status"),
+    install: (id, model) => ipcRenderer.invoke("local-ai-install", id, model),
+    remove: (model) => ipcRenderer.invoke("local-ai-remove", model),
+    generate: (id, request) => ipcRenderer.invoke("local-ai-generate", id, request),
+    cancel: (id) => ipcRenderer.send("local-ai-cancel", id),
+    onProgress: (listener) => ipcRenderer.on("local-ai-progress", (event, progress) => listener(progress)),
+  },
 });

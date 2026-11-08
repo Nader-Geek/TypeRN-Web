@@ -31,7 +31,8 @@
   if (!startingStorage) {
     // A new user starts as in Photoshop: no styles, no script, and TypeR's own tutorial.
     // On a touch screen the tutorial's gestures don't apply.
-    startingStorage = JSON.stringify(seeded ? seed.storage(language) : shell.touch ? kit.freshTouchStorage(window.parent.TypeRApp.T("Dialogue")) : kit.freshStorage(true));
+    // TypeR Studio has its own tutorial (guide.js): the panel's isn't started here
+    startingStorage = JSON.stringify(seeded ? seed.storage(language) : shell.touch ? kit.freshTouchStorage(window.parent.TypeRApp.T("Dialogue")) : kit.freshStorage(!window.parent.TypeRGuide));
   } else {
     // The panel speaks the app's language: a language picked in its settings before they
     // lost the choice would win over it
@@ -400,6 +401,19 @@
   document.addEventListener("click", (event) => {
     const button = event.target.closest && event.target.closest('[data-tour="import-pages"]');
     if (!fromApp && button && button.classList.contains("is-active") && window.parent.TypeRApp) window.parent.TypeRApp.setPages(null, true);
+  }, true);
+  // The walkthrough offered by the panel's Help is Photoshop's: here the app's own tutorial
+  // (guide.js) takes its place, the Help closing behind it
+  document.addEventListener("click", (event) => {
+    const guide = window.parent.TypeRGuide;
+    const button = event.target.closest && event.target.closest(".help-actions .help-action");
+    if (!guide || window.parent.TypeRShell.touch || !button || button !== button.parentNode.querySelector(".help-action")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const modal = button.closest(".app-modal");
+    const close = modal && modal.querySelector(".topcoat-icon-button--large--quiet");
+    if (close) close.click();
+    guide.show();
   }, true);
   const pagesFromApp = {
     // Made again in this window: the panel reads each file's path, which only this window's files have

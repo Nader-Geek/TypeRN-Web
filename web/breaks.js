@@ -552,6 +552,26 @@
   footButton("breaks-more", () => balanced(breakSet.size + 2));
   footButton("breaks-balance", () => balanced(breakSet.size + 1));
 
+  // From the keys, the panel open or not: one line less or more on the active text
+  const stepLines = (direction) => {
+    const doc = app.doc;
+    const target = activeText();
+    if (!doc || !target || (target.rotated && target.raster)) return;
+    const shown = layer && model && layer.id === target.id ? null : { layer, model, breakSet };
+    if (shown) {
+      layer = target;
+      model = PS.lineModel(target, doc);
+      breakSet = new Set(model.breaks);
+    }
+    try {
+      const total = breakSet.size + 1;
+      if (direction < 0 ? total > 1 : total <= allGaps().length) commit(balanced(total + direction));
+    } finally {
+      // The panel, closed, shows nothing again
+      if (shown && layer === target) ({ layer, model, breakSet } = shown);
+    }
+  };
+
   /* ------------------------------- the panel ------------------------------- */
 
   root.addEventListener("pointerleave", () => {
@@ -648,6 +668,8 @@
   window.TypeRBreaks = {
     get open() { return window.TypeRWorkspace.isVisible("breaks"); },
     toggle: () => window.TypeRWorkspace.toggle("breaks"),
+    fewer: () => stepLines(-1),
+    more: () => stepLines(1),
     get model() { return model; },
   };
 })();
