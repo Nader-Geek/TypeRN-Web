@@ -94,6 +94,72 @@
     return Object.assign({}, json, { pages });
   };
 
+  // Pages straight from images: the bubbles are found here (TypeRDetect), no job needed.
+  // These pages are not cleaned, so a bubble's selection is seeded on a clear spot of its paper.
+  const jobFromImages = async (files, readingOrder, onProgress) => {
+    const imgs = Array.from(files).filter((f) => /\.(png|jpe?g|webp)$/i.test(f.name)).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    if (!imgs.length) throw new Error("choose the page images");
+    const pages = [];
+    for (let i = 0; i < imgs.length; i++) {
+      if (onProgress) onProgress(`Detecting bubbles… page ${i + 1}/${imgs.length}`);
+      const d = await window.TypeRDetect.detect(imgs[i], { readingOrder });
+      pages.push({ index: i, file: imgs[i].name, width: d.width, height: d.height, origin: imgs[i].name, regions: d.regions, fileObj: imgs[i], detected: true, ms: d.ms });
+    }
+    return { format: "manga-autotranslate/typer-job", version: 1, reading_order: readingOrder, translated: false, detected: true, pages };
+  };
+
+  // A point on the bubble's paper inside/near the text box: the centre of a light, flat 9x9 patch
+  const seedsFor = (img, W, H, rect, max = 6) => {
+    const [x, y, w, h] = rect;
+    const grow = [0, 0.25, 0.6];
+    const R = 4;
+    for (const g of grow) {
+      const x0 = Math.max(R, Math.floor(x - w * g)), x1 = Math.min(W - R - 1, Math.ceil(x + w * (1 + g)));
+      const y0 = Math.max(R, Math.floor(y - h * g)), y1 = Math.min(H - R - 1, Math.ceil(y + h * (1 + g)));
+      const cx = x + w / 2, cy = y + h / 2;
+      const found = [];
+      for (let py = y0; py <= y1; py += 3) {
+        for (let px = x0; px <= x1; px += 3) {
+          const d = (px - cx) * (px - cx) + (py - cy) * (py - cy);
+          let ok = true, mn = 255, mx = 0;
+          for (let j = -R; j <= R && ok; j += 2) {
+            for (let i = -R; i <= R; i += 2) {
+              const o = ((py + j) * W + (px + i)) * 4;
+              const v = (img[o] + img[o + 1] + img[o + 2]) / 3;
+              if (v < mn) mn = v;
+              if (v > mx) mx = v;
+              if (mn < 215 || mx - mn > 25) { ok = false; break; }
+            }
+          }
+          if (ok) found.push([px, py, d]);
+        }
+      }
+      if (found.length) {
+        found.sort((a, b) => a[2] - b[2]);
+        const picked = [];
+        const sep = Math.max(24, Math.min(w, h) / 4);
+        for (const f of found) {
+          if (picked.every((q) => Math.hypot(q[0] - f[0], q[1] - f[1]) >= sep)) picked.push([f[0], f[1]]);
+          if (picked.length >= max) break;
+        }
+        return picked;
+      }
+    }
+    return [];
+  };
+  const seedFor = (img, W, H, rect) => seedsFor(img, W, H, rect, 1)[0] || null;
+
+  const pagePixels = async (file) => {
+    const bmp = await createImageBitmap(file);
+    const c = document.createElement("canvas");
+    c.width = bmp.width;
+    c.height = bmp.height;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(bmp, 0, 0);
+    bmp.close();
+    return { img: g.getImageData(0, 0, c.width, c.height).data, W: c.width, H: c.height };
+  };
+
   /* ------------------------------ driving TypeR ------------------------------ */
 
   const panelDoc = () => {
@@ -179,15 +245,29 @@
     return panelCurrent() === c;
   };
 
-  const placeOne = async (pair) => {
+  const placeOne = async (pair, px) => {
     const before = textCount();
     const r = pair.region;
     if (r.det_class === "text_free") {
       const [x, y, w, h] = r.rect;
       PS().ops.rectangle(x, y, x + w, y + h, "new");
     } else {
-      const [x, y] = innerPoint(r);
-      PS().ops.wandAt(x, y, "new");
+      // Try the clear spots of the paper until the selection covers about the text box or more
+      const cands = px ? seedsFor(px.img, px.W, px.H, r.rect) : [];
+      if (!px) cands.push(innerPoint(r));
+      const want = r.rect[2] * r.rect[3];
+      let ok = false;
+      for (const pt of cands) {
+        PS().ops.wandAt(pt[0], pt[1], "new");
+        const sel = doc().state.selection;
+        const a = sel ? sel.bounds.width * sel.bounds.height : 0;
+        if (a >= want * 0.7 && a <= want * 8) { ok = true; break; }
+      }
+      if (!ok) {
+        // nothing grew to the bubble: select the text box itself
+        const [x, y, w, h] = r.rect;
+        PS().ops.rectangle(x - w * 0.05, y - h * 0.05, x + w * 1.05, y + h * 1.05, "new");
+      }
     }
     return waitFor(() => textCount() > before, 9000);
   };
@@ -211,8 +291,10 @@
         await goToPageIndex(pi);
         await sleep(400);
         info.pointerOk = await feedPage(normalize([{ page: pi + 1, lines: sp.lines }]));
+        const px = pg.detected ? await pagePixels(pg.fileObj) : null;
         for (const pr of pairs) {
-          if (await placeOne(pr)) info.placed++;
+          if (await placeOne(pr, px)) info.placed++;
+          else (info.failed = info.failed || []).push({ id: pr.region.id, rect: pr.region.rect, text: pr.line.text.slice(0, 30) });
           if (onProgress) onProgress(summary.placed + info.placed, pi + 1, job.pages.length);
         }
       }
@@ -235,8 +317,12 @@
     wrap.innerHTML = `
       <div style="background:#2b2b2b;color:#eee;border-radius:8px;padding:18px;width:min(560px,94vw);max-height:90vh;overflow:auto;box-shadow:0 10px 40px #000a">
         <h3 style="margin:0 0 10px">Auto-place (Manga-AutoTranslate)</h3>
-        <p style="margin:0 0 8px;opacity:.8">1) Export zip / files from Manga-AutoTranslate (<code>--export-typer</code>).<br>2) Paste the ready translation script (or leave empty to use the job's own texts).</p>
+        <p style="margin:0 0 8px;opacity:.8">1) Choose either the page images (bubbles are detected here) or an export from Manga-AutoTranslate (<code>--export-typer</code> zip).<br>2) Paste the ready translation script (or leave empty to use the job's own texts).</p>
         <input id="ap-files" type="file" multiple accept=".zip,.json,.png,.jpg,.jpeg,.webp" style="width:100%;margin-bottom:8px">
+        <div id="ap-det" style="margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <label>Detection model: <input id="ap-model" type="file" accept=".onnx"></label>
+          <label>Reading order: <select id="ap-order"><option value="rtl">right-to-left (manga)</option><option value="ltr">left-to-right</option></select></label>
+        </div>
         <textarea id="ap-script" dir="auto" rows="10" placeholder='Page 1&#10;&#10;"": …' style="width:100%;box-sizing:border-box;background:#1b1b1b;color:#eee;border:1px solid #555;border-radius:4px;padding:6px"></textarea>
         <input id="ap-scriptfile" type="file" accept=".txt,.md" style="margin:6px 0">
         <div id="ap-status" style="min-height:1.4em;margin:6px 0;white-space:pre-wrap"></div>
@@ -252,8 +338,20 @@
       const go = $("ap-go");
       go.disabled = true;
       try {
-        st.textContent = "Loading job…";
-        const job = await loadJob($("ap-files").files);
+        const picked = Array.from($("ap-files").files);
+        const isJob = picked.some((f) => /\.(zip|json)$/i.test(f.name));
+        let job;
+        if (isJob) {
+          st.textContent = "Loading job…";
+          job = await loadJob(picked);
+        } else {
+          const D = window.TypeRDetect;
+          const mf = $("ap-model").files[0];
+          if (mf) st.textContent = "Loading the detection model…";
+          if (mf || !(await D.hasModel())) await D.load(mf);
+          else if (!D.info().loaded) await D.load();
+          job = await jobFromImages(picked, $("ap-order").value, (t) => { st.textContent = t; });
+        }
         const s = $("ap-script").value;
         if (!s.trim() && !job.translated) throw new Error("The job has no translations — paste a script.");
         wrap.style.display = "none"; // the canvas must be clickable-free while TypeR works
@@ -269,5 +367,5 @@
     };
   };
 
-  window.TypeRAutoPlace = { parseScript, buildScript, loadJob, run, openDialog, assign, normalize };
+  window.TypeRAutoPlace = { parseScript, buildScript, loadJob, run, openDialog, assign, normalize, jobFromImages, seedFor, seedsFor };
 })();
