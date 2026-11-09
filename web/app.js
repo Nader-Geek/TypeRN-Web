@@ -398,8 +398,10 @@
 
     const side = make("div", "picker__left", body);
     const square = make("div", "picker__square", side);
+    square.tabIndex = -1;
     const marker = make("span", "picker__marker", square);
     const strip = make("div", "picker__strip", side);
+    strip.tabIndex = -1;
     const thumb = make("span", "picker__thumb", strip);
 
     const middle = make("div", "picker__middle", body);
@@ -567,7 +569,8 @@
       area.addEventListener("pointerdown", (event) => {
         if (event.button !== 0) return;
         event.preventDefault();
-        if (document.activeElement) document.activeElement.blur();
+        // The focus stays in the dialog, for Enter: a field let go shows the colour again
+        area.focus({ preventScroll: true });
         area.setPointerCapture(event.pointerId);
         area.addEventListener("pointermove", move);
         const end = () => {
@@ -613,8 +616,10 @@
       event.preventDefault();
       done(false);
     };
+    // Enter is OK, but on Cancel and the other buttons, which it presses. A swatch or the
+    // current colour is a colour chosen: Enter takes it.
     modal.onkeydown = (event) => {
-      if (event.key !== "Enter" || event.target.tagName === "BUTTON") return;
+      if (event.key !== "Enter" || event.isComposing || (event.target.tagName === "BUTTON" && !event.target.closest(".picker__swatches, .picker__compare"))) return;
       event.preventDefault();
       done(true);
     };
