@@ -4565,10 +4565,25 @@
   /* ------------------------- user gestures ------------------------- */
 
   // Is the hyphen at the end of a line part of the word? The script says so when TypeR
-  // pasted the text; otherwise, the French words that are written with one.
-  const realHyphen = (left, right, source) => {
-    if (source) return String(source).indexOf(`${left}-${right}`) >= 0;
-    return /^(être|ce|ci|là|il|ils|elle|elles|on|je|tu|nous|vous|moi|toi|lui|leur|même|dire|t|y|en|le|la|les)$/i.test(right);
+  // pasted the text, whatever its case. Otherwise, or when the text no longer has that word:
+  // the French words written with one, the Japanese honorifics ("Ryou-chan"), and any hyphen
+  // of a text in a language whose words are never cut, as Vietnamese, or one written
+  // without Latin or Cyrillic letters.
+  const UNCUT_TEXT = /[ăđơưĂĐƠƯ\u1EA0-\u1EF9]/;
+  const hyphenKey = (left, right) => `${left}-${(/^[^\s.,;:!?…"”»)\]]*/.exec(right) || [""])[0]}`.toLowerCase();
+  const realHyphen = (left, right, source, text, cuts) => {
+    // The hyphens TypeR added itself, to cut a word in the Line Breaks panel
+    if (cuts && cuts.includes(hyphenKey(left, right))) return false;
+    if (source) {
+      const script = String(source).toLowerCase();
+      const word = hyphenKey("", right).slice(1);
+      if (script.indexOf(`${left.toLowerCase()}-${word}`) >= 0) return true;
+      if (script.indexOf(`${left.toLowerCase()}${word}`) >= 0) return false;
+    }
+    if (/^(être|ce|ci|là|il|ils|elle|elles|on|je|tu|nous|vous|moi|toi|lui|leur|même|dire|t|y|en|le|la|les)$/i.test(right)) return true;
+    if (/^(chan|chin|san|kun|sama|senpai|sempai|sensei|dono|tan|han|nii|nee|niichan|neechan|niisan|neesan|kouhai|kohai)(?!\p{L})/iu.test(right)) return true;
+    const all = String(text || "");
+    return UNCUT_TEXT.test(all) || !/[A-Za-z\u00C0-\u024F\u0400-\u04FF]/.test(all);
   };
 
   // The lines of a text as the Line Breaks window sees them: its characters in a row,
@@ -4590,7 +4605,7 @@
         for (let at = chars.length - 2; at >= 0 && chars[at].ch !== " "; at--) left = chars[at].ch + left;
         const next = rows[index + 1].map((run) => run.text).join("");
         const right = (/^[^\s]*/.exec(next) || [""])[0];
-        if (!realHyphen(left, right, layer.source)) chars.pop();
+        if (!realHyphen(left, right, layer.source, lt.textKey, layer.cuts)) chars.pop();
       } else if (previous.ch !== " ") chars.push({ ch: " ", style: previous.style || base });
       if (breaks[breaks.length - 1] !== chars.length) breaks.push(chars.length);
     });
@@ -4613,11 +4628,20 @@
   const layerWithBreaks = (layer, doc, model, breaks) => {
     const set = new Set(breaks);
     const out = [];
+    const cuts = [];
+    const wordAround = (index, step) => {
+      let word = "";
+      for (let at = index; at >= 0 && at < model.chars.length && !/\s/.test(model.chars[at].ch); at += step) word = step < 0 ? model.chars[at].ch + word : word + model.chars[at].ch;
+      return word;
+    };
     model.chars.forEach((item, index) => {
       if (set.has(index) && index > 0) {
         const previous = model.chars[index - 1];
         if (previous.ch === " ") out.pop();
-        else if (previous.ch !== "-") out.push({ ch: "-", style: previous.style });
+        else if (previous.ch !== "-") {
+          out.push({ ch: "-", style: previous.style });
+          cuts.push(hyphenKey(wordAround(index - 1, -1), wordAround(index, 1)));
+        }
         out.push({ ch: "\r", style: previous.style });
       }
       out.push(item);
@@ -4635,7 +4659,7 @@
     lt.textKey = out.map((item) => item.ch).join("");
     lt.textStyleRange = ranges.length ? ranges : lt.textStyleRange;
     lt.paragraphStyleRange.forEach((range) => { range.to = length; });
-    const next = Object.assign({}, layer, { params, raster: null, manualBreaks: true });
+    const next = Object.assign({}, layer, { params, raster: null, manualBreaks: true, cuts });
     const before = boxOf(layer, doc);
     const shape = boxShape(lt);
     if (!shape) return centredOn(next, doc, before.xMid, before.yMid);
@@ -4675,7 +4699,7 @@
         let left = "";
         for (let at = chars.length - 2; at >= 0 && /[^\s]/.test(chars[at].ch); at--) left = chars[at].ch + left;
         const right = (/^[^\s]*/.exec(text.slice(i + 1)) || [""])[0];
-        if (!realHyphen(left, right, source)) chars.pop();
+        if (!realHyphen(left, right, source, text)) chars.pop();
         continue;
       }
       chars.push({ ch: " ", style: styleAt(i) });
