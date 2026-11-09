@@ -12264,13 +12264,15 @@
     ops.fillSelection(null);
   };
 
-  const selectNeighbourLayer = (direction, additive) => {
+  // `loop`: past the top comes the bottom layer, and the other way, as Alt + [ and ] do in Photoshop
+  const selectNeighbourLayer = (direction, additive, loop) => {
     const doc = app.doc;
     if (!doc) return;
     const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
     const rows = doc.state.layers.filter((layer) => !hiddenByFolder(layer, byId));
     const at = rows.findIndex((layer) => layer.id === doc.state.activeIds[doc.state.activeIds.length - 1]);
-    const next = rows[at < 0 ? rows.length - 1 : Math.max(0, Math.min(rows.length - 1, at + direction))];
+    const to = at + direction;
+    const next = rows[at < 0 ? rows.length - 1 : loop ? (to + rows.length) % rows.length : Math.max(0, Math.min(rows.length - 1, to))];
     if (next) ops.selectLayer(next.id, additive);
   };
 
@@ -13643,8 +13645,8 @@
   ];
   const hasText = () => activeTexts().length > 0;
   const LAYER_AND_TEXT_ITEMS = [
-    { label: "Select the layer above", keys: "Alt+]", enabled: hasDoc, action: () => selectNeighbourLayer(1) },
-    { label: "Select the layer below", keys: "Alt+[", enabled: hasDoc, action: () => selectNeighbourLayer(-1) },
+    { label: "Select the layer above", keys: "Alt+]", enabled: hasDoc, action: () => selectNeighbourLayer(1, false, true) },
+    { label: "Select the layer below", keys: "Alt+[", enabled: hasDoc, action: () => selectNeighbourLayer(-1, false, true) },
     { label: "Add the layer above to the selection", keys: "Alt+Shift+]", enabled: hasDoc, action: () => selectNeighbourLayer(1, true) },
     { label: "Add the layer below to the selection", keys: "Alt+Shift+[", enabled: hasDoc, action: () => selectNeighbourLayer(-1, true) },
     { label: "Select the top layer", keys: "Alt+.", enabled: hasDoc, action: () => selectEdgeLayer(true) },
