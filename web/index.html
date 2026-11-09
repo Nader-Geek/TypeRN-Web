@@ -31,6 +31,8 @@
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="sfx.css">
   <link rel="stylesheet" href="guide.css">
+  <!-- The theme chosen in Settings > Appearance, before anything is drawn (see app.js) -->
+  <script>try { var theme = JSON.parse(localStorage.getItem("typer.web.theme") || "null"); if (theme && theme.properties) { for (var name in theme.properties) document.documentElement.style.setProperty(name, theme.properties[name]); document.documentElement.dataset.theme = theme.mode; document.querySelector('meta[name="theme-color"]').content = theme.properties["--ui-darker"]; } } catch (error) {}</script>
   <script src="shell.js"></script>
   <!-- The interface for fingers: a computer loads it only if it ever needs it -->
   <script>if (window.TypeRShell.touch) document.write('<link rel="stylesheet" href="touch.css">')</script>

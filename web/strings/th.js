@@ -564,6 +564,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Touch Interface": "อินเทอร์เฟซแบบสัมผัส",
     "Try it on a practice page": "ลองกับหน้าฝึกหัด",
     "TypeR Settings": "การตั้งค่า TypeR",
+    "Appearance": "ลักษณะที่ปรากฏ",
+    "For the whole app, the TypeR panel included. A theme of your own is made in TypeR, then chosen here.": "ใช้กับทั้งแอป รวมถึงแผง TypeR ธีมของคุณเองสร้างใน TypeR แล้วเลือกที่นี่",
     "TypeR isn't ready yet. Try again in a moment.": "TypeR ยังไม่พร้อม ลองอีกครั้งในอีกสักครู่",
     "Opens in the TypeR panel": "เปิดในแผง TypeR",
     "Set in TypeR's own settings. When the app and TypeR have the same keys, TypeR's command runs.": "ตั้งค่าในการตั้งค่าของ TypeR เมื่อแอปและ TypeR ใช้ปุ่มเดียวกัน คำสั่งของ TypeR จะทำงาน",

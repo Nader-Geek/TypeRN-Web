@@ -3167,6 +3167,7 @@
     const d = app.textDefaults;
     const shortcuts = Shell.touch ? null : shortcutEditor();
     const generative = Gen ? generativePane() : null;
+    const appearance = appearancePane();
     // Discord activity: in the desktop app only, a browser can't reach Discord
     const Discord = window.TypeRDesktop && window.TypeRDesktop.discord;
     const discord = Boolean(Discord) && (await Discord.available().catch(() => false));
@@ -3210,7 +3211,7 @@
         general.className = "settings__pane";
         general.append(heading(T("General")), card("lang", "wheel", "zoomSpeed", ...(discord ? ["discord"] : [])), card("language", "ligature", "hyphenate", "textOnTop"));
         middle.textContent = "";
-        const panes = { general };
+        const panes = { general, appearance: appearance.pane };
         if (generative) panes.generative = generative.pane;
         if (shortcuts) {
           panes.shortcuts = shortcuts.pane;
@@ -3233,7 +3234,7 @@
           });
           if (name === "generative") setTimeout(generative.focusKey);
         };
-        [["general", T("General"), "settings"], ["generative", T("Generative Fill"), "sparkles"], ["shortcuts", T("Keyboard Shortcuts"), "keyboard"]].filter(([name]) => panes[name]).forEach(([name, text, icon]) => {
+        [["general", T("General"), "settings"], ["appearance", T("Appearance"), "eye"], ["generative", T("Generative Fill"), "sparkles"], ["shortcuts", T("Keyboard Shortcuts"), "keyboard"]].filter(([name]) => panes[name]).forEach(([name, text, icon]) => {
           const button = document.createElement("button");
           button.type = "button";
           button.innerHTML = ICON[icon];
@@ -3298,6 +3299,7 @@
     keepSettings();
     if (shortcuts) shortcuts.save();
     if (generative) generative.save();
+    appearance.save();
     characterKey = "";
     renderCharacter();
     if (answer.lang !== lang) {
@@ -9299,28 +9301,32 @@
   // loads its code the first time it opens: its tabs come a moment later.
   const openTypeRSettings = (tab, then) => {
     showTypeR();
-    if (!(tab && tourButton(`settings-${tab}`)) && !press(tourButton("settings"))) {
-      toast(T("TypeR isn't ready yet. Try again in a moment."), true);
-      return;
-    }
     // A tab can wait for the panel to know it's there (Font FindeR asks its service): if it
-    // stays off, the panel's reason is said
-    const waitFor = (name, found) => {
+    // stays off, the panel's reason is said. The panel itself may be starting again (a new theme).
+    const waitFor = (name, found, missing) => {
       let tries = 0;
       const look = () => {
         const button = tourButton(name);
         if (pressable(button)) found(button);
         else if (++tries < 80) setTimeout(look, 50);
-        else if (button && button.title) toast(button.title, true);
+        else if (missing) missing(button);
       };
       look();
     };
-    if (tab) {
+    const openTab = () => {
+      if (!tab) return;
       waitFor(`settings-${tab}`, (button) => {
         button.click();
         if (then) waitFor(then, (next) => next.click());
+      }, (button) => {
+        if (button && button.title) toast(button.title, true);
       });
-    }
+    };
+    if (tab && tourButton(`settings-${tab}`)) openTab();
+    else waitFor("settings", (button) => {
+      button.click();
+      openTab();
+    }, () => toast(T("TypeR isn't ready yet. Try again in a moment."), true));
   };
 
   // The modes of the panel's foot. A mode the panel hides (Settings > Appearance) keeps its state,
@@ -9483,8 +9489,272 @@
     { label: "TypeR Settings…", title: () => `${T("TypeR Settings")}…`, enabled: () => Boolean(tourButton("settings")), action: () => openTypeRSettings("insertion") },
     { label: "TypeR: Help", title: () => panelText("helpTitle", "Help"), enabled: () => pressable(panelHelpButton()), action: () => { showTypeR(); press(panelHelpButton()); } },
   ];
-  // The tabs of TypeR's settings, offered beside the app's own
-  const TYPER_SETTINGS_TABS = [["insertion", "settingsTabInsertion", "Insertion", "paste"], ["script", "settingsTabScript", "Script", "script"], ["styles", "settingsTabStyles", "Styles", "styles"], ["shortcuts", "settingsTabShortcuts", "Shortcuts", "keyboard"], ["appearance", "settingsTabAppearance", "Appearance", "eye"], ["data", "settingsTabData", "Data", "folder"]];
+  // The tabs of TypeR's settings, offered beside the app's own. Its Appearance tab only keeps
+  // the panel's layout here: the theme is the app's (Settings > Appearance)
+  const TYPER_SETTINGS_TABS = [["insertion", "settingsTabInsertion", "Insertion", "paste"], ["script", "settingsTabScript", "Script", "script"], ["styles", "settingsTabStyles", "Styles", "styles"], ["shortcuts", "settingsTabShortcuts", "Shortcuts", "keyboard"], ["appearance", "settingsGroupInterface", "Interface layout", "layers"], ["data", "settingsTabData", "Data", "folder"]];
+
+  /* ---- the theme: TypeR's themes, for the whole app ---- */
+
+  // TypeR keeps the theme in its settings (its own custom themes and picture included). The app
+  // chooses it in Settings > Appearance, and takes its colours from the panel once the panel
+  // has put them on: one theme, from the menu bar to the script.
+  const PANEL_STORAGE_KEEPS = () => Kit.activeStoragePath();
+  const readPanelStorage = () => {
+    try {
+      return JSON.parse(Kit.read(PANEL_STORAGE_KEEPS()) || "null") || null;
+    } catch (error) {
+      return null;
+    }
+  };
+  // The panel writes what it holds as it closes; only then can its file change. It comes back
+  // with what was written.
+  const editPanelStorage = async (change) => {
+    const running = Boolean(ui.frame.src) && !/^about:blank/.test(ui.frame.src);
+    if (running) await closePanel();
+    const storage = readPanelStorage() || Kit.freshStorage(false);
+    change(storage);
+    const kept = await Kit.keep(PANEL_STORAGE_KEEPS(), JSON.stringify(storage));
+    if (running) startPanel();
+    return kept;
+  };
+  // [id, name (or the panel's word for it), mode, background, panels, text, accent]
+  const THEMES = [
+    ["system", "Photoshop", "dark", "#232121", "#3a3838", "#e3e4e4", "#288edf"],
+    ["editor-dark", "Dark+", "dark", "#1e1e1e", "#2d2d30", "#d4d4d4", "#007acc"],
+    ["pure-dark", "settingsThemePureDark", "dark", "#000000", "#0a0a0a", "#f2f2f2", "#4dabf7"],
+    ["editor-light", "Light+", "light", "#ffffff", "#e8e8e8", "#1f1f1f", "#006ab1"],
+    ["monokai", "Monokai", "dark", "#272822", "#3e3d32", "#f8f8f2", "#a6e22e"],
+    ["solarized-dark", "Solarized Dark", "dark", "#002b36", "#0b3a45", "#eee8d5", "#2aa198"],
+    ["abyss", "Abyss", "dark", "#000c18", "#0b2440", "#d7ecff", "#00aaff"],
+    ["one-dark", "One Dark Pro", "dark", "#282c34", "#2f343e", "#abb2bf", "#61afef"],
+    ["dracula", "Dracula", "dark", "#282a36", "#343746", "#f8f8f2", "#bd93f9"],
+    ["nord", "Nord", "dark", "#2e3440", "#3b4252", "#eceff4", "#88c0d0"],
+  ];
+  const IMAGE_THEME = "custom-image";
+  // The picture's theme makes TypeR's surfaces see-through, over the picture: the app keeps the
+  // solid palette it's made from
+  const IMAGE_BASES = {
+    dark: { surface: "#1e1e1e", panel: "#2d2d30", input: "#1b1b1b", inputAlt: "#333333", text: "#d4d4d4", muted: "#8f8f8f", accent: "#007acc" },
+    light: { surface: "#ffffff", panel: "#e8e8e8", input: "#ffffff", inputAlt: "#f5f5f5", text: "#1f1f1f", muted: "#616161", accent: "#006ab1" },
+  };
+  // The themes there are: TypeR's, then those made in TypeR, then its picture
+  const themeChoices = () => {
+    const storage = readPanelStorage() || {};
+    const list = THEMES.map(([id, name, mode, surface, panel, text, accent]) => ({ id, name: name.startsWith("settings") ? panelText(name, "Pure dark") : name, mode, surface, panel, text, accent }));
+    (Array.isArray(storage.customThemes) ? storage.customThemes : []).forEach((theme) => {
+      if (!theme || typeof theme.id !== "string" || !theme.keys) return;
+      const keys = theme.keys;
+      list.push({ id: theme.id, name: theme.label || panelText("settingsThemeUntitled", "Custom theme"), mode: theme.mode === "light" ? "light" : "dark", surface: keys.surface, panel: keys.panel, text: keys.text, accent: keys.accent, custom: true });
+    });
+    if (storage.backgroundImage) {
+      const meta = storage.backgroundImage;
+      const base = IMAGE_BASES[meta.mode === "light" ? "light" : "dark"];
+      list.push({ id: IMAGE_THEME, name: panelText("settingsThemeImage", "Custom image"), mode: meta.mode === "light" ? "light" : "dark", surface: base.surface, panel: base.panel, text: base.text, accent: base.accent, custom: true, image: true });
+    }
+    return list;
+  };
+  const currentThemeId = () => {
+    const storage = readPanelStorage();
+    const id = storage && typeof storage.editorTheme === "string" ? storage.editorTheme : "system";
+    return themeChoices().some((theme) => theme.id === id) ? id : "system";
+  };
+  const setTheme = async (id) => {
+    if (id === currentThemeId()) return;
+    const kept = await editPanelStorage((storage) => { storage.editorTheme = id; });
+    if (!kept) toast(fill(T("Could not save: {error}"), { error: T("Appearance") }), true);
+  };
+
+  // Colours as the panel writes them: #rgb, #rrggbb, rgb() and rgba()
+  const parseColour = (text) => {
+    const value = String(text || "").trim();
+    let match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value);
+    if (match) {
+      const hex = match[1].length === 3 ? match[1].replace(/./g, (c) => c + c) : match[1];
+      return { r: parseInt(hex.slice(0, 2), 16), g: parseInt(hex.slice(2, 4), 16), b: parseInt(hex.slice(4, 6), 16), a: 1 };
+    }
+    match = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+%?))?\s*\)$/i.exec(value);
+    if (!match) return null;
+    const alpha = match[4] === undefined ? 1 : match[4].endsWith("%") ? parseFloat(match[4]) / 100 : parseFloat(match[4]);
+    return { r: +match[1], g: +match[2], b: +match[3], a: alpha };
+  };
+  const colourText = ({ r, g, b }) => `#${[r, g, b].map((n) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, "0")).join("")}`;
+  const mix = (a, b, amount) => ({ r: a.r + (b.r - a.r) * amount, g: a.g + (b.g - a.g) * amount, b: a.b + (b.b - a.b) * amount, a: 1 });
+  // A see-through colour, as it shows over what's under it
+  const over = (colour, under) => (colour.a >= 1 ? colour : mix(under, colour, colour.a));
+  const lightness = ({ r, g, b }) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+
+  // The app's greys and blue, from a theme's colours. Photoshop's theme is the app's own.
+  const STORE_THEME = "typer.web.theme";
+  const THEME_PROPERTIES = ["--ui", "--ui-2", "--ui-3", "--ui-4", "--ui-dark", "--ui-darker", "--line", "--text", "--muted", "--blue", "--blue-dark", "--blue-darker", "--strong", "--stage", "--tabbar", "--gap"];
+  const paletteOf = (colours) => {
+    const surface = parseColour(colours.surface);
+    if (!surface) return null;
+    const text = over(parseColour(colours.text) || { r: 227, g: 228, b: 228, a: 1 }, surface);
+    const panel = over(parseColour(colours.panel) || surface, surface);
+    const light = lightness(surface) > 0.5;
+    const input = over(parseColour(colours.input) || mix(panel, surface, 0.6), panel);
+    const accent = over(parseColour(colours.accent) || { r: 40, g: 142, b: 223, a: 1 }, surface);
+    const muted = over(parseColour(colours.muted) || mix(text, panel, 0.35), panel);
+    const black = { r: 0, g: 0, b: 0 };
+    return {
+      mode: light ? "light" : "dark",
+      properties: {
+        "--ui": colourText(panel),
+        "--ui-2": colourText(mix(panel, text, 0.08)),
+        "--ui-3": colourText(mix(panel, text, 0.16)),
+        "--ui-dark": colourText(input),
+        "--ui-darker": colourText(surface),
+        "--line": colourText(light ? mix(panel, text, 0.2) : mix(surface, black, 0.25)),
+        "--text": colourText(text),
+        "--muted": colourText(muted),
+        "--blue": colourText(accent),
+        "--blue-dark": colourText(mix(accent, black, 0.12)),
+        "--strong": light ? colourText(text) : "#fff",
+        "--ui-4": colourText(mix(panel, text, 0.24)),
+        "--blue-darker": colourText(mix(accent, black, 0.22)),
+        "--stage": colourText(light ? mix(panel, text, 0.22) : mix(surface, black, 0.12)),
+        "--tabbar": colourText(mix(surface, panel, 0.5)),
+        "--gap": colourText(light ? mix(panel, text, 0.3) : mix(surface, black, 0.3)),
+      },
+    };
+  };
+  const applyPalette = (palette) => {
+    const root = document.documentElement;
+    THEME_PROPERTIES.forEach((name) => root.style.removeProperty(name));
+    delete root.dataset.theme;
+    if (palette) {
+      Object.keys(palette.properties).forEach((name) => root.style.setProperty(name, palette.properties[name]));
+      root.dataset.theme = palette.mode;
+    }
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.content = palette ? palette.properties["--ui-darker"] : "#232121";
+    // Read again before the app's own stylesheet, at the next start (index.html)
+    try {
+      if (palette) window.localStorage.setItem(STORE_THEME, JSON.stringify(palette));
+      else window.localStorage.removeItem(STORE_THEME);
+    } catch (error) {
+      // Without storage, the theme comes when the panel does
+    }
+  };
+  // The panel's colours, once it has put them on
+  const followPanelTheme = () => {
+    const doc = panelDoc();
+    if (!doc || !doc.documentElement) return;
+    const html = doc.documentElement;
+    const id = html.getAttribute("data-editor-theme");
+    if (!id) return;
+    if (id === "system") {
+      applyPalette(null);
+      return;
+    }
+    const style = doc.defaultView.getComputedStyle(html);
+    const colours = {};
+    ["surface", "panel", "input", "text", "muted", "accent"].forEach((key) => { colours[key] = style.getPropertyValue(`--editor-${key}`).trim(); });
+    if (id === IMAGE_THEME) {
+      const storage = readPanelStorage() || {};
+      Object.assign(colours, IMAGE_BASES[storage.backgroundImage && storage.backgroundImage.mode === "light" ? "light" : "dark"]);
+    }
+    const palette = paletteOf(colours);
+    if (palette) applyPalette(palette);
+  };
+  let themeFrame = 0;
+  const watchPanelTheme = () => {
+    const doc = panelDoc();
+    if (!doc || !doc.documentElement || doc.documentElement.dataset.studioTheme) return;
+    doc.documentElement.dataset.studioTheme = "1";
+    new MutationObserver(() => {
+      cancelAnimationFrame(themeFrame);
+      themeFrame = requestAnimationFrame(followPanelTheme);
+    }).observe(doc.documentElement, { attributes: true, attributeFilter: ["style", "data-editor-theme"] });
+    followPanelTheme();
+  };
+  ui.frame.addEventListener("load", () => setTimeout(watchPanelTheme, 0));
+
+  // Settings > Appearance: the themes, each shown in its own colours
+  const appearancePane = () => {
+    let chosen = currentThemeId();
+    const pane = document.createElement("div");
+    pane.className = "settings__pane";
+    const grid = document.createElement("div");
+    grid.className = "themes";
+    const actions = document.createElement("div");
+    actions.className = "themes__actions";
+    const action = (text, run) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn--small";
+      button.textContent = text;
+      button.addEventListener("click", () => {
+        // What was chosen here is kept, as with OK, and TypeR's own editor takes over
+        const yes = ui.modal.querySelector(".modal__foot .btn--main");
+        if (yes) yes.click();
+        setTimeout(run, 0);
+      });
+      actions.appendChild(button);
+    };
+    // TypeR's editors, by the theme buttons it hides here (panel/index.html)
+    const inTypeRThemes = (pick) => () => {
+      openTypeRSettings("appearance");
+      let tries = 0;
+      const look = () => {
+        const button = pick(panelDoc());
+        if (button) button.click();
+        else if (++tries < 60) setTimeout(look, 50);
+      };
+      setTimeout(look, 100);
+    };
+    const themeCell = (doc, name) => doc && Array.from(doc.querySelectorAll(".settings-theme-cell")).find((cell) => {
+      const choice = cell.querySelector(".settings-theme-choice");
+      return choice && choice.title === name;
+    });
+    const render = () => {
+      grid.textContent = "";
+      themeChoices().forEach((theme) => {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "themes__card" + (theme.id === chosen ? " is-on" : "");
+        card.setAttribute("aria-pressed", String(theme.id === chosen));
+        card.title = theme.name;
+        const look = document.createElement("span");
+        look.className = "themes__look";
+        look.style.background = theme.surface;
+        const bar = document.createElement("span");
+        bar.className = "themes__bar";
+        bar.style.background = theme.panel;
+        const line = document.createElement("span");
+        line.className = "themes__line";
+        line.style.background = theme.text;
+        const pill = document.createElement("span");
+        pill.className = "themes__pill";
+        pill.style.background = theme.accent;
+        look.append(bar, line, pill);
+        const name = document.createElement("span");
+        name.className = "themes__name";
+        name.textContent = theme.name;
+        card.append(look, name);
+        card.addEventListener("click", () => {
+          chosen = theme.id;
+          render();
+        });
+        grid.appendChild(card);
+      });
+      actions.textContent = "";
+      const picked = themeChoices().find((theme) => theme.id === chosen);
+      action(`${panelText("settingsThemeNew", "New theme")}…`, inTypeRThemes((doc) => doc && doc.querySelector(".settings-theme-choice.m-add")));
+      if (!themeChoices().some((theme) => theme.image)) action(`${panelText("settingsThemeImage", "Custom image")}…`, inTypeRThemes((doc) => doc && doc.querySelectorAll(".settings-theme-choice.m-add")[1]));
+      if (picked && picked.custom) {
+        action(`${panelText("settingsThemeEdit", "Customize")}…`, inTypeRThemes((doc) => { const cell = themeCell(doc, picked.name); return cell && cell.querySelector(".settings-theme-tool:not(.m-danger)"); }));
+        action(`${panelText("delete", "Delete")}…`, inTypeRThemes((doc) => { const cell = themeCell(doc, picked.name); return cell && cell.querySelector(".settings-theme-tool.m-danger"); }));
+      }
+    };
+    const hint = document.createElement("p");
+    hint.className = "themes__hint";
+    hint.textContent = T("For the whole app, the TypeR panel included. A theme of your own is made in TypeR, then chosen here.");
+    render();
+    pane.append(grid, actions, hint);
+    // Without the panel there are no themes to take colours from
+    return { pane, save: () => (panelBridge() ? setTheme(chosen) : null) };
+  };
 
   const setPages = (entries, fromPanel) => {
     const pages = Array.from(entries || [])

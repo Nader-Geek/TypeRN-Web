@@ -564,6 +564,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Touch Interface": "Сенсорный интерфейс",
     "Try it on a practice page": "Попробовать на учебной странице",
     "TypeR Settings": "Настройки TypeR",
+    "Appearance": "Оформление",
+    "For the whole app, the TypeR panel included. A theme of your own is made in TypeR, then chosen here.": "Для всего приложения, включая панель TypeR. Свою тему можно создать в TypeR, а выбрать здесь.",
     "TypeR isn't ready yet. Try again in a moment.": "TypeR ещё не готов. Попробуйте через мгновение.",
     "Opens in the TypeR panel": "Открывается в панели TypeR",
     "Set in TypeR's own settings. When the app and TypeR have the same keys, TypeR's command runs.": "Задаются в настройках TypeR. Если у приложения и TypeR одинаковые клавиши, выполняется команда TypeR.",

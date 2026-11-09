@@ -564,6 +564,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Touch Interface": "タッチ操作の画面",
     "Try it on a practice page": "練習ページで試す",
     "TypeR Settings": "TypeRの設定",
+    "Appearance": "外観",
+    "For the whole app, the TypeR panel included. A theme of your own is made in TypeR, then chosen here.": "アプリ全体に適用されます（TypeRパネルを含む）。独自のテーマはTypeRで作成し、ここで選びます。",
     "TypeR isn't ready yet. Try again in a moment.": "TypeRの準備がまだできていません。少し待ってからもう一度お試しください。",
     "Opens in the TypeR panel": "TypeRパネルで開きます",
     "Set in TypeR's own settings. When the app and TypeR have the same keys, TypeR's command runs.": "TypeRの設定で決めます。アプリとTypeRが同じキーを使うときは、TypeRのコマンドが実行されます。",

@@ -564,6 +564,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Touch Interface": "터치 화면",
     "Try it on a practice page": "연습 페이지에서 해 보기",
     "TypeR Settings": "TypeR 설정",
+    "Appearance": "모양",
+    "For the whole app, the TypeR panel included. A theme of your own is made in TypeR, then chosen here.": "TypeR 패널을 포함한 앱 전체에 적용됩니다. 나만의 테마는 TypeR에서 만들고 여기서 선택합니다.",
     "TypeR isn't ready yet. Try again in a moment.": "TypeR가 아직 준비되지 않았습니다. 잠시 후 다시 시도하세요.",
     "Opens in the TypeR panel": "TypeR 패널에서 열립니다",
     "Set in TypeR's own settings. When the app and TypeR have the same keys, TypeR's command runs.": "TypeR 설정에서 정합니다. 앱과 TypeR가 같은 키를 쓰면 TypeR의 명령이 실행됩니다.",

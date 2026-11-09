@@ -564,6 +564,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Touch Interface": "触控界面",
     "Try it on a practice page": "在练习页面上试试",
     "TypeR Settings": "TypeR 设置",
+    "Appearance": "外观",
+    "For the whole app, the TypeR panel included. A theme of your own is made in TypeR, then chosen here.": "作用于整个应用，包括 TypeR 面板。自定义主题在 TypeR 中创建，然后在此选择。",
     "TypeR isn't ready yet. Try again in a moment.": "TypeR 尚未就绪，请稍后再试。",
     "Opens in the TypeR panel": "在 TypeR 面板中打开",
     "Set in TypeR's own settings. When the app and TypeR have the same keys, TypeR's command runs.": "在 TypeR 自己的设置中设定。应用和 TypeR 使用相同按键时，执行 TypeR 的命令。",

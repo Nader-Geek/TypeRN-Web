@@ -17,6 +17,10 @@
 /* The panel speaks the app's language (Settings of TypeR Studio), and the web version is
    always the latest: no language, no updates. Their titles are gone (see bridge.js) */
 .settings-group:has(option[value="en_US"]), .settings-group:has(> .settings-checkbox-grid .settings-checkbox-content > span:empty) { display: none !important; }
+/* The theme is chosen in TypeR Studio's own Settings > Appearance, for the whole app: the
+   panel only shows its theme editors, when the app opens them (see app.js) */
+.settings-theme-grid { display: none !important; }
+.settings-group:has(> .settings-theme-grid):not(:has(> .settings-theme-grid + *)) { display: none !important; }
 /* FontScanR: what the browser found on this computer isn't missing (see bridge.js) */
 .fsr-item[data-font="found"] .fsr-chip-warn, .fsr-item[data-font="found"] .ffs-web-search { display: none; }
 /* The hint sits in a one-line area here, whatever the language's sentence length */

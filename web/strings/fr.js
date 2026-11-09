@@ -565,6 +565,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Touch Interface": "Interface tactile",
     "Try it on a practice page": "Essayer sur une page d’entraînement",
     "TypeR Settings": "Réglages de TypeR",
+    "Appearance": "Apparence",
+    "For the whole app, the TypeR panel included. A theme of your own is made in TypeR, then chosen here.": "Pour toute l’app, panneau TypeR compris. Un thème à vous se crée dans TypeR, puis se choisit ici.",
     "TypeR isn't ready yet. Try again in a moment.": "TypeR n’est pas encore prêt. Réessayez dans un instant.",
     "Opens in the TypeR panel": "S’ouvre dans le panneau TypeR",
     "Set in TypeR's own settings. When the app and TypeR have the same keys, TypeR's command runs.": "Définis dans les réglages de TypeR. Quand l’app et TypeR ont les mêmes touches, c’est la commande de TypeR qui s’exécute.",
