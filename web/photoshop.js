@@ -8971,20 +8971,26 @@
     },
     setActiveLayerText(data) {
       const doc = app.doc;
-      const layer = activeTextLayer(doc);
-      if (!doc || !layer) return "layer";
-      const box = boxOf(layer, doc);
-      // A style-only apply has no text of its own: the layer keeps its text
-      const text = data.text || layer.params.layerText.textKey;
-      const style = data.style ? scaleForPunctuation(data.style, text) : { textProps: layer.params };
-      const kept = data.preserveActiveTextSize ? layer.params.layerText.textStyleRange[0].textStyle.size : null;
-      const params = paramsFromStyle(style, text, data.richTextRuns, kept);
-      params.layerText.textClickPoint = clone(layer.params.layerText.textClickPoint);
-      if (boxShape(layer.params.layerText)) params.layerText.textShape = clone(layer.params.layerText.textShape);
-      else centreLayer(doc, params, null, box.xMid, box.yMid);
-      const changes = { params, raster: null, stroke: (data.style && strokeToApply(data.style.stroke)) || layer.stroke };
-      if (data.text) Object.assign(changes, { source: String(data.text), name: String(data.text).replace(/[\r\n]+/g, " ").substring(0, 60) });
-      commitState(doc, "TyperTools Change", { layers: replaceLayer(doc, layer, changes) });
+      if (!doc || !activeTextLayer(doc)) return "layer";
+      // As in Photoshop, every text layer selected takes the change, not only the active one,
+      // all in one history step
+      const changed = new Map();
+      selectedTextLayers(doc).forEach((layer) => {
+        const box = boxOf(layer, doc);
+        // A style-only apply has no text of its own: each layer keeps its text
+        const text = data.text || layer.params.layerText.textKey;
+        const style = data.style ? scaleForPunctuation(data.style, text) : { textProps: layer.params };
+        const kept = data.preserveActiveTextSize ? layer.params.layerText.textStyleRange[0].textStyle.size : null;
+        const params = paramsFromStyle(style, text, data.richTextRuns, kept);
+        params.layerText.textClickPoint = clone(layer.params.layerText.textClickPoint);
+        if (boxShape(layer.params.layerText)) params.layerText.textShape = clone(layer.params.layerText.textShape);
+        else centreLayer(doc, params, null, box.xMid, box.yMid);
+        const changes = { params, raster: null, stroke: (data.style && strokeToApply(data.style.stroke)) || layer.stroke };
+        if (data.text) Object.assign(changes, { source: String(data.text), name: String(data.text).replace(/[\r\n]+/g, " ").substring(0, 60) });
+        changed.set(layer.id, changes);
+      });
+      const layers = doc.state.layers.map((item) => (changed.has(item.id) ? Object.assign({}, item, changed.get(item.id)) : item));
+      commitState(doc, "TyperTools Change", { layers });
       return "";
     },
     setTextShapeRLayerText(data) {
