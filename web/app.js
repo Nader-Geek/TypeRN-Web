@@ -3133,7 +3133,7 @@
   const STORE_SETTINGS = "typer.web.settings";
   // How far the pointer goes, dragged sideways with Ctrl + Space or the Zoom tool, to zoom twice as close
   const ZOOM_SPEEDS = { normal: 150, fast: 90, veryFast: 55 };
-  const settings = { wheel: "pan", zoomSpeed: "normal", smartGuides: true, snapText: false, transformControls: true, spellcheck: true, taskBar: true, hiddenChars: false, discord: "page" };
+  const settings = { wheel: "pan", zoomSpeed: "normal", smartGuides: true, snapText: false, transformControls: true, spellcheck: true, taskBar: true, taskBarPlace: null, hiddenChars: false, discord: "page" };
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORE_SETTINGS)) || {};
     // On a Mac a mouse can't be told from a trackpad, so "auto" isn't offered there
@@ -3149,6 +3149,12 @@
     if (saved.spellcheck === false) settings.spellcheck = false;
     if (saved.transformControls === false) settings.transformControls = false;
     if (saved.taskBar === false) settings.taskBar = false;
+    // Where the contextual task bar was moved: at a distance of the text or selection it follows,
+    // above or below it, or pinned to one place in the window
+    const place = saved.taskBarPlace;
+    const number = (value) => typeof value === "number" && Number.isFinite(value);
+    if (place && place.pinned && number(place.left) && number(place.top)) settings.taskBarPlace = { pinned: true, left: place.left, top: place.top };
+    else if (place && (place.side === "below" || place.side === "above") && number(place.gap) && number(place.dx)) settings.taskBarPlace = { side: place.side, gap: place.gap, dx: place.dx };
     if (ZOOM_SPEEDS[saved.zoomSpeed]) settings.zoomSpeed = saved.zoomSpeed;
     if (saved.hiddenChars === true) settings.hiddenChars = true;
     if (saved.discord === "app" || saved.discord === "off") settings.discord = saved.discord;
@@ -3159,7 +3165,7 @@
     const d = app.textDefaults;
     try {
       // A language nobody chose keeps following the interface
-      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, zoomSpeed: settings.zoomSpeed === "normal" ? undefined : settings.zoomSpeed, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, taskBar: settings.taskBar ? undefined : false, hiddenChars: settings.hiddenChars || undefined, discord: settings.discord === "page" ? undefined : settings.discord, ligature: d.ligature, hyphenate: d.hyphenate || undefined, autoKern: d.autoKern === "manual" ? "manual" : undefined, textOnTop: d.textOnTop || undefined, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
+      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, zoomSpeed: settings.zoomSpeed === "normal" ? undefined : settings.zoomSpeed, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, taskBar: settings.taskBar ? undefined : false, taskBarPlace: settings.taskBarPlace || undefined, hiddenChars: settings.hiddenChars || undefined, discord: settings.discord === "page" ? undefined : settings.discord, ligature: d.ligature, hyphenate: d.hyphenate || undefined, autoKern: d.autoKern === "manual" ? "manual" : undefined, textOnTop: d.textOnTop || undefined, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
     } catch (error) {
       console.warn("TypeR web: could not keep the settings", error);
     }
@@ -3540,6 +3546,128 @@
     schedule(false);
     if (!on) toast(fill(T("Contextual task bar hidden. {menu} shows it again."), { menu: `${T("Window")} > ${T("Contextual Task Bar")}` }), true);
   };
+  // Where the bar goes, around what it follows (box, on screen). Under it by default, or where it
+  // was dragged: at that distance, above or below it, and as far to the side. It goes to the
+  // other side when there's no room, unless it follows the page (flip false). Pinned, it stays put.
+  const TASK_BAR_GAP = 12;
+  const TASK_BAR_MARGIN = 8;
+  let taskBarAnchor = null;
+  let taskBarDrag = null;
+  const putTaskBar = (box, { flip = true, avoid = null } = {}) => {
+    taskBarAnchor = box;
+    const { width, height } = taskBarSize();
+    const place = settings.taskBarPlace;
+    let left;
+    let top;
+    if (taskBarDrag) ({ left, top } = taskBarDrag);
+    else if (place && place.pinned) ({ left, top } = place);
+    else {
+      const side = place ? place.side : "below";
+      const gap = place ? place.gap : TASK_BAR_GAP;
+      const below = box.y1 + gap;
+      const above = box.y0 - gap - height;
+      const fitsBelow = below + height <= stageH - TASK_BAR_MARGIN;
+      const fitsAbove = above >= TASK_BAR_MARGIN;
+      top = side === "below" ? below : above;
+      if (flip && side === "below" && !fitsBelow) top = fitsAbove ? above : stageH - height - TASK_BAR_MARGIN;
+      else if (flip && side === "above" && !fitsAbove && fitsBelow) top = below;
+      left = (box.x0 + box.x1) / 2 - width / 2 + (place ? place.dx : 0);
+      // Clear of what it mustn't hide (the generations' tray) when there's room above
+      if (avoid && fitsAbove && left < avoid.right && left + width > avoid.left && top < avoid.bottom && top + height > avoid.top) top = above;
+    }
+    left = Math.max(TASK_BAR_MARGIN, Math.min(stageW - width - TASK_BAR_MARGIN, left));
+    top = Math.max(TASK_BAR_MARGIN, Math.min(stageH - height - TASK_BAR_MARGIN, top));
+    taskBar.style.left = `${Math.round(left)}px`;
+    taskBar.style.top = `${Math.round(top)}px`;
+  };
+  const setTaskBarPlace = (place) => {
+    settings.taskBarPlace = place;
+    keepSettings();
+    schedule(false);
+  };
+  const pinTaskBar = (on) => setTaskBarPlace(on ? { pinned: true, left: taskBar.offsetLeft, top: taskBar.offsetTop } : null);
+  // Where the bar was dropped, as a place to keep: back under the text when dropped close to there
+  const droppedTaskBar = (left, top) => {
+    const place = settings.taskBarPlace;
+    if (place && place.pinned) return { pinned: true, left, top };
+    const box = taskBarAnchor;
+    if (!box) return place;
+    const { width, height } = taskBarSize();
+    const side = top + height / 2 < (box.y0 + box.y1) / 2 ? "above" : "below";
+    const gap = Math.round(side === "below" ? top - box.y1 : box.y0 - top - height);
+    const dx = Math.round(left + width / 2 - (box.x0 + box.x1) / 2);
+    if (side === "below" && Math.abs(gap - TASK_BAR_GAP) < 6 && Math.abs(dx) < 6) return null;
+    return { side, gap, dx };
+  };
+  // The handle at its start: dragged, it moves the bar; clicked, it offers Pin Bar Position,
+  // Reset Bar Position and Hide Bar, as Photoshop's bar does
+  const taskBarGrip = () => {
+    const grip = document.createElement("button");
+    grip.type = "button";
+    grip.className = "ctxbar__grip";
+    grip.title = T("Drag to move the bar, click for its options");
+    grip.setAttribute("aria-label", grip.title);
+    grip.setAttribute("aria-haspopup", "menu");
+    let menuWasOpen = false;
+    let dragged = false;
+    grip.addEventListener("pointerdown", (event) => {
+      menuWasOpen = Boolean(contextMenu);
+      dragged = false;
+      if (event.button !== 0) return;
+      const start = { x: event.clientX, y: event.clientY, left: taskBar.offsetLeft, top: taskBar.offsetTop };
+      const move = (moved) => {
+        const dx = moved.clientX - start.x;
+        const dy = moved.clientY - start.y;
+        if (!taskBarDrag && Math.hypot(dx, dy) < 3) return;
+        if (!taskBarDrag) closeContextMenu();
+        dragged = true;
+        taskBarDrag = { left: start.left + dx, top: start.top + dy };
+        taskBar.classList.add("is-dragged");
+        schedule(false);
+      };
+      const end = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", end);
+        window.removeEventListener("pointercancel", end);
+        taskBar.classList.remove("is-dragged");
+        if (!taskBarDrag) return;
+        taskBarDrag = null;
+        setTaskBarPlace(droppedTaskBar(taskBar.offsetLeft, taskBar.offsetTop));
+      };
+      try {
+        grip.setPointerCapture(event.pointerId);
+      } catch (error) {
+        // Without it, the window still hears the pointer
+      }
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", end);
+      window.addEventListener("pointercancel", end);
+    });
+    grip.addEventListener("click", (event) => {
+      if (dragged) {
+        dragged = false;
+        return;
+      }
+      if (menuWasOpen || (event.detail === 0 && contextMenu)) {
+        menuWasOpen = false;
+        closeContextMenu();
+        return;
+      }
+      const pinned = Boolean(settings.taskBarPlace && settings.taskBarPlace.pinned);
+      const box = grip.getBoundingClientRect();
+      openContextMenu(box.left, box.bottom + 4, [
+        { label: "Pin Bar Position", check: () => pinned, action: () => pinTaskBar(!pinned) },
+        { label: "Reset Bar Position", enabled: () => Boolean(settings.taskBarPlace), action: () => setTaskBarPlace(null) },
+        null,
+        { label: "Hide Bar", action: () => setTaskBar(false) },
+      ]);
+      if (event.detail === 0 && contextMenu) {
+        const row = contextMenu.querySelector(".menu__item");
+        if (row) row.focus();
+      }
+    });
+    return grip;
+  };
   const buildTaskBar = () => {
     const c = textControls(taskBar, true);
     const sizeIcon = scrubbed("", c.size);
@@ -3562,7 +3690,7 @@
     hide.classList.add("ctxbar__hide");
     taskBar.textContent = "";
     taskBar.setAttribute("aria-label", T("Contextual Task Bar"));
-    taskBar.append(c.family, sizeIcon, c.color, separator(), aligns, separator(), hide);
+    taskBar.append(taskBarGrip(), c.family, sizeIcon, c.color, separator(), aligns, separator(), hide);
   };
   const placeTaskBar = () => {
     const box = taskBarBox;
@@ -3586,19 +3714,13 @@
     }
     taskBar.hidden = false;
     // Under the text, or over it near the bottom, or inside the page's view as a last resort
-    const { width, height } = taskBarSize();
-    const GAP = 12;
-    let top = box.y1 + GAP;
-    if (top + height > stageH - 8) top = box.y0 - GAP - height >= 8 ? box.y0 - GAP - height : stageH - height - 8;
-    const left = Math.max(8, Math.min(stageW - width - 8, (box.x0 + box.x1) / 2 - width / 2));
-    taskBar.style.left = `${Math.round(left)}px`;
-    taskBar.style.top = `${Math.round(Math.max(8, top))}px`;
+    putTaskBar(box);
   };
   // Pressing it leaves the text being typed as it is; the page under it doesn't see the click
   taskBar.addEventListener("pointerdown", (event) => {
     event.stopPropagation();
     // The page never hears it, so the model's menu is closed from here (its button toggles it)
-    if (contextMenu && !event.target.closest(".ctxbar__model")) closeContextMenu();
+    if (contextMenu && !event.target.closest(".ctxbar__model, .ctxbar__grip")) closeContextMenu();
     if (!ui.editor.hidden && event.target.closest("button")) event.preventDefault();
   });
   taskBar.addEventListener("dblclick", (event) => event.stopPropagation());
@@ -4506,7 +4628,7 @@
       line.className = "ctxbar__sep";
       const hide = iconButton("close", T("Hide the contextual task bar"), false, () => setTaskBar(false));
       hide.classList.add("ctxbar__hide");
-      taskBar.append(find);
+      taskBar.append(taskBarGrip(), find);
       // Several pages open: Remove Text on all of them, with or without a look at each first
       if (several) {
         const all = document.createElement("button");
@@ -4520,14 +4642,9 @@
       taskBar.append(line, hide);
     }
     taskBar.hidden = false;
-    const [x0] = toScreen(0, 0);
+    const [x0, y0] = toScreen(0, 0);
     const [x1, y1] = toScreen(doc.width, doc.height);
-    const width = taskBar.offsetWidth;
-    const height = taskBar.offsetHeight;
-    const top = Math.max(8, Math.min(stageH - height - 8, y1 + 12));
-    const left = Math.max(8, Math.min(stageW - width - 8, (x0 + x1) / 2 - width / 2));
-    taskBar.style.left = `${Math.round(left)}px`;
-    taskBar.style.top = `${Math.round(top)}px`;
+    putTaskBar({ x0, y0, x1, y1 }, { flip: false });
   };
   // A small picture of the selection, for the tray
   const genThumb = (canvas, inside) => {
@@ -4835,23 +4952,15 @@
       taskBarKey = key;
       if (typing && gen.open) gen.focus = true;
       buildSelectionBar();
+      taskBar.prepend(taskBarGrip());
     }
     taskBar.hidden = false;
     const b = selection.bounds;
     const [x0, y0] = toScreen(b.left, b.top);
     const [x1, y1] = toScreen(b.right, b.bottom);
-    const { width, height } = taskBarSize();
-    const GAP = 12;
-    let top = y1 + GAP;
-    if (top + height > stageH - 8) top = y0 - GAP - height >= 8 ? y0 - GAP - height : stageH - height - 8;
-    const left = Math.max(8, Math.min(stageW - width - 8, (x0 + x1) / 2 - width / 2));
     // Clear of the generations' tray when there's room above the selection
-    if (!genTray.hidden && y0 - GAP - height >= 8) {
-      const tray = { left: genTray.offsetLeft, top: genTray.offsetTop, right: genTray.offsetLeft + genTray.offsetWidth, bottom: genTray.offsetTop + genTray.offsetHeight };
-      if (left < tray.right && left + width > tray.left && top < tray.bottom && top + height > tray.top) top = y0 - GAP - height;
-    }
-    taskBar.style.left = `${Math.round(left)}px`;
-    taskBar.style.top = `${Math.round(Math.max(8, top))}px`;
+    const tray = genTray.hidden ? null : { left: genTray.offsetLeft, top: genTray.offsetTop, right: genTray.offsetLeft + genTray.offsetWidth, bottom: genTray.offsetTop + genTray.offsetHeight };
+    putTaskBar({ x0, y0, x1, y1 }, { avoid: tray });
   };
 
   // Detect Text in the options bar of the Bubble Cleaner and the marquees, one search at a time

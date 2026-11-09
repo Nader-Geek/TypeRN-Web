@@ -365,6 +365,11 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .ctxbar__size svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .ctxbar__sep { align-self: stretch; width: 1px; margin: 2px 0; background: var(--line); }
 .ctxbar__hide { color: var(--muted); }
+/* Its handle: dragged, it moves the bar; clicked, its options */
+.ctxbar__grip { align-self: stretch; flex: none; width: 8px; margin: 1px -1px 1px 0; padding: 0; border: 0; border-radius: 2px; background: radial-gradient(circle, var(--muted) 1px, transparent 1.5px) center / 4px 4px repeat-y; cursor: grab; touch-action: none; }
+.ctxbar__grip:hover { background-color: var(--ui-3); }
+.ctxbar.is-dragged { animation: none; user-select: none; }
+.ctxbar.is-dragged .ctxbar__grip { cursor: grabbing; }
 .ctxbar__gen { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px 0 7px; border-radius: 3px; color: var(--text); }
 .ctxbar__gen:hover { background: var(--ui-3); }
 .ctxbar__gen svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
