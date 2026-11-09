@@ -4,7 +4,8 @@
     "84575b9cd682": "The caret and the selection sit right on the letters",
     "78e7db038821": "Faster on big pages, lighter on memory, and a chapter workflow",
     "0d27ec6e1ddb": "The app no longer loads an old copy of the former site's translations",
-    "1c25a535a374": "TypeR Studio has its own icon"
+    "1c25a535a374": "TypeR Studio has its own icon",
+    "f08cb7fc5575": "TextShapeR learns from your finished PSDs (Settings > TextShapeR learning > Import PSDs)"
   },
   "fr": {
     "2426e6b1a4e8": "Remplissage génératif avec LaMa Manga, calculé sur l’appareil",
@@ -53,6 +54,7 @@
     "36f3defca09d": "Les ligatures et la langue sont gardées dans les PSD enregistrés, et voici les Paramètres",
     "0d27ec6e1ddb": "L’app ne charge plus une vieille copie des traductions de l’ancien site",
     "a030b0408af3": "Demander les polices installées sur l’ordinateur",
-    "478f41bc35a0": "Nouvelle interface tactile, alignée sur TypeR 3.0"
+    "478f41bc35a0": "Nouvelle interface tactile, alignée sur TypeR 3.0",
+    "f08cb7fc5575": "TextShapeR apprend de vos PSD terminés (Paramètres > Apprentissage TextShapeR > Importer des PSD)"
   }
 }

@@ -12,7 +12,7 @@
 //   Note-en: New Magic Eraser (Shift+E)        (optional: the subject otherwise)
 //
 // and, for commits already made, in whats-new-translations.json beside this file, by the first
-// 12 characters of their hash. A commit's own lines win.
+// 12 characters of their hash, which also corrects a commit's own lines: the file wins.
 //
 //   node desktop/scripts/whats-new.js [ref]    writes web/whats-new.json from ref (HEAD)
 
@@ -58,10 +58,11 @@ const notesAt = (ref = "HEAD") => {
     if (!match) continue;
     const id = hash.slice(0, 12);
     const words = {};
+    for (const [, lang, text] of body.matchAll(LINE)) words[lang.toLowerCase()] = tidy(text);
+    // After the commit's lines: a note already pushed is corrected there
     Object.keys(translations).sort().forEach((lang) => {
       if (translations[lang] && translations[lang][id]) words[lang] = tidy(translations[lang][id]);
     });
-    for (const [, lang, text] of body.matchAll(LINE)) words[lang.toLowerCase()] = tidy(text);
     const note = { id, at, kind: match[1], text: words.en || tidy(match[2]) };
     delete words.en;
     if (Object.keys(words).length) note.lang = words;
