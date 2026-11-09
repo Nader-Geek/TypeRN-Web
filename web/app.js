@@ -14340,8 +14340,9 @@
       return;
     }
     // Cmd+Enter: the active text is edited, as a double-click on its thumbnail would. The same
-    // keys commit it in the box.
-    if (event.key === "Enter" && command && !event.altKey && !event.shiftKey && !fromPanel && !openMenu && ui.editor.hidden) {
+    // keys commit it in the box. From the panel too, a style just applied there: what it uses
+    // itself stopped above.
+    if (event.key === "Enter" && command && !event.altKey && !event.shiftKey && !openMenu && ui.editor.hidden) {
       const chosen = activeLayers();
       if (chosen.length === 1 && chosen[0].kind === "text") {
         event.preventDefault();
