@@ -9,6 +9,9 @@
 
   // What an empty prompt asks: a page cleaned for lettering, the art behind the letters redrawn
   const DEFAULT_PROMPT = "Erase only the lettering in this comic image: the words inside speech balloons and captions, and the sound effects drawn over the art. Keep every speech balloon, its outline and tail, and every panel border exactly where they are, just empty. Where a letter covered artwork, screentone or a background, redraw what was behind it so it continues what is around it. Change nothing else: same framing, scale, line art, screentone, tones and paper white.";
+  // FLUX on this computer redraws only the selection: it has to hear that the characters drawn
+  // over the art are text too, or it keeps a big katakana sound effect as part of the drawing
+  const FLUX_PROMPT = "Remove all the text from this manga image: every word, letter and sound effect, including Japanese, Korean and Chinese characters and the large hand-drawn katakana sound effects. Redraw the artwork that was behind them so the line art, screentone and background continue naturally. Keep everything else exactly the same.";
   const KEEP_FRAMING = "Keep the framing, the scale and everything not mentioned exactly as it is.";
 
   const SERVICES = {
@@ -35,15 +38,20 @@
       ],
     },
     // No key and no bill: the model runs in this browser (lama-worker.js)
+    // In the desktop app, FLUX too: the app runs it outside the browser (desktop/src/local-ai.js)
     local: {
       name: "On this device",
       local: true,
-      models: [["lama-manga", "LaMa Manga"]],
+      models: [["lama-manga", "LaMa Manga"]].concat(window.TypeRDesktop && window.TypeRDesktop.localAI ? [["flux2-klein-4b", "FLUX.2 Klein 4B"], ["flux3-klein", "FLUX 3 Klein"]] : []),
     },
   };
   // What the local models draw: a square of this many pixels, nothing else
   const LOCAL_SIZE = 512;
+  // LaMa Manga's download, in bytes: its three files, as lama-worker.js fetches them
+  const LAMA_SIZE = 234e6;
   const isLocal = (service) => Boolean(SERVICES[service] && SERVICES[service].local);
+  const desktopAI = (window.TypeRDesktop && window.TypeRDesktop.localAI) || null;
+  const isFlux = (model) => /^flux/.test(model);
 
   // What a picture costs, in US dollars, as the services listed it on 2026-11-05. Google bills
   // tokens: its rates per million (in, text and thinking out, image out) give the cost of each
@@ -223,9 +231,14 @@
   };
   const ready = (settings) => isLocal(settings.service) || Boolean((settings.keys[settings.service] || "").trim());
   // A local model takes no prompt: it redraws the selection from what surrounds it
-  const takesPrompt = (settings) => !isLocal(settings.service);
+  const takesPrompt = (settings) => !isLocal(settings.service) || isFlux(modelOf(settings));
   // The size a model draws at, when it's a fixed square: the area sent is chosen for it
-  const fixedSize = (settings) => (isLocal(settings.service) ? LOCAL_SIZE : 0);
+  const fixedSize = (settings) => (isLocal(settings.service) && !isFlux(modelOf(settings)) ? LOCAL_SIZE : 0);
+  // The local models draw in place, pixel for pixel: their picture needs no aligning
+  const drawsInPlace = (settings) => isLocal(settings.service);
+  // FLUX on this computer: its time grows faster than the area, so the area goes no bigger than
+  // this (a 600 × 900 area took 166 s on an M4, 560 × 560 about 55 s)
+  const longestFor = (settings) => (isLocal(settings.service) && isFlux(modelOf(settings)) ? 768 : 0);
 
   // The shapes the models draw: the area sent grows to the nearest one, so nothing is squeezed
   const RATIOS = ["1:1", "4:5", "5:4", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9", "21:9"];
@@ -233,7 +246,7 @@
   const knowsLongRatios = (model) => /3\.1-flash|nano-banana-2/.test(model);
   // Models that draw at 1K, 2K or 4K; the others at about one megapixel
   const knowsSizes = (model) => /gemini-3|nano-banana-2|nano-banana-pro/.test(model) && !/lite/.test(model);
-  const ratiosFor = (model) => (model === "lama-manga" ? ["1:1"] : /kontext/.test(model) ? RATIOS.filter((r) => r !== "4:5" && r !== "5:4") : knowsLongRatios(model) ? RATIOS.concat(LONG_RATIOS) : RATIOS)
+  const ratiosFor = (model) => (model === "lama-manga" ? ["1:1"] : isFlux(model) ? RATIOS.concat(LONG_RATIOS) : /kontext/.test(model) ? RATIOS.filter((r) => r !== "4:5" && r !== "5:4") : knowsLongRatios(model) ? RATIOS.concat(LONG_RATIOS) : RATIOS)
     .map((label) => {
       const [w, h] = label.split(":").map(Number);
       return { label, value: w / h };
@@ -419,7 +432,12 @@
   // one). Resolves with the model's picture, as an ImageBitmap; `onCost` hears what it cost.
   const generate = async ({ settings, prompt, canvas, mask, ratio, size, signal, onCost, onProgress }) => {
     const service = settings.service;
-    if (isLocal(service)) return viaLocal({ canvas, mask, signal, onProgress });
+    if (isLocal(service)) {
+      const model = modelOf(settings);
+      if (!isFlux(model)) return viaLocal({ canvas, mask, signal, onProgress });
+      const words = (prompt || "").trim();
+      return viaFlux({ model, canvas, mask, prompt: words ? `${words}\n\n${KEEP_FRAMING}` : FLUX_PROMPT, signal, onProgress });
+    }
     const key = (settings.keys[service] || "").trim();
     if (!key) throw new GenerativeError("nokey");
     const model = modelOf(settings);
@@ -547,5 +565,86 @@
     }
   };
 
-  window.TypeRGenerative = { SERVICES, DEFAULT_PROMPT, LOCAL_SIZE, load, save, modelOf, modelsOf, slugOf, ready, isLocal, takesPrompt, fixedSize, localReady, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent };
+  /* -------------------- on this computer: FLUX, in the desktop app -------------------- */
+
+  const fluxJobs = new Map();
+  let fluxCount = 0;
+  if (desktopAI) desktopAI.onProgress((progress) => {
+    const listener = fluxJobs.get(progress.id);
+    if (listener) listener(progress);
+  });
+  const pngOf = async (canvas) => {
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) throw new GenerativeError("other", "The picture could not be encoded.");
+    return new Uint8Array(await blob.arrayBuffer());
+  };
+  // A call to the app, stopped by `signal`: what it answers, or the error it says
+  const askApp = async (call, signal, onProgress) => {
+    const id = `flux-${++fluxCount}`;
+    fluxJobs.set(id, onProgress || (() => {}));
+    const stop = () => desktopAI.cancel(id);
+    if (signal) signal.addEventListener("abort", stop, { once: true });
+    try {
+      const answer = await call(id);
+      if (answer && answer.ok) return answer.value;
+      const kind = answer && answer.kind;
+      if (kind === "cancelled" || (signal && signal.aborted)) throw new DOMException("Aborted", "AbortError");
+      throw new GenerativeError(kind === "download" ? "download" : "local", (answer && answer.message) || "");
+    } finally {
+      fluxJobs.delete(id);
+      if (signal) signal.removeEventListener("abort", stop);
+    }
+  };
+  // What is still to download for the model in use, in bytes: 0 when it is here, or not a FLUX
+  const localDownload = async (settings) => {
+    const model = modelOf(settings);
+    if (!desktopAI || !isLocal(settings.service) || !isFlux(model)) return 0;
+    const now = await desktopAI.status();
+    return now && now.models[model] && !now.models[model].installed ? now.models[model].download : 0;
+  };
+  const localStatus = () => (desktopAI ? desktopAI.status() : Promise.resolve(null));
+  const localRemove = (model) => (desktopAI ? desktopAI.remove(model) : Promise.resolve(null));
+  const viaFlux = async ({ model, canvas, mask, prompt, signal, onProgress }) => {
+    if (!desktopAI) throw new GenerativeError("local", "FLUX runs only in the desktop app.");
+    // At the model's sizes, in steps of 16 pixels; the mask white where it draws
+    const width = Math.max(64, Math.round(canvas.width / 16) * 16);
+    const height = Math.max(64, Math.round(canvas.height / 16) * 16);
+    const picture = document.createElement("canvas");
+    picture.width = width;
+    picture.height = height;
+    const pctx = picture.getContext("2d");
+    pctx.imageSmoothingQuality = "high";
+    pctx.fillStyle = "#fff";
+    pctx.fillRect(0, 0, width, height);
+    pctx.drawImage(canvas, 0, 0, width, height);
+    const holes = document.createElement("canvas");
+    holes.width = width;
+    holes.height = height;
+    const hctx = holes.getContext("2d", { willReadFrequently: true });
+    hctx.fillStyle = "#fff";
+    hctx.fillRect(0, 0, width, height);
+    if (mask) hctx.drawImage(mask, 0, 0, width, height);
+    else {
+      hctx.fillStyle = "#000";
+      hctx.fillRect(0, 0, width, height);
+    }
+    const shades = hctx.getImageData(0, 0, width, height);
+    for (let i = 0; i < shades.data.length; i += 4) {
+      const v = shades.data[i] < 250 ? 255 : 0;
+      shades.data[i] = v;
+      shades.data[i + 1] = v;
+      shades.data[i + 2] = v;
+      shades.data[i + 3] = 255;
+    }
+    hctx.putImageData(shades, 0, 0);
+    const [image, holeBytes] = await Promise.all([pngOf(picture), pngOf(holes)]);
+    const tell = onProgress || (() => {});
+    if (await localDownload({ service: "local", models: { local: model }, custom: {} })) {
+      await askApp((id) => desktopAI.install(id, model), signal, tell);
+    }
+    const bytes = await askApp((id) => desktopAI.generate(id, { model, image, mask: holeBytes, prompt, width, height }), signal, tell);
+    return toBitmap(new Blob([bytes], { type: "image/png" }));
+  };
+
+  window.TypeRGenerative = { SERVICES, DEFAULT_PROMPT, LOCAL_SIZE, LAMA_SIZE, load, save, modelOf, modelsOf, slugOf, ready, isLocal, isFlux, takesPrompt, fixedSize, drawsInPlace, longestFor, localReady, localDownload, localStatus, localRemove, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent };
 })();

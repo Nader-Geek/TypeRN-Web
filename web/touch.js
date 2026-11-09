@@ -197,7 +197,9 @@
   const freeArea = () => {
     const box = stage.getBoundingClientRect();
     let bottom = box.bottom;
-    if (current && Shell.side === "bottom") bottom = Math.min(bottom, sheet.getBoundingClientRect().top);
+    // Where the sheet comes to rest, not where it is while it slides in: offsetTop ignores the
+    // transform that moves it
+    if (current && Shell.side === "bottom") bottom = Math.min(bottom, sheet.offsetTop);
     if (App.isEditing()) bottom = Math.min(bottom, $("editor").getBoundingClientRect().top);
     return { width: box.width, height: Math.max(80, bottom - box.top) };
   };
@@ -210,9 +212,11 @@
     const w = Math.max(1, box.width);
     const h = Math.max(1, box.height);
     const margin = 16;
-    const most = Math.min((area.width - margin * 2) / w, (area.height - margin * 2) / h);
+    // Big enough to read and to touch, with its bubble around it: a large screen doesn't need
+    // the text to fill it
+    const most = Math.min((area.width - margin * 2) / w, (area.height - margin * 2) / h, Math.max(area.height * 0.7, 240) / h);
     let zoom = doc.view.zoom;
-    if (w * zoom < Math.min(area.width * 0.5, 170)) zoom = Math.min(most, (area.width * 0.6) / w);
+    if (w * zoom < Math.min(area.width * 0.5, 170)) zoom = Math.min(most, Math.min(area.width * 0.6, 340) / w);
     zoom = Math.min(zoom, most);
     const x0 = box.left * zoom;
     const y0 = box.top * zoom;
@@ -298,10 +302,13 @@
   };
 
   let shownLinked = false;
+  const SIZED_SHEETS = new Set(["lines", "position", "shapes"]);
   function renderSheetHead() {
     if (!current) return;
     sheetTitle.textContent = T(VIEWS[current].title);
     sheetActions.textContent = "";
+    // Beside the page, the tab that opened the panel already names it: its buttons get the room
+    requestAnimationFrame(() => sheetHead.classList.toggle("has-actions", sheetActions.childElementCount > 0));
     if (current === "script") {
       sheetActions.append(
         button("sheet__action", "paste", T("Paste"), pasteScript, true),
@@ -312,6 +319,10 @@
       const pages = button(`sheet__action${linked ? " is-on" : ""}`, "folder", T("Pages"), () => pressInPanel('[data-tour="import-pages"]'), true);
       pages.title = panelText(linked ? "footerDesyncRepo" : "footerOpenRepo") || T("Pages");
       sheetActions.append(pages);
+    }
+    if (SIZED_SHEETS.has(current)) {
+      sheetActions.append(sheetSizeGroup);
+      renderSize();
     }
     if (current === "styles" && Shell.kind === "phone") {
       const line = readScript();
@@ -401,19 +412,28 @@
   const logo = el("img", "tbar__logo", { src: "../assets/brand/typer-logo.png", width: 26, height: 26, alt: "TypeR" });
   bar.append(logo, pageBack, pagesButton, pageNext, el("span", "tbar__grow"), barUndo, barRedo, button("tbtn tbtn--main", "share", T("Export"), () => toggleSheet("export")));
 
+  // A chapter (Open Pages…, or the pages given to the script) goes page by page, each one opened
+  // when it's reached; otherwise the open documents follow one another
   const stepPage = (direction) => {
+    if (App.chapter()) {
+      App.stepPage(direction);
+      return;
+    }
     const next = app.docs[app.docs.indexOf(app.doc) + direction];
     if (next) App.switchDoc(next);
   };
   const renderBar = () => {
     const doc = app.doc;
-    const at = app.docs.indexOf(doc);
+    const book = App.chapter();
+    const at = book ? book.at : app.docs.indexOf(doc);
+    const count = book ? book.pages.length : app.docs.length;
     barUndo.disabled = !doc || doc.historyIndex <= 0;
     barRedo.disabled = !doc || doc.historyIndex >= doc.history.length - 1;
-    pageBack.disabled = at <= 0;
-    pageNext.disabled = at < 0 || at >= app.docs.length - 1;
-    root.classList.toggle("few-pages", app.docs.length < 2);
-    pageCount.textContent = doc ? `${at + 1}/${app.docs.length}` : "";
+    // Away from the chapter, either arrow brings back the page last worked on
+    pageBack.disabled = book ? at === 0 : at <= 0;
+    pageNext.disabled = book ? at === count - 1 : at < 0 || at >= count - 1;
+    root.classList.toggle("few-pages", count < 2);
+    pageCount.textContent = !doc ? "" : at < 0 ? `–/${count}` : `${at + 1}/${count}`;
     pageName.textContent = doc ? `${doc.name}${PS.isDirty(doc) ? " •" : ""}` : "TypeR";
     root.classList.toggle("no-doc", !doc);
     barExport().disabled = !doc;
@@ -501,24 +521,54 @@
     }
   };
 
+  // The size, between its two steps: what's done most to a line just pasted, so it comes first
+  // and says where it is. A tap on the number opens the Character panel.
+  // The same group heads the panels that adjust a text (Line Breaks, Position…): the size and
+  // the breaks are set together until the line fits its bubble.
+  const sizeValues = [];
+  const sizeStep = (label, sign, text) => {
+    const node = repeating(button("tsize__step", null, label, null), () => stepSize(sign));
+    node.textContent = text;
+    return node;
+  };
+  const makeSizeGroup = (opensText) => {
+    const value = el(opensText ? "button" : "span", "tsize__value", opensText ? { type: "button", title: T("Size") } : null);
+    if (opensText) {
+      value.setAttribute("aria-label", T("Size"));
+      value.addEventListener("click", () => toggleSheet("text"));
+    }
+    sizeValues.push(value);
+    return el("div", "tsize", null, sizeStep(T("Smaller text"), -1, "A−"), value, sizeStep(T("Bigger text"), 1, "A+"));
+  };
+  const sizeGroup = makeSizeGroup(true);
+  const sheetSizeGroup = makeSizeGroup(false);
+  const renderSize = () => {
+    const layer = App.activeTexts()[0];
+    const style = layer && layer.params.layerText.textStyleRange[0].textStyle;
+    const size = style ? Math.round((style.impliedFontSize || style.size || 0) * 10) / 10 : 0;
+    const text = size ? String(size) : "";
+    sizeValues.forEach((value) => {
+      if (value.textContent !== text) value.textContent = text;
+    });
+    sheetSizeGroup.hidden = !layer;
+  };
+
+  // In the order they're needed after a paste: the size, the breaks, the place
   const textActions = () => [
     action("pencil", T("Modify"), () => App.beginEdit(App.activeTexts()[0]), "tact--main"),
+    sizeGroup,
+    action("lines", T("Lines"), () => toggleSheet("lines")),
     // TypeR's own Align: the text to the middle of the selection, or of the bubble tapped
     action("alignMiddle", panelText("alignLayer") || T("Align"), () => pressInPanel('[data-tour="align"]')),
-    action("lines", T("Lines"), () => toggleSheet("lines")),
-    action("shapes", T("Shapes"), () => toggleSheet("shapes")),
     action("font", T("Text"), () => toggleSheet("text")),
-    repeating(button("tact tact--square", null, T("Smaller text"), null), () => stepSize(-1)),
-    repeating(button("tact tact--square", null, T("Bigger text"), null), () => stepSize(1)),
+    action("shapes", T("Shapes"), () => toggleSheet("shapes")),
     action("nudge", T("Position"), () => toggleSheet("position")),
-    action("warp", T("Perspective"), () => App.enterSurface(App.activeTexts()[0])),
     action("copy", T("Duplicate"), () => ops.duplicateLayers()),
+    action("warp", T("Perspective"), () => App.enterSurface(App.activeTexts()[0])),
     action("trash", T("Delete"), () => ops.deleteLayers()),
-    action("close", T("Deselect"), () => ops.clearActiveLayers()),
   ];
   const selectionActions = () => [
     action("paste", T("Paste the line"), () => pressInPanel('[data-tour="paste"]'), "tact--main"),
-    action("deselect", T("Deselect"), () => runMenu("Select", "Deselect")),
     action("inverse", T("Inverse"), () => runMenu("Select", "Inverse")),
     action("grow", T("Expand…"), () => runMenu("Select", "Expand…")),
     action("shrink", T("Contract…"), () => runMenu("Select", "Contract…")),
@@ -527,9 +577,34 @@
     action("trash", T("Clear"), () => runMenu("Edit", "Clear")),
   ];
 
+  // Letting go is always in reach, outside the row that scrolls: a tap on the page to get out
+  // of a text would paste the line there.
+  // Done with a text, it's done with its bubble's selection too.
+  const ctxDone = button("tctx__done", "close", T("Deselect"), () => {
+    if (ctxKey === "text") ops.clearActiveLayers();
+    if (app.doc && app.doc.state.selection) runMenu("Select", "Deselect");
+  });
+  ctx.appendChild(ctxDone);
+
+  // A row, or a column, longer than the screen: its ends fade where there's more to scroll to
+  const fadeEdges = (node, vertical) => {
+    node.classList.add(vertical ? "t-fade-y" : "t-fade-x");
+    const render = () => {
+      const more = vertical ? node.scrollHeight - node.clientHeight : node.scrollWidth - node.clientWidth;
+      const at = vertical ? node.scrollTop : node.scrollLeft;
+      node.classList.toggle("more-s", more > 1 && at > 1);
+      node.classList.toggle("more-e", more > 1 && at < more - 1);
+    };
+    node.addEventListener("scroll", render, { passive: true });
+    new ResizeObserver(render).observe(node);
+    return render;
+  };
+  const renderEdges = fadeEdges(ctxActions);
+
   const HINT = "Tap a bubble to paste the line. Two fingers zoom and pan; a two-finger tap undoes.";
   let ctxKey = "";
   const renderCtx = () => {
+    renderSize();
     const doc = app.doc;
     const tool = app.tool;
     const options = $("options");
@@ -545,15 +620,12 @@
     ctxHint.hidden = mode !== "hint";
     ctxHint.textContent = T(HINT);
     ctxActions.hidden = mode !== "text" && mode !== "selection";
+    ctxDone.hidden = ctxActions.hidden;
     ctxActions.textContent = "";
     ctxActions.scrollLeft = 0;
-    if (mode === "text") {
-      ctxActions.append(...textActions());
-      const [smaller, bigger] = ctxActions.querySelectorAll(".tact--square");
-      smaller.textContent = "A−";
-      bigger.textContent = "A+";
-    }
+    if (mode === "text") ctxActions.append(...textActions());
     if (mode === "selection") ctxActions.append(...selectionActions());
+    renderEdges();
   };
 
   // The gestures are said once, the first time there's a page to try them on
@@ -669,23 +741,42 @@
     view.textContent = "";
     const grid = el("div", "tpages-grid");
     view.appendChild(grid);
+    const after = () => {
+      if (Shell.side !== "dock") closeSheet();
+      else RENDER.pages();
+    };
+    // A chapter's pages first, opened or not yet; then what else is open
+    const book = App.chapter();
+    const entries = [];
+    if (book) book.pages.forEach((page, index) => entries.push({ name: page.name, doc: page.doc, number: index + 1, go: () => App.goToPage(index) }));
     app.docs.forEach((doc, index) => {
+      if (!entries.some((entry) => entry.doc === doc)) entries.push({ name: doc.name, doc, number: book ? null : index + 1 });
+    });
+    let drawn = 0;
+    entries.forEach((entry) => {
+      const { doc } = entry;
       const picture = el("span", "tpage__picture");
-      const open = el("button", "tpage__open", { type: "button" }, picture, el("span", "tpage__name", { textContent: `${index + 1}. ${doc.name}${PS.isDirty(doc) ? " •" : ""}` }));
+      const label = `${entry.number ? `${entry.number}. ` : ""}${doc ? doc.name : entry.name}${doc && PS.isDirty(doc) ? " •" : ""}`;
+      const open = el("button", "tpage__open", { type: "button" }, picture, el("span", "tpage__name", { textContent: label }));
       open.addEventListener("click", () => {
-        App.switchDoc(doc);
-        if (Shell.side !== "dock") closeSheet();
-        else RENDER.pages();
+        if (entry.go) entry.go();
+        else App.switchDoc(doc);
+        after();
       });
-      const remove = button("tpage__close", "close", `${T("Close")}: ${doc.name}`, async () => {
+      const remove = doc && button("tpage__close", "close", `${T("Close")}: ${doc.name}`, async () => {
         await App.closeDoc(doc);
         if (current === "pages") RENDER.pages();
       });
-      grid.appendChild(el("div", `tpage${doc === app.doc ? " is-on" : ""}`, null, open, remove));
+      grid.appendChild(el("div", `tpage${doc && doc === app.doc ? " is-on" : ""}`, null, open, remove));
+      // Not open yet: its number stands for it
+      if (!doc) {
+        picture.appendChild(el("span", "tpage__number", { textContent: entry.number, ariaHidden: "true" }));
+        return;
+      }
       // One at a time: drawing a page takes a moment, and a chapter has many
       setTimeout(() => {
         if (turn === pagesTurn && app.docs.includes(doc)) picture.appendChild(thumbnail(doc));
-      }, 60 * index + 30);
+      }, 60 * drawn++ + 30);
     });
     grid.appendChild(button("tpage tpage--add", "plus", T("Open a file"), App.openDialog, true));
   };
@@ -991,9 +1082,29 @@
 
   $("tools").querySelectorAll(".tool:not([data-tool])").forEach((node) => { node.dataset.name = node.getAttribute("aria-label") || ""; });
 
+  // The tool's options change with the tool, and a tablet's column of tools is taller than a
+  // landscape screen: both say when there's more of them
+  const renderOptionEdges = fadeEdges($("options"));
+  new MutationObserver(() => requestAnimationFrame(renderOptionEdges)).observe($("options"), { childList: true, subtree: true });
+  const renderToolEdges = fadeEdges($("tools"), true);
+  Shell.onChange(() => requestAnimationFrame(renderToolEdges));
+
   applyShell();
   renderAll();
   renderCard();
 
-  window.TypeRTouch = { panelChanged, openSheet, closeSheet };
+  // The chapter changed: a page reached, pages given or let go (app.js)
+  const chapterChanged = () => {
+    if (!Shell.touch) return;
+    renderBar();
+    if (current === "pages") RENDER.pages();
+  };
+
+  // A tap on the page pastes the line, if there's one to paste (app.js)
+  const pastesOnTap = () => {
+    const line = readScript();
+    return Boolean(line && line.pasteOnTap && !line.empty);
+  };
+
+  window.TypeRTouch = { panelChanged, openSheet, closeSheet, chapterChanged, pastesOnTap };
 })();

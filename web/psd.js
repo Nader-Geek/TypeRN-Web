@@ -216,7 +216,7 @@
         antiAlias: ANTI_ALIAS_IN[text.antiAlias] || "antiAliasSmooth",
         textClickPoint: { horizontal: (originX / doc.width) * 100, vertical: (originY / doc.height) * 100 },
         textStyleRange: ranges,
-        paragraphStyleRange: [{ from: 0, to: value.length, paragraphStyle: Object.assign({ alignment, autoLeadingPercentage: (text.paragraphStyle && text.paragraphStyle.autoLeading) || 1.2 }, text.paragraphStyle && text.paragraphStyle.hanging ? { hangingRoman: true } : {}) }],
+        paragraphStyleRange: [{ from: 0, to: value.length, paragraphStyle: Object.assign({ alignment, autoLeadingPercentage: (text.paragraphStyle && text.paragraphStyle.autoLeading) || 1.2 }, text.paragraphStyle && text.paragraphStyle.hanging ? { hangingRoman: true } : {}, bounds && text.paragraphStyle && text.paragraphStyle.autoHyphenate === true ? { hyphenate: true } : {}) }],
         textShape: [bounds
           ? { textType: "box", orientation: text.orientation === "vertical" ? "vertical" : "horizontal", box: { width: (bounds[2] - bounds[0]) * scale, height: (bounds[3] - bounds[1]) * scale, autoHeight: false } }
           : { textType: "point", orientation: text.orientation === "vertical" ? "vertical" : "horizontal" }],
@@ -263,6 +263,37 @@
     return { canvas, pad };
   };
 
+  // TypeR used to save a stroked text's pixels with their stroke drawn in, under the same stroke
+  // as a layer style: drawn again around them, it came back twice as thick. Photoshop's own
+  // pixels are only the letters, in their colours: many opaque pixels in the stroke's colour
+  // and in none of the letters' are a stroke drawn in. A stroke of the letters' own colour
+  // can't be told apart.
+  const strokeDrawnIn = (bitmap, stroke, params) => {
+    if (!bitmap || !bitmap.width || !bitmap.height) return false;
+    const near = (a, b) => Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b) < 90;
+    const letters = params.layerText.textStyleRange.map(({ textStyle }) => (textStyle.color ? { r: textStyle.color.red, g: textStyle.color.green, b: textStyle.color.blue } : { r: 0, g: 0, b: 0 }));
+    const rings = [stroke.color].concat(stroke.outer ? [stroke.outer.color] : []).filter((color) => !letters.some((letter) => near(letter, color)));
+    if (!rings.length) return false;
+    let data;
+    try {
+      data = bitmap.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, bitmap.width, bitmap.height).data;
+    } catch (error) {
+      return false;
+    }
+    let opaque = 0;
+    let ringed = 0;
+    const pixel = { r: 0, g: 0, b: 0 };
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < 200) continue;
+      opaque++;
+      pixel.r = data[i];
+      pixel.g = data[i + 1];
+      pixel.b = data[i + 2];
+      if (rings.some((color) => near(pixel, color)) && !letters.some((letter) => near(pixel, letter))) ringed++;
+    }
+    return opaque > 0 && ringed > opaque * 0.15;
+  };
+
   /* --------------------------- SFX in the file's XMP --------------------------- */
 
   // Photoshop has nowhere to keep how an SFX was made: its settings go in the file's metadata,
@@ -276,20 +307,21 @@
     return btoa(binary);
   };
   const fromBase64 = (text) => new TextDecoder().decode(Uint8Array.from(atob(text), (c) => c.charCodeAt(0)));
-  const SFX_PROPERTY = /\s*typer:sfx="[^"]*"|\s*<typer:sfx>[^<]*<\/typer:sfx>/g;
-  const sfxOfXmp = (xmp) => {
-    const found = /typer:sfx(?:="([^"]*)"|>([^<]*)<)/.exec(xmp || "");
+  // One entry of the file's metadata, `typer:<key>`: a list, as base64 JSON
+  const propertyPattern = (key) => new RegExp(`\\s*typer:${key}="[^"]*"|\\s*<typer:${key}>[^<]*<\\/typer:${key}>`, "g");
+  const listOfXmp = (xmp, key) => {
+    const found = new RegExp(`typer:${key}(?:="([^"]*)"|>([^<]*)<)`).exec(xmp || "");
     if (!found) return [];
     try {
       const list = JSON.parse(fromBase64((found[1] || found[2] || "").trim()));
       return Array.isArray(list) ? list : [];
     } catch (error) {
-      console.warn("TypeR web: this file's SFX settings can't be read", error);
+      console.warn(`TypeR web: this file's ${key} settings can't be read`, error);
       return [];
     }
   };
-  const xmpWithSfx = (xmp, list) => {
-    let out = String(xmp || "").replace(SFX_PROPERTY, "");
+  const xmpWithList = (xmp, key, list) => {
+    let out = String(xmp || "").replace(propertyPattern(key), "");
     if (!list.length) return xmp ? out : undefined;
     const value = toBase64(JSON.stringify(list));
     if (!/<rdf:Description\b/.test(out)) {
@@ -297,9 +329,11 @@
     }
     return out.replace(/<rdf:Description\b([^>]*?)(\/?)>/, (tag, attributes, closed) => {
       const ns = /xmlns:typer=/.test(attributes) ? "" : ` xmlns:typer="${XMP_NS}"`;
-      return `<rdf:Description${attributes}${ns} typer:sfx="${value}"${closed}>`;
+      return `<rdf:Description${attributes}${ns} typer:${key}="${value}"${closed}>`;
     });
   };
+  const sfxOfXmp = (xmp) => listOfXmp(xmp, "sfx");
+  const xmpWithSfx = (xmp, list) => xmpWithList(xmp, "sfx", list);
   // Each saved SFX finds its folder again: by name, in order, else by the letters inside
   const attachSfx = (groups, layers, xmp) => {
     const list = sfxOfXmp(xmp);
@@ -316,6 +350,35 @@
       claimed.add(group);
       group.sfx = entry.recipe;
     });
+  };
+
+  // A text in perspective is saved as what shows, in pixels, over its text, hidden (see
+  // nodesFor). Its surface goes in the metadata, so that it opens as the text it was: one layer,
+  // still in perspective, that the Move tool takes by its frame and not by its letters. Left
+  // as two layers if Photoshop changed the text, or took the pixels away.
+  const warpsForSave = (doc) => doc.state.layers
+    .filter((layer) => layer.kind === "text" && layer.warp)
+    .map((layer) => ({ name: layer.name, text: layer.params.layerText.textKey, warp: layer.warp }));
+  const attachWarps = (layers, xmp) => {
+    const list = listOfXmp(xmp, "warps");
+    if (!list.length) return;
+    const gone = new Set();
+    list.forEach((entry) => {
+      if (!entry || !entry.warp || !Array.isArray(entry.warp.corners) || !entry.warp.source) return;
+      const at = layers.findIndex((layer, index) => {
+        const shown = layers[index + 1];
+        return layer.kind === "text" && !gone.has(layer) && layer.visible === false && layer.name === `${entry.name} (text)` && layer.params.layerText.textKey === entry.text
+          && shown && shown.kind !== "text" && shown.kind !== "group" && !gone.has(shown) && shown.name === entry.name && shown.group === layer.group;
+      });
+      if (at < 0) return;
+      const text = layers[at];
+      const shown = layers[at + 1];
+      Object.assign(text, { name: shown.name, visible: shown.visible, opacity: shown.opacity, blend: shown.blend, clipping: shown.clipping, locked: shown.locked, locks: shown.locks, color: shown.color, warp: entry.warp, raster: null });
+      gone.add(text);
+      gone.add(shown);
+    });
+    const shownLayers = new Set(Array.from(gone).filter((layer) => layer.kind !== "text"));
+    for (let i = layers.length - 1; i >= 0; i--) if (shownLayers.has(layers[i])) layers.splice(i, 1);
   };
 
   /* ------------------------------- opening ------------------------------- */
@@ -400,7 +463,9 @@
             layer.raster = { bitmap: node.canvas, left: node.left || 0, top: node.top || 0 };
             // The letters at the layer's Fill, over their stroke
             const amount = engine.fillOf(layer);
-            if (layer.stroke) {
+            // Shown as they are, and saved again as an edited text: the file comes out right
+            if (layer.stroke && amount === 1 && !layer.knockout && strokeDrawnIn(node.canvas, layer.stroke, params)) layer.raster.strokeDrawnIn = true;
+            else if (layer.stroke) {
               const { canvas, pad } = strokedDisplay(node.canvas, layer.stroke);
               if (amount < 1) {
                 const c = canvas.getContext("2d");
@@ -446,6 +511,7 @@
       });
     };
     walk(psd.children, null);
+    attachWarps(layers, psd.imageResources && psd.imageResources.xmpMetadata);
     // Photoshop's linked layers share a number; one shared by every layer is no link at all
     const shared = new Map();
     layers.forEach((layer) => {
@@ -533,7 +599,8 @@
       antiAlias: ANTI_ALIAS_OUT[lt.antiAlias] || "smooth",
       shapeType: box ? "box" : "point",
       style: styleToPsd(ranges[0] ? ranges[0].textStyle : {}, doc.resolution),
-      paragraphStyle: Object.assign({ justification: JUSTIFY_OUT[paragraph && paragraph.alignment] || "center" }, paragraph && paragraph.hangingRoman ? { hanging: true } : {}),
+      // Photoshop hyphenates unless told not to: it would cut words TypeR keeps whole
+      paragraphStyle: Object.assign({ justification: JUSTIFY_OUT[paragraph && paragraph.alignment] || "center", autoHyphenate: Boolean(paragraph && paragraph.hyphenate) }, paragraph && paragraph.hangingRoman ? { hanging: true } : {}),
     };
     if (box) {
       // A little room, so that Photoshop's own line heights don't hide the last line.
@@ -637,7 +704,7 @@
       return node;
     }
     if (layer.kind === "text") {
-      if (layer.raster && layer.raw && layer.raw.text) {
+      if (layer.raster && !layer.raster.strokeDrawnIn && layer.raw && layer.raw.text) {
         // Not edited: Photoshop's own text and pixels, only moved if the user moved it
         const moveX = layer.raster.left - (layer.raw.left || 0);
         const moveY = layer.raster.top - (layer.raw.top || 0);
@@ -653,8 +720,9 @@
       }
       flags.editedText = true;
       node.text = textToPsd(layer, doc);
-      // A hollow text's pixels are its letters, which Photoshop hides at Fill 0%: its stroke is drawn from them
-      const visual = engine.visualOf(Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined }, layer.knockout || engine.fillOf(layer) < 1 ? { knockout: false, stroke: null } : null), doc);
+      // A text's pixels are only its letters, even a hollow one's, which Photoshop hides at
+      // Fill 0%: Photoshop draws the layer style's stroke around them
+      const visual = engine.visualOf(Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined, knockout: false, stroke: null, raster: null }), doc);
       if (visual) place(node, visual.canvas, visual.x, visual.y);
       if (layer.knockout) node.fillOpacity = 0;
       else if (node.fillOpacity === 0) node.fillOpacity = 1;
@@ -798,11 +866,24 @@
     delete imageResources.thumbnail;
     delete imageResources.thumbnailRaw;
     const sfx = window.TypeRSFX ? window.TypeRSFX.recipesForSave(doc) : [];
-    const xmp = xmpWithSfx(imageResources.xmpMetadata, sfx);
+    const xmp = xmpWithList(xmpWithSfx(imageResources.xmpMetadata, sfx), "warps", warpsForSave(doc));
     if (xmp === undefined) delete imageResources.xmpMetadata;
     else imageResources.xmpMetadata = xmp;
     const root = Object.assign({}, source, { width: doc.width, height: doc.height, bitsPerChannel: 8, canvas: composite, children, imageResources });
     if (!root.colorMode) root.colorMode = 3;
+    // The file a smart object keeps inside the PSD goes only with a layer that still uses it:
+    // Photoshop refuses to open a PSD with one left over, as when a folder of Generative Fill
+    // layers was merged here
+    if (root.linkedFiles) {
+      const used = new Set();
+      const findUsed = (nodes) => nodes.forEach((node) => {
+        if (node.placedLayer && node.placedLayer.id) used.add(node.placedLayer.id);
+        if (node.children) findUsed(node.children);
+      });
+      findUsed(children);
+      root.linkedFiles = root.linkedFiles.filter((file) => used.has(file.id));
+      if (!root.linkedFiles.length) delete root.linkedFiles;
+    }
     const psb = /\.psb$/i.test(target) || doc.width > 30000 || doc.height > 30000;
     const options = { psb, invalidateTextLayers: flags.editedText, trimImageData: true, noBackground: !(bottom && bottom.isBackground), logMissingFeatures: false };
     if (await startWorker()) {

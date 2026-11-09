@@ -31,7 +31,8 @@
   if (!startingStorage) {
     // A new user starts as in Photoshop: no styles, no script, and TypeR's own tutorial.
     // On a touch screen the tutorial's gestures don't apply.
-    startingStorage = JSON.stringify(seeded ? seed.storage(language) : shell.touch ? kit.freshTouchStorage(window.parent.TypeRApp.T("Dialogue")) : kit.freshStorage(true));
+    // TypeR Studio has its own tutorial (guide.js): the panel's isn't started here
+    startingStorage = JSON.stringify(seeded ? seed.storage(language) : shell.touch ? kit.freshTouchStorage(window.parent.TypeRApp.T("Dialogue")) : kit.freshStorage(!window.parent.TypeRGuide));
   } else {
     // The panel speaks the app's language: a language picked in its settings before they
     // lost the choice would win over it
@@ -78,12 +79,13 @@
       if (Object.prototype.hasOwnProperty.call(files, path)) return { err: FS.NO_ERROR, data: files[path] };
       return { err: FS.ERR_NOT_FOUND, data: "" };
     },
-    writeFile(path, data) {
+    writeFile(path, data, encoding) {
       files[path] = String(data);
       if (window.parent.TypeRTouch) window.parent.TypeRTouch.panelChanged();
       if (kit.keeps(path)) remember(path, files[path]);
-      // A file written outside TypeR's own folder is an export: it is downloaded
-      else if (String(path).indexOf(ROOT + "/") !== 0) downloadFile(String(path).split(/[\\/]/).pop(), files[path]);
+      // A file written outside TypeR's own folder is an export: it is downloaded. A font or a
+      // .zip comes as Base64, and the file must hold its bytes, not that text
+      else if (String(path).indexOf(ROOT + "/") !== 0) downloadFile(String(path).split(/[\\/]/).pop(), encoding === "Base64" ? fromBase64(files[path]) : files[path]);
       return { err: FS.NO_ERROR };
     },
     deleteFile(path) {
@@ -111,13 +113,15 @@
   fs.showOpenDialog = fs.showOpenDialogEx;
   fs.showSaveDialog = fs.showSaveDialogEx;
 
-  const downloadFile = (name, text) => {
+  const downloadFile = (name, data) => {
     const link = window.parent.document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([text], { type: "application/octet-stream" }));
+    link.href = URL.createObjectURL(new Blob([data], { type: "application/octet-stream" }));
     link.download = name;
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 4000);
   };
+
+  const fromBase64 = (text) => Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
 
   const toBase64 = (bytes) => {
     let binary = "";
@@ -171,6 +175,23 @@
   const lendZipHost = () => {
     window.typerUXP = { request: (name, data) => (name === "exportZipWithFonts" ? exportZip(data) : Promise.reject(new Error(name))) };
     setTimeout(() => { delete window.typerUXP; }, 0);
+  };
+
+  // The fonts the Font FindeR installs (TypeR's fontInstaller.js): kept here like a font file
+  // the user loads, so the text can use them at once. The desktop app also installs them on
+  // the computer, for the other apps, as the Photoshop plugin does.
+  window.typerFontHost = {
+    async installFonts(fonts) {
+      const files = (fonts || []).map((font) => ({ name: font.saveName, displayName: font.displayName, bytes: font.bytes }));
+      const { added } = await window.parent.TypeRFonts.addFiles(files.map((file) => ({ name: file.name, buffer: file.bytes.slice().buffer })));
+      if (!added.length) throw new Error("installFailed");
+      const desktop = window.parent.TypeRDesktop;
+      if (desktop && desktop.installFonts) {
+        const result = await desktop.installFonts(files);
+        if (!result || !result.ok) throw new Error((result && result.message) || "installFailed");
+      }
+      return files.length;
+    },
   };
 
   const pickFiles = (multiple, types) => new Promise((resolve) => {
@@ -308,9 +329,30 @@
     });
     if (changed) style.textContent = next;
   };
+  // Only the <style> elements a change touches are read again, not all of them at each
+  // change of the panel: the panel's own rules are in its head, the previews' in its body
+  const styleOf = (node) => {
+    const element = node.nodeType === 1 ? node : node.parentNode;
+    return element && element.nodeType === 1 ? element.closest("style") : null;
+  };
+  const rewriteTouchedRules = (mutations) => {
+    const touched = new Set();
+    mutations.forEach((mutation) => {
+      const style = styleOf(mutation.target);
+      if (style) touched.add(style);
+      else if (mutation.type === "childList") {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType !== 1) return;
+          if (node.nodeName === "STYLE") touched.add(node);
+          else if (node.firstElementChild) node.querySelectorAll("style").forEach((inner) => touched.add(inner));
+        });
+      }
+    });
+    touched.forEach(rewriteFontRules);
+  };
   const watchFontRules = () => {
     const scan = () => Array.prototype.forEach.call(document.querySelectorAll("style"), rewriteFontRules);
-    new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    new MutationObserver(rewriteTouchedRules).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
     // A kept font is read when it's first asked for: its rule waits for it
     const stop = window.parent.TypeRFonts.onChange(scan);
     window.addEventListener("pagehide", stop);
@@ -401,6 +443,19 @@
     const button = event.target.closest && event.target.closest('[data-tour="import-pages"]');
     if (!fromApp && button && button.classList.contains("is-active") && window.parent.TypeRApp) window.parent.TypeRApp.setPages(null, true);
   }, true);
+  // The walkthrough offered by the panel's Help is Photoshop's: here the app's own tutorial
+  // (guide.js) takes its place, the Help closing behind it
+  document.addEventListener("click", (event) => {
+    const guide = window.parent.TypeRGuide;
+    const button = event.target.closest && event.target.closest(".help-actions .help-action");
+    if (!guide || window.parent.TypeRShell.touch || !button || button !== button.parentNode.querySelector(".help-action")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const modal = button.closest(".app-modal");
+    const close = modal && modal.querySelector(".topcoat-icon-button--large--quiet");
+    if (close) close.click();
+    guide.show();
+  }, true);
   const pagesFromApp = {
     // Made again in this window: the panel reads each file's path, which only this window's files have
     importPages(files) {
@@ -446,14 +501,51 @@
   const load = (url) => fetch(url).then((response) => (response.ok ? response.text() : "")).catch(() => "");
 
   // FontScanR reads the list of fonts once, when it opens, but the browser only learns
-  // about the computer's fonts one by one, during the scan: it would call them missing
-  new MutationObserver(() => {
-    document.querySelectorAll(".fsr-item").forEach((item) => {
-      const preview = item.querySelector(".fsr-item-preview");
-      const state = window.parent.TypeRFonts.isMissing(preview.title) ? "missing" : "found";
-      if (item.dataset.font !== state) item.dataset.font = state;
+  // about the computer's fonts one by one, during the scan: it would call them missing.
+  // The rows added are marked, once per frame, and all of them again when the fonts change
+  const markFound = (item) => {
+    const preview = item.querySelector(".fsr-item-preview");
+    if (!preview) return;
+    const state = window.parent.TypeRFonts.isMissing(preview.title) ? "missing" : "found";
+    if (item.dataset.font !== state) item.dataset.font = state;
+  };
+  const fsrAdded = new Set();
+  let fsrAll = false;
+  let fsrFrame = 0;
+  const markFsrItems = () => {
+    fsrFrame = 0;
+    const all = fsrAll;
+    const added = Array.from(fsrAdded);
+    fsrAll = false;
+    fsrAdded.clear();
+    if (all) {
+      document.querySelectorAll(".fsr-item").forEach(markFound);
+      return;
+    }
+    added.forEach((node) => {
+      if (!node.isConnected) return;
+      const item = node.closest(".fsr-item");
+      if (item) markFound(item);
+      else if (node.firstElementChild) node.querySelectorAll(".fsr-item").forEach(markFound);
     });
+  };
+  const markFsrSoon = () => {
+    if (!fsrFrame) fsrFrame = window.requestAnimationFrame(markFsrItems);
+  };
+  new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        const element = node.nodeType === 1 ? node : node.parentElement;
+        if (element) fsrAdded.add(element);
+      });
+    });
+    if (fsrAdded.size) markFsrSoon();
   }).observe(document.documentElement, { childList: true, subtree: true });
+  const stopMarking = window.parent.TypeRFonts.onChange(() => {
+    fsrAll = true;
+    markFsrSoon();
+  });
+  window.addEventListener("pagehide", stopMarking);
 
   // Sentences that say something else here than in Photoshop: there are no profiles
   const loadWebText = () => fetch("../panel-locale/web-text.json").then((response) => response.json()).catch(() => ({}));
@@ -485,4 +577,10 @@
     getFile: (path) => files[path],
     setFile: (path, value) => { files[path] = value; },
   };
+  // The panel's button to the other app (TypeR's openInStudio.js): here, the app's own Open in
+  // Photoshop, only in the desktop app, which can reach Photoshop
+  const parentApp = window.parent;
+  if (parentApp.TypeRDesktop && parentApp.TypeRDesktop.photoshop && parentApp.TypeRApp && parentApp.TypeRApp.openInPhotoshop) {
+    window.__typerWeb.openInPhotoshop = () => { parentApp.TypeRApp.openInPhotoshop(); };
+  }
 })();

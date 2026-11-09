@@ -177,6 +177,58 @@
   };
   window.TypeRStudio = { beforePanel: offerPhotoshopSettings, findPhotoshopSettings, takePhotoshopSettings, OFFERED };
 
+  /* --------------------------------- an update is ready -------------------------------- */
+
+  // A new version was downloaded while the app is open: it's there at the next launch, or now
+  // with Restart. Pages kept by the session come back; the others are asked about as the window
+  // closes, as for any closing.
+  const UPDATE_WORDS = {
+    fr: ["Mise à jour installée. Redémarrer TypeR Studio ?", "Redémarrer", "Plus tard"],
+    es: ["Actualización instalada. ¿Reiniciar TypeR Studio?", "Reiniciar", "Más tarde"],
+    it: ["Aggiornamento installato. Riavviare TypeR Studio?", "Riavvia", "Più tardi"],
+    de: ["Update installiert. TypeR Studio neu starten?", "Neu starten", "Später"],
+    pt: ["Atualização instalada. Reiniciar o TypeR Studio?", "Reiniciar", "Mais tarde"],
+    ru: ["Обновление установлено. Перезапустить TypeR Studio?", "Перезапустить", "Позже"],
+    uk: ["Оновлення встановлено. Перезапустити TypeR Studio?", "Перезапустити", "Пізніше"],
+    pl: ["Aktualizacja zainstalowana. Uruchomić ponownie TypeR Studio?", "Uruchom ponownie", "Później"],
+    nl: ["Update geïnstalleerd. TypeR Studio opnieuw starten?", "Opnieuw starten", "Later"],
+    tr: ["Güncelleme yüklendi. TypeR Studio yeniden başlatılsın mı?", "Yeniden başlat", "Sonra"],
+    ar: ["تم تثبيت التحديث. هل تريد إعادة تشغيل TypeR Studio؟", "إعادة التشغيل", "لاحقًا"],
+    vi: ["Đã cài bản cập nhật. Khởi động lại TypeR Studio?", "Khởi động lại", "Để sau"],
+    id: ["Pembaruan terpasang. Mulai ulang TypeR Studio?", "Mulai ulang", "Nanti"],
+    th: ["ติดตั้งอัปเดตแล้ว รีสตาร์ท TypeR Studio ไหม", "รีสตาร์ท", "ไว้ทีหลัง"],
+    ja: ["アップデートをインストールしました。TypeR Studio を再起動しますか？", "再起動", "あとで"],
+    ko: ["업데이트가 설치되었습니다. TypeR Studio를 다시 시작할까요?", "다시 시작", "나중에"],
+    zh: ["更新已安装。要重新启动 TypeR Studio 吗？", "重新启动", "稍后"],
+  };
+  const UPDATE_ENGLISH = ["Update installed. Restart TypeR Studio?", "Restart", "Later"];
+
+  const showUpdateNote = () => {
+    if (document.getElementById("update-note")) return;
+    const lang = window.TYPER_I18N && window.TYPER_I18N.lang;
+    const [text, restart, later] = UPDATE_WORDS[lang] || UPDATE_ENGLISH;
+    const note = document.createElement("div");
+    note.id = "update-note";
+    note.className = "update-note";
+    note.setAttribute("role", "status");
+    if (lang === "ar") note.dir = "rtl";
+    const label = document.createElement("span");
+    label.className = "update-note__text";
+    label.textContent = text;
+    const now = document.createElement("button");
+    now.type = "button";
+    now.className = "btn btn--small btn--main";
+    now.textContent = restart;
+    now.addEventListener("click", () => Desktop.reloadForUpdate());
+    const notNow = document.createElement("button");
+    notNow.type = "button";
+    notNow.className = "btn btn--small";
+    notNow.textContent = later;
+    notNow.addEventListener("click", () => note.remove());
+    note.append(label, now, notNow);
+    document.body.appendChild(note);
+  };
+
   /* ----------------------------------- once it's up ------------------------------------ */
 
   const ACCELERATOR_KEYS = { ArrowRight: "Right", ArrowLeft: "Left", ArrowUp: "Up", ArrowDown: "Down" };
@@ -230,6 +282,26 @@
     return Boolean(active) && (/^(INPUT|TEXTAREA)$/.test(active.tagName) || active.isContentEditable);
   };
 
+  /* ------------------------------- Discord's Rich Presence ------------------------------ */
+
+  // What the page is on goes to the app when it changes (Settings > Discord activity). The app
+  // spaces the changes out as Discord asks, and shows nothing while Discord isn't running.
+  const PRESENCE_EVERY = 5000;
+  const watchPresence = () => {
+    const App = window.TypeRApp;
+    if (!Desktop.discord || !App.presence) return;
+    let said = "";
+    const tell = () => {
+      const now = App.presence();
+      const key = JSON.stringify(now);
+      if (key === said) return;
+      said = key;
+      Desktop.discord.set(now);
+    };
+    tell();
+    setInterval(tell, PRESENCE_EVERY);
+  };
+
   // The page's scripts have run; bringing the last session back still takes its time
   const whenLoaded = () => {
     const App = window.TypeRApp;
@@ -240,6 +312,7 @@
       discard: App.T("Don't save"),
       cancel: App.T("Cancel"),
     });
+    watchPresence();
     if (Desktop.platform === "mac") {
       syncMenu();
       ["pointerup", "keyup", "focusin"].forEach((name) => window.addEventListener(name, syncSoon, true));
@@ -266,11 +339,7 @@
       fontsAsked = Date.now();
       window.TypeRFonts.useInstalled().catch(() => {});
     });
-    // An update applies to the next launch, or right now if there's no page to disturb
-    Desktop.onUpdateReady(() => {
-      const start = document.getElementById("start");
-      if (start && !start.hidden && !document.querySelector("dialog[open]")) Desktop.reloadForUpdate();
-    });
+    Desktop.onUpdateReady(showUpdateNote);
     Desktop.alive();
   };
 

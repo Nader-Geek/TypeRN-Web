@@ -5,6 +5,8 @@ const fs = require("fs");
 const path = require("path");
 const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, screen, session, shell } = require("electron");
 const content = require("./content");
+const localAI = require("./local-ai");
+const discord = require("./discord");
 
 const SCHEME = "typer";
 const HOST = "app";
@@ -32,7 +34,14 @@ let pageAlive = false;
 let pageReady = false;
 let lastCrash = 0;
 let strings = {};
+// The page has a question for when the window closes (web/feedback.js): asked once, then the
+// window closes for good. A page that doesn't take it up in time doesn't keep it open.
+let farewell = false;
+let farewellDone = false;
+const FAREWELL_WAIT = 1500;
 const waitingPaths = [];
+// A script sent by TypeR for Photoshop, kept until the page can take it
+let waitingScript = null;
 
 /* -------------------------------- the app's files -------------------------------- */
 
@@ -98,6 +107,78 @@ const openPaths = async (paths) => {
   } finally {
     if (cdp.isAttached()) cdp.detach();
   }
+};
+
+/* ---------------------------- sent by TypeR for Photoshop ---------------------------- */
+
+// TypeR for Photoshop's "Open in TypeR Studio" writes what to open in a file of the folder both
+// apps share, then opens typer-studio://open. The address carries nothing: a web page can open it
+// too, and only finds there what TypeR left a moment ago, or nothing.
+const LINK_SCHEME = "typer-studio";
+const REQUEST_MAX_AGE = 5 * 60 * 1000;
+// A script, either way between the two apps
+const SCRIPT_LIMIT = 5 * 1024 * 1024;
+const exchangeFolder = () => process.env.TYPER_EXCHANGE_DIR || path.join(app.getPath("appData"), "TypeR", "Studio");
+const isLink = (arg) => typeof arg === "string" && arg.toLowerCase().startsWith(`${LINK_SCHEME}:`);
+
+const deliverScript = (script) => {
+  if (!script) return;
+  if (!win || !pageReady) {
+    waitingScript = script;
+    return;
+  }
+  win.webContents.send("import-script", script);
+};
+
+// The request, taken off the disk so it's used once: { files, script }, or null
+const takeRequest = async () => {
+  const file = path.join(exchangeFolder(), "open.json");
+  let value;
+  try {
+    const text = await fs.promises.readFile(file, "utf8");
+    await fs.promises.unlink(file);
+    value = JSON.parse(text);
+  } catch (error) {
+    return null;
+  }
+  if (!value || typeof value !== "object" || value.from !== "TypeR" || value.version !== 1) return null;
+  const sent = Number(value.sent);
+  if (!Number.isFinite(sent) || Date.now() - sent > REQUEST_MAX_AGE || sent - Date.now() > 60 * 1000) return null;
+  const files = [];
+  for (const one of Array.isArray(value.files) ? value.files.slice(0, 200) : []) {
+    if (typeof one === "string" && path.isAbsolute(one) && OPENABLE.test(one) && (await exists(one)) && !files.includes(one)) files.push(one);
+  }
+  const given = value.script && typeof value.script === "object" ? value.script : null;
+  const text = given && typeof given.text === "string" ? given.text.replace(/\r\n?/g, "\n") : "";
+  const script = text.trim() && text.length <= SCRIPT_LIMIT
+    ? { name: typeof given.name === "string" ? given.name.replace(/\s+/g, " ").trim().slice(0, 200) : "", text }
+    : null;
+  return { files, script };
+};
+
+// Where this copy of the app is, for TypeR for Photoshop to know it's installed, even outside
+// the folders its installers use
+const noteWhereStudioIs = async () => {
+  const place = isMac ? path.resolve(process.execPath, "..", "..", "..") : process.execPath;
+  const file = path.join(exchangeFolder(), "app.json");
+  try {
+    await fs.promises.mkdir(path.dirname(file), { recursive: true });
+    await fs.promises.writeFile(file, JSON.stringify({ from: "TypeR Studio", path: place, version: app.getVersion() }), "utf8");
+  } catch (error) {
+    console.warn("Noting where TypeR Studio is:", error.message);
+  }
+};
+
+const openLinks = async (args) => {
+  if (!args.some(isLink)) return;
+  const request = await takeRequest();
+  if (!request) return;
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+  openPaths(request.files);
+  deliverScript(request.script);
 };
 
 /* ------------------------------------- the menu ------------------------------------- */
@@ -228,7 +309,18 @@ const createWindow = () => {
     clearTimeout(win.keepTimer);
     win.keepTimer = setTimeout(keepBounds, 500);
   }));
-  win.on("close", keepBounds);
+  win.on("close", (event) => {
+    keepBounds();
+    if (!farewell || farewellDone || restarting || !pageReady) return;
+    farewellDone = true;
+    event.preventDefault();
+    win.farewellShown = false;
+    win.webContents.send("farewell");
+    const asked = win;
+    setTimeout(() => {
+      if (!asked.isDestroyed() && !asked.farewellShown) asked.close();
+    }, FAREWELL_WAIT);
+  });
   win.on("closed", () => {
     win = null;
     pageAlive = false;
@@ -254,6 +346,8 @@ const createWindow = () => {
       cancelId: 1,
     });
     if (answer === 0) event.preventDefault();
+    // Kept open: no restart then
+    else restarting = false;
   });
   page.on("context-menu", (event, params) => fieldMenu(params));
   page.on("render-process-gone", (event, details) => {
@@ -268,7 +362,10 @@ const createWindow = () => {
     }
     const answer = dialog.showMessageBoxSync(win, { type: "error", message: strings.crashed || "TypeR Studio stopped working, maybe for lack of memory.", buttons: [strings.tryAgain || "Try Again", strings.quit || "Quit"], defaultId: 0, cancelId: 1 });
     if (answer === 0) win.reload();
-    else app.quit();
+    else {
+      farewellDone = true;
+      app.quit();
+    }
   });
 
   // Never came up: choose() drops a downloaded version at the next launch. What's in the
@@ -287,7 +384,10 @@ const ALLOWED = new Set(["local-fonts", "fileSystem", "clipboard-read", "clipboa
 const setPermissions = () => {
   const { defaultSession: ours } = session;
   ours.setPermissionRequestHandler((contents, permission, grant, details) => grant(ALLOWED.has(permission) && isOurs(details.requestingUrl)));
-  ours.setPermissionCheckHandler((contents, permission, origin) => ALLOWED.has(permission) && origin.startsWith(`${SCHEME}://`));
+  ours.setPermissionCheckHandler((contents, permission, origin, details) => {
+    if (permission === "fileSystem") noteWhere(details);
+    return ALLOWED.has(permission) && origin.startsWith(`${SCHEME}://`);
+  });
   // Answering "allow" here only leaves an empty file behind: the writing is refused later anyway
   ours.on("file-system-access-restricted", async (event, details, callback) => {
     await dialog.showMessageBox(win, { type: "info", message: strings.protectedPlace || "This place is protected by the system. Choose another one.", buttons: [strings.ok || "OK"] });
@@ -297,19 +397,35 @@ const setPermissions = () => {
 
 /* -------------------------------------- updates ------------------------------------- */
 
+// A new version of the page or of the app itself, downloaded: the page offers to restart now.
+// Otherwise it's there at the next launch.
+let shellUpdater = null;
+let shellReady = false;
+let updatePending = false;
+let restarting = false;
+const updateReady = () => {
+  updatePending = true;
+  if (win) win.webContents.send("update-ready");
+};
+
 const checkContent = async () => {
-  if (await content.check()) {
-    if (win) win.webContents.send("update-ready");
-  }
+  if (await content.check()) updateReady();
 };
 
 const checkShell = () => {
-  if (!app.isPackaged || isTest) return;
+  if (!app.isPackaged || isTest || shellReady) return;
   try {
     const { autoUpdater } = require("electron-updater");
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
-    autoUpdater.on("error", (error) => console.warn("App update:", error.message));
+    if (!shellUpdater) {
+      shellUpdater = autoUpdater;
+      autoUpdater.autoDownload = true;
+      autoUpdater.autoInstallOnAppQuit = true;
+      autoUpdater.on("error", (error) => console.warn("App update:", error.message));
+      autoUpdater.on("update-downloaded", () => {
+        shellReady = true;
+        updateReady();
+      });
+    }
     autoUpdater.checkForUpdates().catch((error) => console.warn("App update:", error.message));
   } catch (error) {
     console.warn("App update:", error.message);
@@ -391,7 +507,11 @@ ipcMain.on("page-alive", () => {
 ipcMain.on("page-ready", () => {
   pageReady = true;
   openPaths(waitingPaths.splice(0));
+  deliverScript(waitingScript);
+  waitingScript = null;
   if (process.env.TYPER_NO_UPDATE === "1") return;
+  // A page loaded again after the note came up: it comes back
+  if (updatePending) updateReady();
   setTimeout(() => {
     checkContent();
     checkShell();
@@ -402,13 +522,314 @@ ipcMain.on("text-edit", (event, command) => {
   if (Object.values(TEXT_EDITS).includes(command) && win) win.webContents[command]();
 });
 ipcMain.on("set-strings", (event, given) => { strings = given; });
+// Tests close the window themselves: no question in their way, unless it's the one tested
+ipcMain.on("set-farewell", (event, on) => { farewell = Boolean(on) && (!isTest || process.env.TYPER_TEST_FAREWELL === "1"); });
+ipcMain.on("farewell-shown", () => { if (win) win.farewellShown = true; });
+ipcMain.on("farewell-done", () => {
+  farewellDone = true;
+  if (win) win.close();
+});
 ipcMain.handle("photoshop-settings", () => findPhotoshopSettings().catch((error) => {
   console.warn("TypeR for Photoshop's settings:", error.message);
   return null;
 }));
-ipcMain.on("reload-for-update", () => {
+// Generative Fill with FLUX on this computer (local-ai.js). Only this window may ask, only for a
+// model the app knows; downloads and fills can be stopped by the id the page gave them.
+const fromPage = (event) => Boolean(win) && event.sender === win.webContents;
+const localJobs = new Map();
+const localJob = async (event, id, run) => {
+  if (!fromPage(event)) throw new Error("Not allowed.");
+  const key = String(id);
+  const controller = new AbortController();
+  localJobs.set(key, controller);
+  const tell = (progress) => { if (!event.sender.isDestroyed()) event.sender.send("local-ai-progress", Object.assign({ id: key }, progress)); };
+  try {
+    return { ok: true, value: await run(controller.signal, tell) };
+  } catch (error) {
+    if (!(error instanceof localAI.LocalError)) console.warn("Local Generative Fill:", error);
+    return { ok: false, kind: error.kind || "other", message: String(error.message || error).slice(0, 500) };
+  } finally {
+    localJobs.delete(key);
+  }
+};
+ipcMain.handle("local-ai-status", (event) => (fromPage(event) ? localAI.status() : null));
+ipcMain.handle("local-ai-install", (event, id, model) => localJob(event, id, (signal, tell) => localAI.install(String(model), signal, tell)));
+ipcMain.handle("local-ai-remove", (event, model) => (fromPage(event) ? localAI.remove(String(model)) : null));
+ipcMain.handle("local-ai-generate", (event, id, request) => localJob(event, id, (signal, tell) => {
+  const { model, image, mask, prompt, width, height } = request || {};
+  if (!(image instanceof Uint8Array) || !(mask instanceof Uint8Array) || !Number.isFinite(width) || !Number.isFinite(height) || width > 2048 || height > 2048) throw new localAI.LocalError("other", "Bad request.");
+  return localAI.generate({ model: String(model), image, mask, prompt: String(prompt || ""), width, height }, signal, tell);
+}));
+ipcMain.on("local-ai-cancel", (event, id) => {
+  const controller = fromPage(event) && localJobs.get(String(id));
+  if (controller) controller.abort();
+});
+
+// The Font FindeR's fonts, installed for this user only, as TypeR for Photoshop does: no admin
+// rights. Only font files, under a plain name, in the user's own font folder. On a Mac CoreText
+// watches that folder; on Windows the font is also registered under HKCU and announced to the
+// running apps.
+const FONT_FILE_LIMIT = 50 * 1024 * 1024;
+const FONT_KIND = { OTTO: ".otf", ttcf: ".ttc", true: ".ttf", "\u0000\u0001\u0000\u0000": ".ttf" };
+// Tests install into a folder of their own
+const fontFolder = () => (isTest && process.env.TYPER_TEST_FONTS) || (isMac
+  ? path.join(app.getPath("home"), "Library", "Fonts")
+  : path.join(process.env.LOCALAPPDATA || path.join(app.getPath("home"), "AppData", "Local"), "Microsoft", "Windows", "Fonts"));
+const psQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
+const registerWindowsFonts = (entries) => new Promise((resolve, reject) => {
+  const script = [
+    "$ErrorActionPreference = 'Stop';",
+    "$reg = 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts';",
+    "if (-not (Test-Path $reg)) { New-Item -Path $reg -Force | Out-Null };",
+    "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class TypeRFontApi { [DllImport(\"gdi32.dll\")] public static extern int AddFontResource(string path); [DllImport(\"user32.dll\")] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result); }';",
+    ...entries.flatMap((entry) => [
+      `New-ItemProperty -Path $reg -Name ${psQuote(entry.registryName)} -Value ${psQuote(entry.path)} -PropertyType String -Force | Out-Null;`,
+      `[void][TypeRFontApi]::AddFontResource(${psQuote(entry.path)});`,
+    ]),
+    // HWND_BROADCAST + WM_FONTCHANGE, and a hung window doesn't stall the install
+    "$out = [IntPtr]::Zero;",
+    "[void][TypeRFontApi]::SendMessageTimeout([IntPtr]0xffff, 0x1D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]$out);",
+  ].join(" ");
+  const { execFile } = require("child_process");
+  execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { windowsHide: true }, (error) => (error ? reject(error) : resolve()));
+});
+const installFonts = async (fonts) => {
+  if (!Array.isArray(fonts) || !fonts.length || fonts.length > 200) throw new Error("Bad request.");
+  if (!isMac && process.platform !== "win32") return 0;
+  const files = fonts.map((font) => {
+    const bytes = font && font.bytes;
+    if (!(bytes instanceof Uint8Array) || bytes.length < 12 || bytes.length > FONT_FILE_LIMIT) throw new Error("Not a font file.");
+    const extension = FONT_KIND[Buffer.from(bytes.subarray(0, 4)).toString("latin1")];
+    if (!extension) throw new Error("Not a font file.");
+    const stem = path.basename(String(font.name || "font")).replace(/\.[^.]*$/, "").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").trim().slice(0, 120) || "font";
+    const displayName = String(font.displayName || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 200) || stem;
+    return { bytes, fileName: stem + extension, registryName: `${displayName} (${extension === ".otf" ? "OpenType" : "TrueType"})` };
+  });
+  const folder = fontFolder();
+  await fs.promises.mkdir(folder, { recursive: true });
+  const entries = [];
+  for (const file of files) {
+    const target = path.join(folder, file.fileName);
+    await fs.promises.writeFile(target, file.bytes);
+    entries.push({ path: target, registryName: file.registryName });
+  }
+  if (process.platform === "win32") await registerWindowsFonts(entries);
+  return entries.length;
+};
+ipcMain.handle("install-fonts", async (event, fonts) => {
+  if (!fromPage(event)) return { ok: false, message: "Not allowed." };
+  try {
+    return { ok: true, count: await installFonts(fonts) };
+  } catch (error) {
+    console.warn("Font install:", error);
+    return { ok: false, message: String(error.message || error).slice(0, 300) };
+  }
+});
+
+/* --------------------------------- Open in Photoshop -------------------------------- */
+
+// Where a file the page holds is: a handle doesn't say, but asking about its permission makes
+// Chromium check it here, with its path. The page asks about one handle at a time, between
+// where-start and where-end; a path is only taken when its name and kind are the handle's.
+// Photoshop is only given the paths found this way.
+let whereAsked = null;
+let whereCount = 0;
+const knownPaths = new Set();
+const noteWhere = (details) => {
+  if (!whereAsked || !details || !details.filePath) return;
+  if (path.basename(details.filePath) !== whereAsked.name || Boolean(details.isDirectory) !== whereAsked.directory) return;
+  whereAsked.paths.add(details.filePath);
+};
+ipcMain.handle("where-start", (event, name, directory) => {
+  if (!fromPage(event)) return 0;
+  whereAsked = { token: ++whereCount, name: String(name), directory: Boolean(directory), paths: new Set() };
+  return whereAsked.token;
+});
+ipcMain.handle("where-end", (event, token) => {
+  const asked = whereAsked;
+  if (!fromPage(event) || !asked || asked.token !== token) return null;
+  whereAsked = null;
+  if (asked.paths.size !== 1) return null;
+  const [found] = asked.paths;
+  knownPaths.add(found);
+  return found;
+});
+
+// The Photoshops installed: the folders Adobe's installer uses, and on a Mac whatever Spotlight
+// knows as Photoshop elsewhere. The newest first.
+const execText = (file, args) => new Promise((resolve) => {
+  const { execFile } = require("child_process");
+  execFile(file, args, { timeout: 5000, windowsHide: true }, (error, stdout) => resolve(error ? "" : String(stdout)));
+});
+const exists = (file) => fs.promises.access(file).then(() => true, () => false);
+const childrenOf = (folder) => fs.promises.readdir(folder).catch(() => []);
+const PHOTOSHOP_ID = /^com\.adobe\.photoshop/i;
+const findMacPhotoshops = async () => {
+  const bundles = [];
+  for (const root of ["/Applications", path.join(app.getPath("home"), "Applications")]) {
+    for (const name of (await childrenOf(root)).filter((one) => /^Adobe Photoshop/i.test(one))) {
+      const full = path.join(root, name);
+      if (/\.app$/i.test(name)) bundles.push(full);
+      else (await childrenOf(full)).filter((one) => /^Adobe Photoshop.*\.app$/i.test(one)).forEach((one) => bundles.push(path.join(full, one)));
+    }
+  }
+  (await execText("/usr/bin/mdfind", ["kMDItemCFBundleIdentifier == 'com.adobe.Photoshop'"])).split("\n")
+    .filter((line) => /\.app$/i.test(line) && !line.includes("/.Trash/")).forEach((line) => bundles.push(line));
+  const found = [];
+  for (const bundle of bundles) {
+    const plist = path.join(bundle, "Contents", "Info.plist");
+    const value = async (key) => (await execText("/usr/bin/plutil", ["-extract", key, "raw", "-o", "-", plist])).trim();
+    if (!PHOTOSHOP_ID.test(await value("CFBundleIdentifier"))) continue;
+    found.push({ path: bundle, name: path.basename(bundle).replace(/\.app$/i, ""), version: await value("CFBundleShortVersionString") });
+  }
+  return found;
+};
+const findWindowsPhotoshops = async () => {
+  const folders = [];
+  const listed = await execText("reg", ["query", "HKLM\\SOFTWARE\\Adobe\\Photoshop", "/s", "/v", "ApplicationPath"]);
+  listed.split(/\r?\n/).forEach((line) => {
+    const match = /^\s*ApplicationPath\s+REG_SZ\s+(.+?)\s*$/.exec(line);
+    if (match) folders.push(match[1]);
+  });
+  for (const programs of [process.env.ProgramW6432, process.env.ProgramFiles].filter(Boolean)) {
+    const adobe = path.join(programs, "Adobe");
+    (await childrenOf(adobe)).filter((name) => /^Adobe Photoshop/i.test(name)).forEach((name) => folders.push(path.join(adobe, name)));
+  }
+  const found = [];
+  for (const folder of folders) {
+    const exe = path.join(folder, "Photoshop.exe");
+    if (await exists(exe)) found.push({ path: exe, name: path.basename(folder.replace(/[\\/]+$/, "")), version: "" });
+  }
+  return found;
+};
+const findPhotoshops = async () => {
+  let found = [];
+  if (process.env.TYPER_TEST_PHOTOSHOP) found = JSON.parse(process.env.TYPER_TEST_PHOTOSHOP);
+  // A test must not find the Photoshop of the computer it runs on
+  else if (isTest) found = [];
+  else if (isMac) found = await findMacPhotoshops();
+  else if (process.platform === "win32") found = await findWindowsPhotoshops();
+  const byPlace = new Map();
+  for (const one of found) {
+    let place = one.path;
+    try {
+      place = await fs.promises.realpath(one.path);
+    } catch (error) {}
+    if (!byPlace.has(place.toLowerCase())) byPlace.set(place.toLowerCase(), { id: place, name: one.name, version: one.version || "" });
+  }
+  const order = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  return [...byPlace.values()].sort((a, b) => order.compare(b.name, a.name));
+};
+
+const openInPhotoshop = async (target, files) => {
+  if (isTest) {
+    global.typerPhotoshopOpened = (global.typerPhotoshopOpened || []).concat([{ app: target.id, files }]);
+    return;
+  }
+  if (isMac) {
+    await new Promise((resolve, reject) => {
+      const { execFile } = require("child_process");
+      execFile("/usr/bin/open", ["-a", target.id, ...files], { timeout: 30000 }, (error, stdout, stderr) => (error ? reject(new Error(String(stderr || error.message).trim())) : resolve()));
+    });
+    return;
+  }
+  // A Photoshop already open takes the files from the one started here
+  const { spawn } = require("child_process");
+  await new Promise((resolve, reject) => {
+    const child = spawn(target.id, files, { detached: true, stdio: "ignore" });
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
+};
+
+// The script sent with the pages, for TypeR in Photoshop: a file it looks for when a document
+// opens there, takes into a script tab (the one holding the same text, or a new one), then
+// removes. Only this file is written in TypeR's folder; the plugin's settings stay untouched.
+const scriptForPhotoshop = () => path.join(exchangeFolder(), "script.json");
+const sendScript = async (script, files) => {
+  const value = {
+    from: "TypeR Studio",
+    version: 1,
+    sent: Date.now(),
+    name: String(script.name || "").slice(0, 200),
+    text: String(script.text || "").replace(/\r\n?/g, "\n"),
+    files,
+  };
+  if (!value.text.trim() || value.text.length > SCRIPT_LIMIT) throw new Error("This script can't be sent.");
+  if (isTest) {
+    global.typerPhotoshopScript = value;
+    return;
+  }
+  const file = scriptForPhotoshop();
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  // Read whole or not at all: the plugin may look while it's being written
+  const temporary = `${file}.${process.pid}.tmp`;
+  await fs.promises.writeFile(temporary, JSON.stringify(value), "utf8");
+  await fs.promises.rename(temporary, file);
+};
+
+ipcMain.handle("photoshop-list", async (event) => {
+  if (!fromPage(event)) return [];
+  try {
+    return await findPhotoshops();
+  } catch (error) {
+    console.warn("Finding Photoshop:", error);
+    return [];
+  }
+});
+ipcMain.handle("photoshop-open", async (event, id, paths, script) => {
+  if (!fromPage(event)) return { ok: false, message: "Not allowed." };
+  try {
+    const target = (await findPhotoshops()).find((one) => one.id === id);
+    if (!target) return { ok: false, message: "This Photoshop is no longer on this computer." };
+    const files = [];
+    for (const file of Array.isArray(paths) ? paths : []) {
+      if (typeof file === "string" && knownPaths.has(file) && /\.ps[db]$/i.test(file) && (await exists(file)) && !files.includes(file)) files.push(file);
+    }
+    if (!files.length) return { ok: false, message: "No file to open." };
+    // Waiting for TypeR before the pages open: it looks for the script as they do
+    let scriptError = null;
+    if (script && typeof script === "object") {
+      try {
+        await sendScript(script, files);
+      } catch (error) {
+        console.warn("Script for TypeR in Photoshop:", error);
+        scriptError = String(error.message || error).slice(0, 300);
+      }
+    }
+    await openInPhotoshop(target, files);
+    return { ok: true, count: files.length, scriptError };
+  } catch (error) {
+    console.warn("Open in Photoshop:", error);
+    return { ok: false, message: String(error.message || error).slice(0, 300) };
+  }
+});
+
+// Discord's Rich Presence (discord.js): only what the page is on, the rest is set there
+// A test doesn't show anything in the Discord of the computer it runs on
+const discordOn = !isTest || process.env.TYPER_TEST_DISCORD === "1";
+ipcMain.handle("discord-available", (event) => fromPage(event) && discord.available && discordOn);
+ipcMain.on("discord-activity", (event, activity) => {
+  if (fromPage(event) && discordOn) discord.set(activity);
+});
+
+// Restarting for an update closes the window as usual first, so that changes not kept by the
+// session still get their question. A new version of the app installs itself on the way.
+const restartNow = () => {
+  if (shellReady && shellUpdater) {
+    shellUpdater.quitAndInstall(true, true);
+    return;
+  }
   app.relaunch();
   app.quit();
+};
+ipcMain.on("reload-for-update", (event) => {
+  if (!fromPage(event)) return;
+  restarting = true;
+  win.close();
 });
 
 app.on("second-instance", (event, args) => {
@@ -417,6 +838,13 @@ app.on("second-instance", (event, args) => {
     win.focus();
   }
   openPaths(openablePaths(args.slice(1)));
+  openLinks(args.slice(1));
+});
+// The Mac gives the address it was opened with this way, maybe before the app is ready
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  if (app.isReady() && !win) createWindow();
+  openLinks([url]);
 });
 // A Mac tells the app about a file instead of starting it with one, maybe before it's ready
 app.on("open-file", (event, file) => {
@@ -424,7 +852,8 @@ app.on("open-file", (event, file) => {
   if (app.isReady() && !win) createWindow();
   openPaths([file]);
 });
-app.on("window-all-closed", () => app.quit());
+app.on("window-all-closed", () => (restarting ? restartNow() : app.quit()));
+app.on("will-quit", () => discord.stop());
 
 app.whenReady().then(() => {
   content.choose();
@@ -433,8 +862,15 @@ app.whenReady().then(() => {
   if (isMac) app.setAboutPanelOptions({ applicationName: app.getName(), applicationVersion: app.getVersion(), version: content.current().info.id, copyright: "ScanR" });
   // Until the page brings its menus: Electron's default one would offer Reload
   Menu.setApplicationMenu(isMac ? Menu.buildFromTemplate([{ role: "appMenu" }, { role: "editMenu" }, { role: "windowMenu" }]) : null);
-  if (process.env.TYPER_TEST_API === "1") global.typerTest = { content, openPaths };
+  if (process.env.TYPER_TEST_API === "1") global.typerTest = { content, openPaths, openLinks };
   createWindow();
   openPaths(openablePaths(process.argv.slice(app.isPackaged ? 1 : 2)));
+  openLinks(process.argv.slice(app.isPackaged ? 1 : 2));
+  // typer-studio:// leads here. The installers declare it too (package.json, installer.nsh):
+  // this keeps it pointing at this copy of the app.
+  if (app.isPackaged && !isTest) {
+    app.setAsDefaultProtocolClient(LINK_SCHEME);
+    noteWhereStudioIs();
+  }
   if (process.env.TYPER_NO_UPDATE !== "1") setInterval(checkContent, CHECK_EVERY);
 });

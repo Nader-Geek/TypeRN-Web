@@ -31,6 +31,8 @@ html[data-shell="tablet"] {
   --rail: calc(56px + var(--safe-l));
 }
 html[data-sheet="dock"] { --sh-w: 360px; --sh-l: auto; --sh-b: var(--kb); }
+/* below the page, the tools stay in reach */
+html[data-shell="tablet"][data-sheet="bottom"] { --sh-l: var(--rail); }
 html[data-sheet="dock"].sheet-open { --dock: 360px; }
 
 /* a phone on its side: the same things around the page instead of above and below it */
@@ -125,7 +127,25 @@ html[data-shell="tablet"] .tctx, html[data-sheet="right"] .tctx { flex: 1 1 0; b
 .tact svg { width: 20px; height: 20px; }
 .tact:active { background: var(--ui-3); }
 .tact--main { background: var(--blue); color: #fff; }
-.tact--square { justify-content: center; width: 46px; padding: 0; font-weight: 600; }
+/* what scrolls fades at the ends where there's more */
+html.touch .t-fade-x.more-e { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent); }
+html.touch .t-fade-x.more-s { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px); mask-image: linear-gradient(to right, transparent, #000 32px); }
+html.touch .t-fade-x.more-s.more-e { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
+html[data-shell="tablet"] .t-fade-y.more-e { -webkit-mask-image: linear-gradient(#000 calc(100% - 40px), transparent); mask-image: linear-gradient(#000 calc(100% - 40px), transparent); }
+html[data-shell="tablet"] .t-fade-y.more-s { -webkit-mask-image: linear-gradient(transparent, #000 40px); mask-image: linear-gradient(transparent, #000 40px); }
+html[data-shell="tablet"] .t-fade-y.more-s.more-e { -webkit-mask-image: linear-gradient(transparent, #000 40px, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(transparent, #000 40px, #000 calc(100% - 40px), transparent); }
+.tsize { flex: none; display: inline-flex; align-items: center; height: 40px; background: var(--ui-2); border-radius: 20px; }
+.tsize__step { width: 42px; height: 40px; border-radius: 20px; color: var(--text); font-size: 14px; font-weight: 600; touch-action: manipulation; }
+.tsize__step:active, .tsize__value:active { background: var(--ui-3); }
+.tsize__value { min-width: 34px; height: 30px; padding: 0 4px; border-radius: 4px; color: var(--text); font-size: 14px; font-variant-numeric: tabular-nums; }
+.tsize__value:empty { display: none; }
+.tctx__done { flex: none; display: flex; align-items: center; justify-content: center; width: 46px; border-left: 1px solid var(--line); color: var(--muted); }
+.tctx__done svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.tctx__done:active { background: var(--ui-2); color: var(--text); }
+html.touch .tctx__done[hidden], html.touch .tsize[hidden] { display: none; }
+.sheet__actions .tsize { height: 34px; background: var(--ui-3); border-radius: 17px; }
+.sheet__actions .tsize__step { width: 38px; height: 34px; border-radius: 17px; font-size: 13px; }
+.sheet__actions .tsize__value { min-width: 30px; height: auto; font-size: 13px; text-align: center; }
 .tctx__hint { flex: 1; margin: 0; padding: 0 12px; align-self: center; color: var(--muted); font-size: 13px; line-height: 1.25; }
 html.touch .obar { flex: 1; min-width: 0; height: auto; background: none; border: 0; padding: 0 8px; gap: 10px; font-size: 14px; }
 html.touch .obar__tool, html.touch .obar__end { display: none; }
@@ -184,6 +204,8 @@ html[data-sheet="dock"] .sheet.is-open, html[data-sheet="right"] .sheet.is-open 
 html[data-sheet="dock"] .sheet__head, html[data-sheet="right"] .sheet__head { padding-top: 0; }
 .sheet__grip { position: absolute; left: 50%; top: 5px; width: 36px; height: 4px; margin-left: -18px; background: var(--ui-3); border-radius: 2px; }
 html[data-sheet="dock"] .sheet__grip, html[data-sheet="right"] .sheet__grip { display: none; }
+html[data-sheet="dock"] .sheet__head.has-actions .sheet__title, html[data-sheet="right"] .sheet__head.has-actions .sheet__title { display: none; }
+html[data-sheet="dock"] .sheet__head.has-actions .sheet__actions, html[data-sheet="right"] .sheet__head.has-actions .sheet__actions { flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .sheet__title { flex: 1; min-width: 0; overflow: hidden; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .sheet__actions { flex: none; display: flex; align-items: center; gap: 4px; }
 .sheet__action { display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 10px; background: var(--ui-3); border-radius: 17px; font-size: 13px; }
@@ -244,7 +266,13 @@ html.touch .character__row .icon-btn { font-size: 16px; }
 /* the font list, as a sheet */
 html.touch .font-menu { left: 0 !important; right: 0 !important; top: auto !important; bottom: var(--kb) !important; width: auto !important; max-height: min(72dvh, calc(100dvh - var(--kb) - 60px)) !important; height: min(72dvh, calc(100dvh - var(--kb) - 60px)); border-radius: 12px 12px 0 0; padding-bottom: var(--safe-b); box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.5); }
 html.touch .font-menu__search { height: 44px; margin: 10px; }
-html.touch .font-menu__item { height: 50px; padding: 0 16px; font-size: 20px; line-height: 50px; contain-intrinsic-size: auto 50px; }
+html.touch .font-menu__head { margin: 10px; gap: 6px; }
+html.touch .font-menu__item { height: 50px; padding: 0 6px 0 16px; contain-intrinsic-size: auto 50px; }
+html.touch .font-menu__name { font-size: 20px; line-height: 50px; }
+html.touch .font-menu__filter, html.touch .font-menu__star { width: 44px; height: 44px; }
+html.touch .font-menu__filter svg, html.touch .font-menu__star svg { width: 20px; height: 20px; }
+/* No pointer to show it: the star is always there */
+html.touch .font-menu__item .font-menu__star:not(.is-on) { visibility: visible; }
 html.touch .font-menu__more { min-height: 48px; font-size: 15px; }
 
 /* line breaks */
@@ -288,6 +316,7 @@ html.touch #t-view-position { display: flex; }
 .tpage__open { display: block; width: 100%; text-align: left; }
 .tpage__picture { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 5 / 7; overflow: hidden; background: var(--ui-dark); border-radius: 4px; outline: 1px solid var(--line); }
 .tpage__picture canvas { display: block; max-width: 100%; max-height: 100%; }
+.tpage__number { color: var(--muted); font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .tpage.is-on .tpage__picture { outline: 2px solid var(--blue); }
 .tpage__name { display: block; margin-top: 4px; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .tpage.is-on .tpage__name { color: var(--text); }
@@ -317,13 +346,21 @@ html.touch .start p { font-size: 15px; line-height: 1.4; }
 html.touch .start__actions { flex-direction: column; align-items: stretch; width: 100%; max-width: 340px; gap: 10px; }
 html.touch .start__actions .btn { min-height: 50px; font-size: 16px; }
 html.touch #start-practice { display: block !important; }
+html.touch .start__more { gap: 4px 24px; }
+html.touch .start__link { min-height: 44px; font-size: 15px; }
 html.no-doc .stage { touch-action: auto; }
 html[data-sheet="right"] .start img { display: none; }
 html[data-sheet="right"] .start__actions { flex-direction: row; flex-wrap: wrap; justify-content: center; max-width: none; }
 html[data-sheet="right"] .start__actions .btn { flex: 1 1 40%; min-height: 44px; }
 
 /* notices and dialogs */
-html.touch .toast { pointer-events: none; top: calc(var(--top) + 10px); bottom: auto; max-width: calc(100vw - 24px); width: max-content; padding: 10px 16px; border-radius: 8px; font-size: 14px; text-align: center; }
+/* Just above the line being pasted, or the panel that's open: the page's first bubbles are at
+   its top, and a notice there would hide the text it's about */
+html.touch .toast { pointer-events: none; top: auto; bottom: calc(var(--kb) + var(--nav) + var(--ctx) + var(--card) + 10px); max-width: calc(100vw - 24px); width: max-content; padding: 10px 16px; border-radius: 8px; font-size: 14px; text-align: center; }
+html.touch[data-shell="tablet"] .toast, html.touch[data-sheet="right"] .toast { left: calc(var(--rail) + (100vw - var(--rail) - var(--dock)) / 2); max-width: calc(100vw - var(--rail) - var(--dock) - 24px); }
+html[data-sheet="right"].sheet-open .toast { left: calc(var(--rail) + (100vw - var(--rail) - var(--sh-w)) / 2); max-width: calc(100vw - var(--rail) - var(--sh-w) - 24px); }
+html[data-sheet="bottom"].sheet-open .toast { bottom: calc(var(--sh-b) + var(--sh-h) + 10px); }
+html.touch.is-editing .toast { top: calc(var(--top) + 10px); bottom: auto; }
 html.touch .modal { max-height: calc(100dvh - var(--kb) - 24px); margin-bottom: auto; overflow-y: auto; }
 html.touch .modal__head { font-size: 16px; padding: 14px; }
 html.touch .modal__body { font-size: 15px; }

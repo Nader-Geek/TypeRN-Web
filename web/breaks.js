@@ -51,6 +51,12 @@
   let syllableSet = new Set();
   let spans = [];
   let shownKey = "";
+  // What the key was made of, to skip making it again: a render of the page costs a
+  // look at the text, and the page is drawn at every move of a brush
+  let shownDoc = null;
+  let shownState = null;
+  let shownFonts = -1;
+  let shownLoaded = false;
   let hover = null;
   let drag = null;
   let openedMenu = false;
@@ -82,7 +88,7 @@
       if (start < 0) return;
       const run = chars.slice(start, end).map((item) => item.ch).join("");
       const from = start;
-      Hyphenation.breakPoints(run, language).forEach((point) => syllableSet.add(from + point));
+      Hyphenation.breakPoints(run, language, true).forEach((point) => syllableSet.add(from + point));
       start = -1;
     };
     chars.forEach((item, index) => {
@@ -108,14 +114,16 @@
     if (!model || lines.querySelector(".bl__rotated")) return;
     const FONT_SIZE = fontSize();
     const current = parseFloat(lines.style.fontSize) || FONT_SIZE;
-    lines.style.fontSize = `${FONT_SIZE}px`;
+    // Measured at the full size; the style is only touched when it changes, so that the
+    // measures below cost one layout, and none when the size is already right
+    if (current !== FONT_SIZE) lines.style.fontSize = `${FONT_SIZE}px`;
     let widest = 0;
     lines.querySelectorAll(".bl__line").forEach((row) => { widest = Math.max(widest, row.offsetWidth); });
     const room = lines.clientWidth - sides();
     if (room <= 0) return;
     let size = widest > room ? Math.max(smallest(), Math.floor((FONT_SIZE * room) / widest)) : FONT_SIZE;
     if (root.matches(":hover") && !Shell.touch) size = Math.min(size, current);
-    lines.style.fontSize = `${size}px`;
+    if (size !== FONT_SIZE) lines.style.fontSize = `${size}px`;
     showEnds();
   };
 
@@ -128,12 +136,18 @@
     return fade;
   });
   function showEnds() {
+    // Shown or hidden first, then every measure, then every position: one layout, not one per measure
     const more = [lines.scrollLeft > 1, lines.scrollLeft < lines.scrollWidth - lines.clientWidth - 1];
+    fades.forEach((fade, index) => { fade.hidden = !more[index]; });
+    const top = `${lines.offsetTop}px`;
+    const height = `${lines.clientHeight}px`;
+    const left = lines.offsetLeft;
+    const width = lines.clientWidth;
+    const lefts = fades.map((fade, index) => `${left + (index ? width - fade.offsetWidth : 0)}px`);
     fades.forEach((fade, index) => {
-      fade.hidden = !more[index];
-      fade.style.top = `${lines.offsetTop}px`;
-      fade.style.height = `${lines.clientHeight}px`;
-      fade.style.left = `${lines.offsetLeft + (index ? lines.clientWidth - fade.offsetWidth : 0)}px`;
+      fade.style.top = top;
+      fade.style.height = height;
+      fade.style.left = lefts[index];
     });
   }
 
@@ -162,9 +176,8 @@
     lines.style.lineHeight = "1.25";
     lines.style.textAlign = paragraph.alignment || "center";
     lines.style.textTransform = style.fontCaps === "allCaps" ? "uppercase" : "none";
-    // Uppercase follows the text language, as on the page: a Turkish i becomes İ
-    if (style.textLanguage === "turkishLanguage") lines.lang = "tr";
-    else lines.removeAttribute("lang");
+    // The letters and the uppercase follow the text language, as on the page: a Turkish i becomes İ
+    lines.lang = PS.languageTagOf(style);
     let row = null;
     const startRow = () => {
       row = document.createElement("div");
@@ -221,6 +234,7 @@
       layer = null;
       model = null;
       shownKey = "";
+      shownState = null;
       hint.hidden = true;
       Array.from(lines.querySelectorAll(".bl__row, .bl__rotated")).forEach((row) => row.remove());
       count.textContent = "";
@@ -228,9 +242,16 @@
       showEnds();
       return;
     }
+    // The document's state and its layers are replaced, never changed in place: the same
+    // objects as last time mean the same text, before the key below is even made
+    if (shownKey && layer === next && doc === shownDoc && doc.state === shownState && window.TypeRFonts.generation === shownFonts && Hyphenation.isLoaded(language) === shownLoaded) return;
     const text = next.params.layerText.textKey;
     language = choice === "auto" ? Hyphenation.resolve(text) : choice;
     const key = JSON.stringify([next.id, text, next.params.layerText.textStyleRange, next.params.layerText.textShape, language, Hyphenation.isLoaded(language)]);
+    shownDoc = doc;
+    shownState = doc.state;
+    shownFonts = window.TypeRFonts.generation;
+    shownLoaded = Hyphenation.isLoaded(language);
     if (key === shownKey && layer) {
       layer = next;
       return;
@@ -552,6 +573,26 @@
   footButton("breaks-more", () => balanced(breakSet.size + 2));
   footButton("breaks-balance", () => balanced(breakSet.size + 1));
 
+  // From the keys, the panel open or not: one line less or more on the active text
+  const stepLines = (direction) => {
+    const doc = app.doc;
+    const target = activeText();
+    if (!doc || !target || (target.rotated && target.raster)) return;
+    const shown = layer && model && layer.id === target.id ? null : { layer, model, breakSet };
+    if (shown) {
+      layer = target;
+      model = PS.lineModel(target, doc);
+      breakSet = new Set(model.breaks);
+    }
+    try {
+      const total = breakSet.size + 1;
+      if (direction < 0 ? total > 1 : total <= allGaps().length) commit(balanced(total + direction));
+    } finally {
+      // The panel, closed, shows nothing again
+      if (shown && layer === target) ({ layer, model, breakSet } = shown);
+    }
+  };
+
   /* ------------------------------- the panel ------------------------------- */
 
   root.addEventListener("pointerleave", () => {
@@ -640,7 +681,9 @@
   $("breaks-more").setAttribute("aria-label", T("One line more"));
   empty.textContent = T("Select a text layer to set its line breaks.");
 
-  PS.on((type) => {
+  PS.on((type, detail) => {
+    // A render of a part of the page (a brush stroke, a layer dragged) changes no text
+    if (type === "render" && detail) return;
     if (type === "render" || type === "history" || type === "document" || type === "editing" || type === "workspace") update();
   });
   update();
@@ -648,6 +691,8 @@
   window.TypeRBreaks = {
     get open() { return window.TypeRWorkspace.isVisible("breaks"); },
     toggle: () => window.TypeRWorkspace.toggle("breaks"),
+    fewer: () => stepLines(-1),
+    more: () => stepLines(1),
     get model() { return model; },
   };
 })();

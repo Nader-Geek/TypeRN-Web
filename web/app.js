@@ -12,6 +12,10 @@
   const Kit = window.TypeRKit;
   // A page still in a browser's cache may not have loaded this one yet: no Generative Fill then
   const Gen = window.TypeRGenerative || null;
+  // Select Text and Remove Text: on unless turned off on this device (textmask.js), read at start
+  const TextMask = window.TypeRTextMask && window.TypeRTextMask.enabled() ? window.TypeRTextMask : null;
+  // Its areas and plain backgrounds, which need no text detection: Generative Fill reads them too
+  const Mask = window.TypeRTextMask || null;
   const { lang } = window.TYPER_I18N;
   const { ops, app } = PS;
   const $ = (id) => document.getElementById(id);
@@ -42,6 +46,7 @@
     brushPreview: $("brush-preview"),
     editor: $("editor"),
     typeMarks: $("type-marks"),
+    textMarks: $("text-marks"),
     hud: $("hud"),
     tabs: $("tabs"),
     options: $("options"),
@@ -76,6 +81,10 @@
     magicEraser: SVG('<path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21"/> <path d="m5.082 11.09 8.828 8.828"/> <path d="M4 2v4"/> <path d="M6 4H2"/> <path d="M9 1v2"/> <path d="M10 2H8"/>'),
     crop: SVG('<path d="M6 2v14a2 2 0 0 0 2 2h14"/> <path d="M18 22V8a2 2 0 0 0-2-2H2"/>'),
     stamp: SVG('<path d="M14 13V8.5C14 7 15 7 15 5a3 3 0 0 0-6 0c0 2 1 2 1 3.5V13"/> <path d="M20 15.5a2.5 2.5 0 0 0-2.5-2.5h-11A2.5 2.5 0 0 0 4 15.5V17a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1z"/> <path d="M5 22h14"/>'),
+    // Lucide's bandage, turned as Photoshop's
+    heal: SVG('<g transform="rotate(-45 12 12) translate(1.2 1.2) scale(0.9)"><path d="M10 10.01h.01"/><path d="M10 14.01h.01"/><path d="M14 10.01h.01"/><path d="M14 14.01h.01"/><path d="M18 6v12"/><path d="M6 6v12"/><rect x="2" y="6" width="20" height="12" rx="2"/></g>'),
+    // A square whose diagonals fade from one corner to the other, on Lucide's grid
+    gradient: SVG('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12 12 3"/><path d="M4 20 20 4" stroke-opacity="0.6"/><path d="M12 21 21 12" stroke-opacity="0.25"/>'),
     clean: SVG('<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.290a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/><path d="M12 7.500l.9 2.600 2.600.9-2.600.9L12 14.500l-.9-2.600L8.500 11l2.600-.9Z"/>'),
     // A bubble widened: a speech bubble under a two-way arrow
     reshape: SVG('<path d="M3 13.5c0-3 3.6-5.5 8-5.5s8 2.5 8 5.5-3.6 5.5-8 5.5c-1 0-2-.1-2.9-.4L4 20l1.200-3.100C3.800 15.900 3 14.800 3 13.500Z"/><path d="M7 4h8"/><path d="m13 2 2 2-2 2"/><path d="m9 2-2 2 2 2"/>'),
@@ -105,6 +114,7 @@
     fullScreenExit: SVG('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'),
     alignMiddle: SVG('<rect x="4" y="4" width="16" height="16"/><path d="M8 10h8M8 14h8"/>'),
     warp: SVG('<path d="M7.500 5h9L21 19H3Z"/><path d="M12 5v14M5.200 12h13.600"/>'),
+    pilcrow: SVG('<path d="M13 4v16"/> <path d="M17 4v16"/> <path d="M19 4H9.500a4.500 4.500 0 0 0 0 9H13"/>'),
     pencil: SVG('<path d="m4 20 1-4L16 5a2.100 2.100 0 0 1 3 3L8 19ZM14.500 6.500l3 3"/>'),
     lines: SVG('<path d="M4 6h16M4 12h11a3 3 0 0 1 0 6H9M12 15l-3 3 3 3"/>'),
     shapes: SVG('<path d="M8 5h8M5 10h14M4 15h16M8 20h8"/>'),
@@ -136,9 +146,12 @@
     // Lucide's link and corner-left-down: a mask linked to its layer, a clipped layer
     link: SVG('<path d="M10 13a5 5 0 0 0 7.540.540l3-3a5 5 0 0 0-7.070-7.070l-1.720 1.710"/><path d="M14 11a5 5 0 0 0-7.540-.540l-3 3a5 5 0 0 0 7.070 7.070l1.710-1.710"/>'),
     clip: SVG('<path d="m14 15-5 5-5-5"/><path d="M20 4h-7a4 4 0 0 0-4 4v12"/>'),
-    // Lucide's sparkles and key-round, for Generative Fill
+    // Lucide's keyboard, for the Settings' Keyboard Shortcuts
+    keyboard: SVG('<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/>'),
+    // Lucide's sparkles, key-round and settings, for Generative Fill
     sparkles: SVG('<path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/>'),
     key: SVG('<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>'),
+    settings: SVG('<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/>'),
     heart: SVG('<path d="M12 20s-8-5-8-11a4.500 4.500 0 0 1 8-2.800A4.500 4.500 0 0 1 20 9c0 6-8 11-8 11Z"/>'),
     // Lock transparent pixels, as Photoshop draws it: a square half filled like a checkerboard
     lockAlpha: SVG('<rect x="4" y="4" width="16" height="16"/><path d="M4 4h8v8H4ZM12 12h8v8h-8Z" fill="currentColor"/>'),
@@ -162,6 +175,43 @@
     ui.busy.textContent = text || "";
     ui.busy.hidden = !text;
   };
+  // Long work that stops nothing: a line each at the bottom left of the page while it runs.
+  // `background(text)` gives { say(text), done() }.
+  const tasksNote = document.createElement("div");
+  tasksNote.className = "tasks";
+  tasksNote.hidden = true;
+  tasksNote.setAttribute("role", "status");
+  ui.stage.appendChild(tasksNote);
+  const tasks = new Set();
+  const renderTasks = () => {
+    tasksNote.hidden = !tasks.size;
+    tasksNote.textContent = "";
+    tasks.forEach((task) => {
+      const line = document.createElement("div");
+      line.className = "tasks__line";
+      line.innerHTML = ICON.sparkles;
+      line.append(task.text);
+      tasksNote.appendChild(line);
+    });
+  };
+  const background = (text) => {
+    const task = { text };
+    tasks.add(task);
+    renderTasks();
+    return {
+      say(next) {
+        if (!tasks.has(task) || task.text === next) return;
+        task.text = next;
+        renderTasks();
+      },
+      done() {
+        tasks.delete(task);
+        renderTasks();
+      },
+    };
+  };
+  // Its page named when there are several open
+  const onPage = (text, doc) => (doc && app.docs.length > 1 ? `${text} · ${doc.name}` : text);
 
   // A dialog: resolves with the values of its fields, or null when cancelled
   const dialog = ({ title, body, fields, ok, cancel, also, link, ready, keepOpen }) => new Promise((resolve) => {
@@ -340,7 +390,8 @@
 
     modal.textContent = "";
     modal.onkeydown = null;
-    modal.classList.add("modal--picker");
+    // Only its own look: What's New or Send Feedback, shown before in the same window, leave theirs
+    modal.className = "modal modal--picker";
     modal.style.transform = "";
     const head = make("div", "modal__head picker__head", modal, `${T("Color Picker")} (${input.title || input.getAttribute("aria-label") || ""})`);
     const body = make("div", "picker", modal);
@@ -599,8 +650,19 @@
   document.addEventListener("input", (event) => {
     if (event.target.type === "range") showSliderFill(event.target);
   }, true);
+  // The stage's place on screen, measured once per event however many ask (a measure after a
+  // write to the page costs a layout)
+  let measuredFor = null;
+  let measuredRect = null;
+  const stageRectOf = (event) => {
+    if (event !== measuredFor) {
+      measuredFor = event;
+      measuredRect = ui.stage.getBoundingClientRect();
+    }
+    return measuredRect;
+  };
   const toDoc = (event) => {
-    const rect = ui.stage.getBoundingClientRect();
+    const rect = stageRectOf(event);
     const v = view();
     return [(event.clientX - rect.left - v.x) / v.zoom, (event.clientY - rect.top - v.y) / v.zoom];
   };
@@ -765,6 +827,7 @@
     const d = selection ? ringsToD(selection.rings) : "";
     ui.antsA.setAttribute("d", d);
     ui.antsB.setAttribute("d", d);
+    ui.antsB.classList.toggle("is-live", Boolean(selection));
   };
   const setDrag = (d) => {
     ui.drag.setAttribute("d", d);
@@ -972,6 +1035,7 @@
     drawGenAreas();
     ui.handles.textContent = "";
     handleBoxes = [];
+    drawHiddenChars();
     drawTypeMarks();
     ui.box.setAttribute("hidden", "");
     pixelControls = null;
@@ -982,6 +1046,7 @@
     if (turning) drawTransform(turning);
     drawSmartLines();
     drawStampMark();
+    if (window.TypeRRetouch) window.TypeRRetouch.drawOverlay(ui.handles, gesture);
     if (turning) return;
     const surface = warpedLayer();
     if (surface) {
@@ -1342,6 +1407,22 @@
     return rotateCursor(sideOfFrame(pu, pv, hw, hh, u));
   };
   const inRotateZone = (event) => Boolean(rotateZoneCursor(event));
+  // While a text is typed in, its handles size the box and the text flows again in it, as in
+  // Photoshop; with Ctrl or Cmd, they size the letters. A turned text keeps sizing its letters.
+  // Otherwise, the side points size the box and the corners the letters.
+  const boxHandle = (handle, layer, typing, event) => (typing && !layer.rotated ? !isCommand(event) : handle.kind.length !== 2);
+  // While a text is typed in, a little further out than the ring that turns it, a drag moves
+  // it, as in Photoshop. A click there still ends the edit.
+  const MOVE_REACH = 48;
+  const inTypingMoveZone = (event) => {
+    if (ui.editor.hidden || !editing || !turnControls || Shell.touch || isFinger(event)) return false;
+    const rect = ui.stage.getBoundingClientRect();
+    const dx = event.clientX - rect.left - turnControls.center[0];
+    const dy = event.clientY - rect.top - turnControls.center[1];
+    const { u, v, hw, hh } = turnControls;
+    const out = Math.hypot(Math.max(0, Math.abs(dx * u[0] + dy * u[1]) - hw), Math.max(0, Math.abs(dx * v[0] + dy * v[1]) - hh));
+    return out > ROTATE_REACH && out <= ROTATE_REACH + MOVE_REACH;
+  };
   const beginTransform = () => {
     if (transformOf()) return true;
     if (warpedLayer()) leaveSurface();
@@ -1749,7 +1830,6 @@
 
   /* -------------------------------- tools -------------------------------- */
 
-  const RESHAPER = false;
   const TOOLS = [
     ["move", "Move", "V"],
     ["rectangle", "Rectangular Marquee", "M"],
@@ -1762,11 +1842,14 @@
     ["brush", "Brush", "B"],
     ["eraser", "Eraser", "E"],
     ["magicEraser", "Magic Eraser", "Shift+E"],
+    ["gradient", "Gradient", "G"],
     ["stamp", "Clone Stamp", "S"],
     ["clean", "Bubble Cleaner", "J"],
-    // The Bubble Reshaper (reshape.js, reshape-tool.js) is off until it is good enough: its files
-    // aren't loaded, and with RESHAPER false it has no button and no key
-    ...(RESHAPER ? [["reshape", "Bubble Reshaper", "Shift+J"]] : []),
+    // Shift+J, as in Photoshop
+    ["heal", "Spot Healing Brush", "Shift+J"],
+    // The Bubble Reshaper (reshape.js, reshape-tool.js): still experimental, and said so in its
+    // name and its hint. U, Photoshop's shapes, since Shift+J is the Spot Healing Brush's.
+    ["reshape", "Bubble Reshaper (experimental)", "U"],
     ["eyedropper", "Eyedropper", "I"],
     ["text", "Type", "T"],
     ["sfx", "SFX", "K"],
@@ -1774,6 +1857,8 @@
     ["hand", "Hand", "H"],
     ["zoom", "Zoom", "Z"],
   ];
+  // While a text is typed in: what the handles and the edges of its box do
+  const TYPING_HINT = "Handles: the text box, the text flows again. Cmd + handle: the text size. Just outside: turn. A little further: move. Esc or Cmd+Enter: done.";
   const TRANSFORM_HINT = "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.";
   const TOOL_HINT = {
     move: "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.",
@@ -1787,6 +1872,8 @@
     eraser: "Erases on the active pixel layer. [ ]: size. Alt + right-drag: size / hardness.",
     magicEraser: "Click: the area of that colour on the active pixel layer goes transparent, as the Magic Wand would select it. A Background becomes a normal layer.",
     stamp: "Alt + click: where to clone from. Then paint. [ and ] change the size. Alt + right-drag: size / hardness.",
+    heal: "Paint over a spot, a letter or a line: it is filled with what surrounds it. Shift + click: a straight line from the last stroke. [ ]: size. With no pixel layer active, it heals on TypeR Clean.",
+    gradient: "Drag from where the gradient starts to where it ends. Shift: 45° steps. Alt: eyedropper. Then drag its ends to adjust it. On a text or an SFX: a new layer clipped to it.",
     clean: "Click a bubble: its text goes, painted over in the bubble's own colours, whatever they are. Drag a box, a lasso or a polygon: only inside it, for text on a plain background. Ctrl: lasso, Alt: polygonal lasso, Shift: box, held or pressed once.",
     reshape: "Click a bubble, then drag its handles: its line keeps its thickness and its tail keeps pointing. Drag the outline to push or pull it (Alt: a smaller part), the ● at the tail to move its tip. Just outside the frame, or the ● above it: turn it (Shift: 15° steps). Shift: keep the proportions, Alt: from the middle. Enter: apply. Esc: cancel.",
     eyedropper: "Click to pick the foreground colour. Alt: the background colour.",
@@ -1856,6 +1943,13 @@
     ui.stage.style.cursor = "";
     app.tool = tool;
     ui.stage.dataset.tool = tool;
+    // A group shows the tool last chosen in it, by its list or by its key
+    const slot = slotOf(tool);
+    if (slot && slot.current !== tool) {
+      slot.current = tool;
+      saveSlots();
+      renderToolSlots();
+    }
     ui.tools.querySelectorAll("[data-tool]").forEach((button) => {
       const on = button.dataset.tool === tool;
       button.classList.toggle("is-on", on);
@@ -1864,36 +1958,612 @@
     ui.brushRing.setAttribute("hidden", "");
     if (window.TypeRSFX) window.TypeRSFX.toolChosen(tool);
     if (window.TypeRReshapeTool) window.TypeRReshapeTool.toolChosen(tool);
+    if (window.TypeRRetouch) window.TypeRRetouch.toolChosen(tool);
     renderOptions();
     renderStatus();
     schedule(false);
   };
 
-  const buildTools = () => {
-    ui.tools.textContent = "";
+  /* ---- the toolbar's places: tools moved and grouped by hand, as Photoshop groups its own ---- */
+
+  // Each place shows one tool of its group, the last one used. A drag moves a place, or one
+  // tool out of its group's list; dropped on another place, it joins that group.
+  const STORE_TOOLBAR = "typer.web.toolbar";
+  const TOOL_GROUPS = [["rectangle", "ellipse"], ["lasso", "polygon"], ["eraser", "magicEraser"]];
+  const toolEntry = (id) => TOOLS.find((entry) => entry && entry[0] === id);
+  const defaultSlots = () => {
+    const slots = [];
     TOOLS.forEach((entry) => {
       if (!entry) {
-        const gap = document.createElement("span");
-        gap.className = "tools__gap";
-        ui.tools.appendChild(gap);
+        slots.push({ gap: true });
         return;
       }
-      const [id, name, key] = entry;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "tool";
-      button.dataset.tool = id;
-      button.dataset.name = T(name);
-      button.innerHTML = ICON[id];
-      const label = toolTitle(name, key);
-      button.title = label;
-      button.setAttribute("aria-label", label);
-      button.addEventListener("click", () => setTool(id));
-      ui.tools.appendChild(button);
+      const group = TOOL_GROUPS.find((tools) => tools.includes(entry[0]));
+      const tools = group ? group.filter(toolEntry) : [entry[0]];
+      if (tools[0] === entry[0]) slots.push({ tools, current: tools[0] });
     });
+    return slots;
+  };
+  const loadSlots = () => {
+    let saved = null;
+    try {
+      saved = JSON.parse(window.localStorage.getItem(STORE_TOOLBAR));
+    } catch (error) {
+      saved = null;
+    }
+    return Array.isArray(saved) ? completeSlots(saved) : defaultSlots();
+  };
+  // Every tool in exactly one place, whatever a saved or imported arrangement says
+  const completeSlots = (saved) => {
+    const seen = new Set();
+    const slots = [];
+    saved.forEach((slot) => {
+      if (slot && slot.gap) {
+        slots.push({ gap: true });
+        return;
+      }
+      const tools = (slot && Array.isArray(slot.tools) ? slot.tools : []).filter((id) => toolEntry(id) && !seen.has(id));
+      tools.forEach((id) => seen.add(id));
+      if (tools.length) slots.push({ tools, current: tools.includes(slot.current) ? slot.current : tools[0] });
+    });
+    // A tool this arrangement never had comes after the one it follows in the default order
+    const order = TOOLS.filter(Boolean).map((entry) => entry[0]);
+    order.forEach((id, index) => {
+      if (seen.has(id)) return;
+      const before = order.slice(0, index).reverse().find((other) => seen.has(other));
+      const at = before ? slots.findIndex((slot) => slot.tools && slot.tools.includes(before)) + 1 : 0;
+      slots.splice(at, 0, { tools: [id], current: id });
+      seen.add(id);
+    });
+    return slots;
+  };
+  let toolSlots = loadSlots();
+  const saveSlots = () => {
+    try {
+      window.localStorage.setItem(STORE_TOOLBAR, JSON.stringify(toolSlots));
+    } catch (error) {
+      console.warn("TypeR web: could not keep the toolbar", error);
+    }
+  };
+  const slotOf = (id) => toolSlots.find((slot) => slot.tools && slot.tools.includes(id));
+
+  const toolButton = (slot, index) => {
+    const id = slot.current;
+    const [, name, key] = toolEntry(id);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "tool";
+    button.classList.toggle("tool--group", slot.tools.length > 1);
+    button.dataset.slot = String(index);
+    button.dataset.tool = id;
+    // Every tool of the place, for what looks a tool up (guide.js)
+    button.dataset.tools = slot.tools.join(" ");
+    button.dataset.name = T(name);
+    button.innerHTML = ICON[id];
+    const label = toolTitle(name, key);
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    if (slot.tools.length > 1) button.setAttribute("aria-haspopup", "menu");
+    const on = app.tool === id;
+    button.classList.toggle("is-on", on);
+    button.setAttribute("aria-pressed", String(on));
+    let held = 0;
+    let opened = false;
+    button.addEventListener("pointerdown", (event) => {
+      opened = false;
+      if (Shell.touch || event.button !== 0) return;
+      closeToolFlyout();
+      // Held a moment, a group opens its list, as in Photoshop: let go over one of its tools,
+      // and that tool is chosen
+      clearTimeout(held);
+      if (slot.tools.length > 1) {
+        held = setTimeout(() => {
+          opened = true;
+          stopToolDrag();
+          openToolFlyout(index);
+          const release = (up) => {
+            window.removeEventListener("pointerup", release, true);
+            window.removeEventListener("pointercancel", release, true);
+            if (up.type !== "pointerup" || !toolFlyout) return;
+            const under = document.elementFromPoint(up.clientX, up.clientY);
+            const row = under && under.closest(".tool-flyout__item");
+            if (!row || !toolFlyout.list.contains(row)) return;
+            closeToolFlyout();
+            setTool(row.dataset.tool);
+          };
+          window.addEventListener("pointerup", release, true);
+          window.addEventListener("pointercancel", release, true);
+        }, 200);
+      }
+      startToolDrag(event, { slot: index }, button, () => clearTimeout(held));
+    });
+    ["pointerup", "pointercancel"].forEach((type) => button.addEventListener(type, () => clearTimeout(held)));
+    button.addEventListener("click", () => {
+      if (opened || toolDragged) return;
+      setTool(slot.current);
+    });
+    button.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!Shell.touch) openToolFlyout(index);
+    });
+    return button;
+  };
+
+  // On phones and tablets every tool has its own place, in the order chosen here
+  const renderToolSlots = () => {
+    if (!ui.toolsEnd) return;
+    ui.tools.querySelectorAll("[data-slot]").forEach((node) => node.remove());
+    let gapBefore = true;
+    let last = null;
+    toolSlots.forEach((slot, index) => {
+      if (slot.gap) {
+        if (gapBefore) return;
+        last = document.createElement("span");
+        last.className = "tools__gap";
+        last.dataset.slot = "";
+        ui.tools.insertBefore(last, ui.toolsEnd);
+        gapBefore = true;
+        return;
+      }
+      gapBefore = false;
+      const shown = Shell.touch ? slot.tools.map((id) => ({ tools: [id], current: id })) : [slot];
+      shown.forEach((one) => {
+        last = toolButton(one, index);
+        ui.tools.insertBefore(last, ui.toolsEnd);
+      });
+    });
+    if (last && last.classList.contains("tools__gap")) last.remove();
+  };
+
+  // The list of a group: its tools, to pick or to drag out, and what rearranges the toolbar
+  let toolFlyout = null;
+  const closeToolFlyout = () => {
+    if (!toolFlyout) return;
+    toolFlyout.list.remove();
+    toolFlyout = null;
+  };
+  const openToolFlyout = (index) => {
+    closeToolFlyout();
+    closeContextMenu();
+    const slot = toolSlots[index];
+    const anchor = ui.tools.querySelector(`.tool[data-slot="${index}"]`);
+    if (!slot || !slot.tools || !anchor) return;
+    const list = document.createElement("div");
+    list.className = "menu__list menu__list--context tool-flyout";
+    if (lang === "ar") list.dir = "rtl";
+    list.setAttribute("role", "menu");
+    slot.tools.forEach((id) => {
+      const [, name, key] = toolEntry(id);
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "menu__item tool-flyout__item";
+      row.classList.toggle("is-current", id === slot.current);
+      row.setAttribute("role", "menuitem");
+      row.dataset.tool = id;
+      row.innerHTML = ICON[id];
+      const label = document.createElement("span");
+      label.textContent = T(name);
+      row.appendChild(label);
+      if (key) {
+        const keys = document.createElement("kbd");
+        keys.textContent = keyLabel(key);
+        row.appendChild(keys);
+      }
+      row.addEventListener("pointerdown", (event) => {
+        if (event.button === 0) startToolDrag(event, { slot: index, tool: id }, row);
+      });
+      row.addEventListener("click", () => {
+        if (toolDragged) return;
+        closeToolFlyout();
+        setTool(id);
+      });
+      list.appendChild(row);
+    });
+    const sep = document.createElement("div");
+    sep.className = "menu__sep";
+    list.appendChild(sep);
+    const action = (label, run) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "menu__item";
+      row.setAttribute("role", "menuitem");
+      row.textContent = T(label);
+      row.addEventListener("click", () => {
+        closeToolFlyout();
+        run();
+      });
+      list.appendChild(row);
+    };
+    if (slot.tools.length > 1) action("Ungroup Tools", () => ungroupTools(index));
+    action("Reset Toolbar", resetToolbar);
+    document.body.appendChild(list);
+    toolFlyout = { list, slot: index };
+    // Beside the toolbar, on the side of the page
+    const box = anchor.getBoundingClientRect();
+    const place = ui.tools.dataset.place;
+    let x = box.right + 4;
+    let y = box.top;
+    if (place === "right") x = box.left - list.offsetWidth - 4;
+    else if (place === "top") [x, y] = [box.left, box.bottom + 4];
+    else if (place === "bottom") [x, y] = [box.left, box.top - list.offsetHeight - 4];
+    list.style.left = `${Math.max(8, Math.min(x, window.innerWidth - list.offsetWidth - 8))}px`;
+    list.style.top = `${Math.max(8, Math.min(y, window.innerHeight - list.offsetHeight - 8))}px`;
+  };
+  document.addEventListener("pointerdown", (event) => {
+    if (toolFlyout && !toolFlyout.list.contains(event.target)) closeToolFlyout();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (toolFlyout && event.key === "Escape") closeToolFlyout();
+  });
+
+  // The toolbar's labels: the browser's own wait a second or so before showing, these a quarter
+  // of one, and none at all while going from one tool to the next. Only with a mouse: a finger
+  // has no hover, and a pen's would get in the way. A label's title is set aside while it shows,
+  // so that the browser's doesn't come as well.
+  const TIP_WAIT = 250;
+  const tip = { node: null, target: null, timer: 0, warmUntil: 0, pressed: null };
+  const hideTip = () => {
+    clearTimeout(tip.timer);
+    tip.timer = 0;
+    if (tip.node && !tip.node.hidden) {
+      tip.node.hidden = true;
+      tip.warmUntil = performance.now() + 500;
+    }
+  };
+  const leaveTip = () => {
+    hideTip();
+    const target = tip.target;
+    tip.target = null;
+    if (target && target.dataset.tip !== undefined) {
+      if (!target.hasAttribute("title")) target.title = target.dataset.tip;
+      delete target.dataset.tip;
+    }
+  };
+  const showTip = () => {
+    tip.timer = 0;
+    const target = tip.target;
+    if (!target || !target.isConnected || !target.dataset.tip || toolFlyout) return;
+    if (!tip.node) {
+      tip.node = document.createElement("div");
+      tip.node.className = "tool-tip";
+      tip.node.setAttribute("role", "tooltip");
+      document.body.appendChild(tip.node);
+    }
+    const node = tip.node;
+    node.textContent = target.dataset.tip;
+    node.hidden = false;
+    // Beside the toolbar, on the side of the page, as its groups' lists
+    const box = target.getBoundingClientRect();
+    const place = ui.tools.dataset.place;
+    const gap = 6;
+    let x = box.right + gap;
+    let y = box.top + (box.height - node.offsetHeight) / 2;
+    if (place === "right") x = box.left - node.offsetWidth - gap;
+    else if (place === "top" || place === "bottom") {
+      x = box.left + (box.width - node.offsetWidth) / 2;
+      y = place === "top" ? box.bottom + gap : box.top - node.offsetHeight - gap;
+    }
+    node.style.left = `${Math.max(8, Math.min(x, window.innerWidth - node.offsetWidth - 8))}px`;
+    node.style.top = `${Math.max(8, Math.min(y, window.innerHeight - node.offsetHeight - 8))}px`;
+  };
+  ui.tools.addEventListener("pointermove", (event) => {
+    if (event.pointerType !== "mouse" || event.buttons) return;
+    if (tip.target && tip.target.isConnected && tip.target.contains(event.target)) return;
+    leaveTip();
+    const target = event.target.closest("[title]");
+    if (!target || !ui.tools.contains(target) || !target.title) return;
+    tip.target = target;
+    target.dataset.tip = target.title;
+    target.removeAttribute("title");
+    // The button just clicked, even drawn again since (a group showing its new tool), stays quiet
+    const box = tip.pressed;
+    if (box && event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom) return;
+    tip.pressed = null;
+    if (performance.now() < tip.warmUntil) showTip();
+    else tip.timer = setTimeout(showTip, TIP_WAIT);
+  });
+  ui.tools.addEventListener("pointerleave", () => {
+    leaveTip();
+    tip.pressed = null;
+  });
+  // A click, a hold for a group's list, a right click or a drag: the label goes until the next tool
+  ui.tools.addEventListener("pointerdown", () => {
+    hideTip();
+    tip.warmUntil = 0;
+    tip.pressed = tip.target ? tip.target.getBoundingClientRect() : null;
+  }, true);
+  ui.tools.addEventListener("scroll", hideTip, { passive: true });
+  window.addEventListener("blur", leaveTip);
+
+  const ungroupTools = (index) => {
+    const slot = toolSlots[index];
+    if (!slot || !slot.tools) return;
+    toolSlots.splice(index, 1, ...slot.tools.map((id) => ({ tools: [id], current: id })));
+    saveSlots();
+    renderToolSlots();
+  };
+  const resetToolbar = () => {
+    toolSlots = defaultSlots();
+    try {
+      window.localStorage.removeItem(STORE_TOOLBAR);
+    } catch (error) {
+      console.warn("TypeR web: could not reset the toolbar", error);
+    }
+    renderToolSlots();
+  };
+
+  // Photoshop's toolbar, saved from Edit > Toolbar… as a .tbr: an action descriptor whose
+  // "tlst" lists the groups, each a list of tools by their four-letter keys. The tools TypeR
+  // has keep Photoshop's order and groups; the others are left out, and TypeR's own tools
+  // come after the ones they follow here.
+  const PHOTOSHOP_TOOLS = {
+    arwT: "move", rgmt: "rectangle", elmt: "ellipse", laso: "lasso", pgon: "polygon", wand: "wand", crop: "crop",
+    pntb: "brush", eras: "eraser", mera: "magicEraser", bndT: "gradient", stam: "stamp", sphB: "heal",
+    eyed: "eyedropper", txBx: "text", hand: "hand", zoom: "zoom",
+  };
+  const readDescriptor = (buffer) => {
+    const view = new DataView(buffer);
+    let at = 0;
+    const need = (count) => {
+      if (at + count > view.byteLength) throw new Error("not a Photoshop toolbar");
+    };
+    const u32 = () => {
+      need(4);
+      at += 4;
+      return view.getUint32(at - 4);
+    };
+    const key = (length) => {
+      need(length);
+      const text = String.fromCharCode(...new Uint8Array(buffer, at, length));
+      at += length;
+      return text;
+    };
+    const id = () => {
+      const length = u32();
+      return key(length || 4);
+    };
+    const unicode = () => {
+      const length = u32();
+      need(length * 2);
+      let text = "";
+      for (let index = 0; index < length; index++) text += String.fromCharCode(view.getUint16(at + index * 2));
+      at += length * 2;
+      return text.replace(/\0+$/, "");
+    };
+    const value = (type) => {
+      if (type === "long") {
+        const number = u32();
+        return { number, key: String.fromCharCode(number >>> 24, (number >>> 16) & 255, (number >>> 8) & 255, number & 255) };
+      }
+      if (type === "bool") {
+        need(1);
+        return view.getUint8(at++) !== 0;
+      }
+      if (type === "doub") {
+        need(8);
+        at += 8;
+        return view.getFloat64(at - 8);
+      }
+      if (type === "UntF") {
+        key(4);
+        need(8);
+        at += 8;
+        return view.getFloat64(at - 8);
+      }
+      if (type === "TEXT") return unicode();
+      if (type === "enum") return [id(), id()];
+      if (type === "type" || type === "GlbC") return [unicode(), id()];
+      if (type === "tdta") return key(u32());
+      if (type === "VlLs") {
+        const count = u32();
+        return Array.from({ length: count }, () => value(key(4)));
+      }
+      if (type === "Objc" || type === "GlbO") return descriptor();
+      throw new Error("not a Photoshop toolbar");
+    };
+    const descriptor = () => {
+      unicode();
+      id();
+      const out = {};
+      const count = u32();
+      for (let index = 0; index < count; index++) {
+        const name = id();
+        out[name] = value(key(4));
+      }
+      return out;
+    };
+    return descriptor();
+  };
+  const slotsFromToolbar = (buffer) => {
+    const preset = readDescriptor(buffer);
+    if (!Array.isArray(preset.tlst)) throw new Error("not a Photoshop toolbar");
+    const slots = [];
+    preset.tlst.forEach((group) => {
+      const tools = (Array.isArray(group) ? group : [])
+        .map((tool) => tool && tool.toolKey && PHOTOSHOP_TOOLS[tool.toolKey.key])
+        .filter((tool, index, all) => tool && toolEntry(tool) && all.indexOf(tool) === index);
+      if (tools.length) slots.push({ tools, current: tools[0] });
+    });
+    return slots;
+  };
+  const importToolbar = async (file) => {
+    try {
+      const slots = slotsFromToolbar(await file.arrayBuffer());
+      if (!slots.length) {
+        toast(fill(T("{name} has none of TypeR's tools."), { name: file.name }), true);
+        return;
+      }
+      toolSlots = completeSlots(slots);
+      saveSlots();
+      renderToolSlots();
+      toast(fill(T("Toolbar imported from {name}."), { name: file.name }));
+    } catch (error) {
+      toast(fill(T("{name} can't be read: {error}"), { name: file.name, error: error.message || error }), true);
+    }
+  };
+  const pickToolbar = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".tbr";
+    input.addEventListener("change", () => {
+      if (input.files[0]) importToolbar(input.files[0]);
+    });
+    input.click();
+  };
+
+  // Dragging: a copy of the icon follows the pointer, a line shows where it would go, a frame
+  // the group it would join
+  let toolDrag = null;
+  let toolDragged = false;
+  const dropMark = document.createElement("div");
+  dropMark.className = "tool-drop";
+  dropMark.hidden = true;
+  const stopToolDrag = () => {
+    if (!toolDrag) return;
+    toolDrag.stop();
+  };
+  const horizontalTools = () => ["top", "bottom"].includes(ui.tools.dataset.place);
+  const toolDropTarget = (x, y, source) => {
+    // Within its own group's list: a new place in the list
+    if (toolFlyout && source.tool && toolFlyout.slot === source.slot) {
+      const box = toolFlyout.list.getBoundingClientRect();
+      if (x >= box.left - 16 && x <= box.right + 16 && y >= box.top - 16 && y <= box.bottom + 16) {
+        const rows = Array.from(toolFlyout.list.querySelectorAll(".tool-flyout__item"));
+        let at = rows.findIndex((row) => {
+          const r = row.getBoundingClientRect();
+          return y < r.top + r.height / 2;
+        });
+        if (at < 0) at = rows.length;
+        const edge = at < rows.length ? rows[at].getBoundingClientRect().top : rows[rows.length - 1].getBoundingClientRect().bottom;
+        return { within: at, rect: { x: box.left + 4, y: edge - 1, w: box.width - 8, h: 2 } };
+      }
+    }
+    const bar = ui.tools.getBoundingClientRect();
+    const margin = 24;
+    if (x < bar.left - margin || x > bar.right + margin || y < bar.top - margin || y > bar.bottom + margin) return null;
+    let best = null;
+    let distance = Infinity;
+    ui.tools.querySelectorAll(".tool[data-slot]").forEach((button) => {
+      const r = button.getBoundingClientRect();
+      const d = Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+      if (d < distance) [best, distance] = [button, d];
+    });
+    if (!best) return null;
+    const r = best.getBoundingClientRect();
+    const index = Number(best.dataset.slot);
+    const row = horizontalTools();
+    const along = row ? (x - r.left) / r.width : (y - r.top) / r.height;
+    // Over the middle of another place: into its group
+    if (distance === 0 && along > 0.25 && along < 0.75 && !(index === source.slot && !source.tool)) {
+      return { into: index, rect: { x: r.left, y: r.top, w: r.width, h: r.height } };
+    }
+    const after = along >= 0.5;
+    const rect = row
+      ? { x: (after ? r.right : r.left) - 1, y: r.top, w: 2, h: r.height }
+      : { x: r.left, y: (after ? r.bottom : r.top) - 1, w: r.width, h: 2 };
+    return { at: after ? index + 1 : index, rect };
+  };
+  const dropTool = (source, target) => {
+    const slots = toolSlots.map((slot) => (slot.gap ? slot : { tools: slot.tools.slice(), current: slot.current }));
+    const from = slots[source.slot];
+    if (!from) return;
+    let moving = from.tools;
+    if (target.within !== undefined) {
+      const at = from.tools.indexOf(source.tool);
+      from.tools.splice(at, 1);
+      from.tools.splice(target.within > at ? target.within - 1 : target.within, 0, source.tool);
+    } else if (target.into === source.slot) {
+      return;
+    } else {
+      if (source.tool) {
+        moving = [source.tool];
+        from.tools = from.tools.filter((id) => id !== source.tool);
+        if (from.current === source.tool) from.current = from.tools[0];
+      } else from.tools = [];
+      if (target.into !== undefined) slots[target.into].tools.push(...moving);
+      else slots.splice(target.at, 0, { tools: moving, current: source.tool || from.current || moving[0] });
+    }
+    // A place left empty goes, a group shows one of its own tools
+    toolSlots = slots.filter((slot) => slot.gap || slot.tools.length);
+    toolSlots.forEach((slot) => {
+      if (!slot.gap && !slot.tools.includes(slot.current)) slot.current = slot.tools[0];
+    });
+    saveSlots();
+    renderToolSlots();
+    if (target.within !== undefined) openToolFlyout(toolSlots.indexOf(slots[source.slot]));
+  };
+  const startToolDrag = (event, source, node, onLift) => {
+    if (Shell.touch || event.button !== 0 || toolDrag) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let ghost = null;
+    let target = null;
+    const move = (next) => {
+      if (!ghost) {
+        if (Math.hypot(next.clientX - startX, next.clientY - startY) < 5) return;
+        if (onLift) onLift();
+        if (!source.tool) closeToolFlyout();
+        ghost = document.createElement("div");
+        ghost.className = "tool tool-ghost";
+        ghost.innerHTML = ICON[source.tool || toolSlots[source.slot].current];
+        document.body.append(ghost, dropMark);
+        node.classList.add("is-dragged");
+        document.body.classList.add("is-dragging-tool");
+      }
+      ghost.style.left = `${next.clientX - 16}px`;
+      ghost.style.top = `${next.clientY - 15}px`;
+      target = toolDropTarget(next.clientX, next.clientY, source);
+      dropMark.hidden = !target;
+      dropMark.classList.toggle("is-into", Boolean(target && target.into !== undefined));
+      if (target) {
+        dropMark.style.left = `${target.rect.x}px`;
+        dropMark.style.top = `${target.rect.y}px`;
+        dropMark.style.width = `${target.rect.w}px`;
+        dropMark.style.height = `${target.rect.h}px`;
+      }
+    };
+    const stop = (drop) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      toolDrag = null;
+      if (!ghost) return;
+      ghost.remove();
+      dropMark.hidden = true;
+      node.classList.remove("is-dragged");
+      document.body.classList.remove("is-dragging-tool");
+      // The click that ends a drag isn't one
+      toolDragged = true;
+      setTimeout(() => { toolDragged = false; }, 0);
+      if (drop && target) dropTool(source, target);
+      else if (source.tool && toolFlyout && !drop) closeToolFlyout();
+    };
+    const up = () => stop(true);
+    const cancel = () => stop(false);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    toolDrag = { stop: () => stop(false) };
+  };
+
+  const buildTools = () => {
+    ui.tools.textContent = "";
     const gap = document.createElement("span");
     gap.className = "tools__gap";
     ui.tools.appendChild(gap);
+    ui.toolsEnd = gap;
+    renderToolSlots();
+    ui.tools.addEventListener("contextmenu", (event) => {
+      if (Shell.touch || event.target.closest(".tool, input")) return;
+      event.preventDefault();
+      openContextMenu(event.clientX, event.clientY, [{ label: "Import Photoshop Toolbar (.tbr)…", action: pickToolbar }, { label: "Reset Toolbar", action: resetToolbar }]);
+    });
+    Shell.onChange(() => {
+      closeToolFlyout();
+      renderToolSlots();
+    });
     const swatches = document.createElement("div");
     swatches.className = "swatches";
     const make = (cls, title, key) => {
@@ -1991,19 +2661,22 @@
     const max = input.max === "" ? Infinity : Number(input.max);
     return Math.max(min, Math.min(max, value));
   };
-  const scrubbed = (text, input, control = input) => {
-    const label = labelled(text, control);
-    // The wheel changes it too, one per notch. A panel that scrolls keeps the wheel until the
-    // field has the focus: scrolling past a number must not change it.
-    label.addEventListener("wheel", (event) => {
+  // The wheel over a number changes it, one per notch. A panel that scrolls keeps the wheel
+  // until the field has the focus: scrolling past a number must not change it.
+  const wheelChanges = (target, input) => {
+    target.addEventListener("wheel", (event) => {
       if (event.ctrlKey || event.metaKey) return;
-      const panel = label.closest(".character");
+      const panel = target.closest(".character");
       if (document.activeElement !== input && panel && panel.scrollHeight > panel.clientHeight) return;
       event.preventDefault();
+      // Asked before the deltas: Firefox reports a mouse's notches in lines only then
+      const mouse = wheelIsMouse(event);
       // With Shift, some browsers turn the wheel sideways
-      const delta = event.deltaY || event.deltaX;
+      const delta = (event.deltaY || event.deltaX) * WHEEL_PIXELS[event.deltaMode];
       let steps = -Math.sign(delta);
-      if (wheelIsMouse(event)) wheelRest = 0;
+      // A big movement is a notch, from a mouse the browser didn't give away: one step. Only a
+      // trackpad's small movements add up.
+      if (mouse || Math.abs(delta) >= 40) wheelRest = 0;
       else {
         wheelRest -= delta / 20;
         steps = Math.trunc(wheelRest);
@@ -2013,6 +2686,10 @@
       input.value = Math.round(withinLimits(input, (Number(input.value) || 0) + steps * (event.shiftKey ? 10 : 1)) * 100) / 100;
       input.dispatchEvent(new Event("change"));
     }, { passive: false });
+  };
+  const scrubbed = (text, input, control = input) => {
+    const label = labelled(text, control);
+    wheelChanges(label, input);
     const name = label.firstChild;
     name.classList.add("scrub");
     name.title = T("Drag to change the value. Hold Shift to go faster.");
@@ -2175,6 +2852,7 @@
     }
     const patch = { fontPostScriptName: face.postScriptName, fontName: face.family, fontStyleName: face.style };
     Object.assign(app.textDefaults, { font: face.postScriptName, family: face.family, style: face.style });
+    keepTextTool();
     Fonts.ensure(face.postScriptName).then(() => applyTextPatch(patch, null, "font"));
   };
 
@@ -2182,6 +2860,31 @@
   // fonts: the browser skips the rows out of sight (content-visibility in app.css).
   const folded = (value) => String(value).normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[\s\-_]+/g, "");
   let closeFontMenu = null;
+  // Favourite fonts, as in Photoshop: a star beside each family, first in the list, and a
+  // filter that shows only them. Kept with the browser, like the settings.
+  const STORE_FAVORITE_FONTS = "typer.web.favoriteFonts";
+  const favoriteFonts = { families: new Set(), only: false };
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(STORE_FAVORITE_FONTS)) || {};
+    if (Array.isArray(saved.families)) saved.families.forEach((family) => { if (typeof family === "string") favoriteFonts.families.add(family); });
+    favoriteFonts.only = saved.only === true && favoriteFonts.families.size > 0;
+  } catch (error) {
+    console.warn("TypeR web: could not read the favourite fonts", error);
+  }
+  const keepFavoriteFonts = () => {
+    try {
+      window.localStorage.setItem(STORE_FAVORITE_FONTS, JSON.stringify({ families: Array.from(favoriteFonts.families), only: favoriteFonts.only || undefined }));
+    } catch (error) {
+      console.warn("TypeR web: could not keep the favourite fonts", error);
+    }
+  };
+  const STAR = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 1.6l1.9 4.1 4.5.5-3.4 3 1 4.4L8 11.3l-4 2.3 1-4.4-3.4-3 4.5-.5z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+  const showStar = (star, on) => {
+    star.classList.toggle("is-on", on);
+    star.title = T(on ? "Remove from favourites" : "Add to favourites");
+    star.setAttribute("aria-label", star.title);
+    star.setAttribute("aria-pressed", String(on));
+  };
   // `chosen`: what to do with the family picked, when it isn't for the selected texts
   const openFontMenu = (anchor, current, chosen) => {
     const back = document.activeElement;
@@ -2204,11 +2907,25 @@
     search.setAttribute("aria-label", T("Search fonts…"));
     search.autocomplete = "off";
     search.spellcheck = false;
+    const filter = document.createElement("button");
+    filter.type = "button";
+    filter.className = "font-menu__filter";
+    filter.innerHTML = STAR;
+    filter.title = T("Show favourites only");
+    filter.setAttribute("aria-label", T("Show favourites only"));
+    const showFilter = () => {
+      filter.classList.toggle("is-on", favoriteFonts.only);
+      filter.setAttribute("aria-pressed", String(favoriteFonts.only));
+    };
+    showFilter();
+    const head = document.createElement("div");
+    head.className = "font-menu__head";
+    head.append(search, filter);
     const list = document.createElement("ul");
     list.className = "font-menu__list";
     list.setAttribute("role", "listbox");
     list.setAttribute("aria-label", T("Font"));
-    menu.append(search, list);
+    menu.append(head, list);
 
     let rows = [];
     let active = -1;
@@ -2227,10 +2944,12 @@
         if (!families.has(font.family)) families.set(font.family, []);
         families.get(font.family).push(font);
       });
-      const found = Array.from(families.keys()).filter((family) => !query || folded(family).includes(query) || families.get(family).some((face) => folded(face.postScriptName).includes(query)));
-      if (query) found.sort((a, b) => startsWith(a) - startsWith(b));
+      const favorite = (family) => (favoriteFonts.families.has(family) ? 0 : 1);
+      const found = Array.from(families.keys()).filter((family) => (!favoriteFonts.only || favoriteFonts.families.has(family)) && (!query || folded(family).includes(query) || families.get(family).some((face) => folded(face.postScriptName).includes(query))));
+      // The favourites first; with a search, the names that start with it first of all
+      found.sort((a, b) => (query ? startsWith(a) - startsWith(b) : 0) || favorite(a) - favorite(b));
       list.textContent = "";
-      rows = found.map((family) => {
+      rows = found.map((family, index) => {
         const face = mainFace(families.get(family));
         const row = document.createElement("li");
         row.className = "font-menu__item";
@@ -2238,23 +2957,36 @@
         row.setAttribute("aria-selected", String(family === current));
         row.dataset.family = family;
         row.title = family;
-        row.textContent = family;
+        const name = document.createElement("span");
+        name.className = "font-menu__name";
+        name.textContent = family;
         // An installed font not used yet is reached by its name, without loading it
-        row.style.fontFamily = `"${String(face.ready ? face.css : face.family).replace(/"/g, "")}", sans-serif`;
-        row.style.fontWeight = face.weight || 400;
-        row.style.fontStyle = face.italic ? "italic" : "normal";
+        name.style.fontFamily = `"${String(face.ready ? face.css : face.family).replace(/"/g, "")}", sans-serif`;
+        name.style.fontWeight = face.weight || 400;
+        name.style.fontStyle = face.italic ? "italic" : "normal";
         // A kept file is read once its row shows, to write the family in itself
         if (!face.ready && face.source === "file") {
-          stored.set(row, face);
-          keptFonts.observe(row);
+          stored.set(name, face);
+          keptFonts.observe(name);
         }
+        const star = document.createElement("button");
+        star.type = "button";
+        star.className = "font-menu__star";
+        star.tabIndex = -1;
+        star.innerHTML = STAR;
+        showStar(star, favoriteFonts.families.has(family));
+        row.append(name, star);
+        // A line under the last favourite, when the other fonts follow
+        if (!query && !favoriteFonts.only && favorite(family) === 0 && found[index + 1] && favorite(found[index + 1]) === 1) row.classList.add("is-last-favorite");
         return row;
       });
       list.append(...rows);
       if (!rows.length) {
         const empty = document.createElement("li");
         empty.className = "font-menu__empty";
-        empty.textContent = fill(T("{font} isn't loaded. Use File > Use Installed Fonts, or load its file."), { font: search.value.trim() });
+        empty.textContent = favoriteFonts.only && !favoriteFonts.families.size
+          ? T("No favourite fonts yet: click the star beside a font to add it.")
+          : fill(T("{font} isn't loaded. Use File > Use Installed Fonts, or load its file."), { font: search.value.trim() });
         list.appendChild(empty);
       }
       active = -1;
@@ -2289,6 +3021,14 @@
     };
 
     search.addEventListener("input", draw);
+    filter.addEventListener("mousedown", (event) => event.preventDefault());
+    filter.addEventListener("click", () => {
+      favoriteFonts.only = !favoriteFonts.only;
+      keepFavoriteFonts();
+      showFilter();
+      draw();
+      if (!Shell.touch) search.focus();
+    });
     search.addEventListener("keydown", (event) => {
       event.stopPropagation();
       const steps = { ArrowDown: 1, ArrowUp: -1, PageDown: 8, PageUp: -8 }[event.key];
@@ -2307,9 +3047,29 @@
       const row = event.target.closest(".font-menu__item");
       if (row) setActive(rows.indexOf(row), false);
     });
+    // The search keeps the focus, and the star doesn't pick the font
+    list.addEventListener("mousedown", (event) => {
+      if (event.target.closest(".font-menu__star")) event.preventDefault();
+    });
     list.addEventListener("click", (event) => {
       const row = event.target.closest(".font-menu__item");
-      if (row) choose(row.dataset.family);
+      if (!row) return;
+      const star = event.target.closest(".font-menu__star");
+      if (!star) {
+        choose(row.dataset.family);
+        return;
+      }
+      // The list stays as it is meanwhile: a row jumping away from the pointer would be lost
+      const family = row.dataset.family;
+      const on = !favoriteFonts.families.has(family);
+      if (on) favoriteFonts.families.add(family);
+      else favoriteFonts.families.delete(family);
+      if (!favoriteFonts.families.size) {
+        favoriteFonts.only = false;
+        showFilter();
+      }
+      keepFavoriteFonts();
+      showStar(star, on);
     });
     // A phone has no fonts to offer a web page: its own files are the way
     if (Shell.touch) {
@@ -2361,7 +3121,9 @@
   };
 
   const STORE_SETTINGS = "typer.web.settings";
-  const settings = { wheel: "pan", smartGuides: true, snapText: false, transformControls: true, spellcheck: true, taskBar: true };
+  // How far the pointer goes, dragged sideways with Ctrl + Space or the Zoom tool, to zoom twice as close
+  const ZOOM_SPEEDS = { normal: 150, fast: 90, veryFast: 55 };
+  const settings = { wheel: "pan", zoomSpeed: "normal", smartGuides: true, snapText: false, transformControls: true, spellcheck: true, taskBar: true, hiddenChars: false, discord: "page" };
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORE_SETTINGS)) || {};
     // On a Mac a mouse can't be told from a trackpad, so "auto" isn't offered there
@@ -2369,11 +3131,17 @@
     else if (saved.wheel === "auto") settings.wheel = "auto";
     if (PS.TEXT_LANGUAGES.some(([name]) => name === saved.language)) app.textDefaults.language = saved.language;
     if (saved.ligature === false) app.textDefaults.ligature = false;
+    if (saved.hyphenate === true) app.textDefaults.hyphenate = true;
+    if (saved.autoKern === "manual") app.textDefaults.autoKern = "manual";
+    if (saved.textOnTop === true) app.textDefaults.textOnTop = true;
     if (saved.smartGuides === false) settings.smartGuides = false;
     if (saved.snapText === true) settings.snapText = true;
     if (saved.spellcheck === false) settings.spellcheck = false;
     if (saved.transformControls === false) settings.transformControls = false;
     if (saved.taskBar === false) settings.taskBar = false;
+    if (ZOOM_SPEEDS[saved.zoomSpeed]) settings.zoomSpeed = saved.zoomSpeed;
+    if (saved.hiddenChars === true) settings.hiddenChars = true;
+    if (saved.discord === "app" || saved.discord === "off") settings.discord = saved.discord;
   } catch (error) {
     console.warn("TypeR web: could not read the settings", error);
   }
@@ -2381,60 +3149,125 @@
     const d = app.textDefaults;
     try {
       // A language nobody chose keeps following the interface
-      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, taskBar: settings.taskBar ? undefined : false, ligature: d.ligature, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
+      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, zoomSpeed: settings.zoomSpeed === "normal" ? undefined : settings.zoomSpeed, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, taskBar: settings.taskBar ? undefined : false, hiddenChars: settings.hiddenChars || undefined, discord: settings.discord === "page" ? undefined : settings.discord, ligature: d.ligature, hyphenate: d.hyphenate || undefined, autoKern: d.autoKern === "manual" ? "manual" : undefined, textOnTop: d.textOnTop || undefined, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
     } catch (error) {
       console.warn("TypeR web: could not keep the settings", error);
     }
+  };
+  // Show Transform Controls: from the Move tool's options, View > Show Transform Controls and
+  // its shortcut, or the setup assistant
+  const setTransformControls = (on) => {
+    if (settings.transformControls === on) return;
+    settings.transformControls = on;
+    keepSettings();
+    renderOptions();
+    schedule(false);
   };
   const showSettings = async (tab = "general") => {
     const d = app.textDefaults;
     const shortcuts = Shell.touch ? null : shortcutEditor();
     const generative = Gen ? generativePane() : null;
+    // Discord activity: in the desktop app only, a browser can't reach Discord
+    const Discord = window.TypeRDesktop && window.TypeRDesktop.discord;
+    const discord = Boolean(Discord) && (await Discord.available().catch(() => false));
     const answer = await dialog({
       title: T("Settings"),
       keepOpen: () => Boolean(shortcuts) && shortcuts.stopRecording(),
       ready: (inputs, middle) => {
-        if (!shortcuts && !generative) return;
+        // One size for every tab: the dialog doesn't jump from one to the other
+        ui.modal.classList.add("modal--settings");
+        // Each setting on a row: its name and what it does on the left, its control on the right
+        const row = (id) => {
+          const input = inputs[id];
+          const old = input.parentElement;
+          const hint = old.nextElementSibling && old.nextElementSibling.classList.contains("modal__hint") ? old.nextElementSibling : null;
+          const line = document.createElement("label");
+          line.className = "set__row";
+          const text = document.createElement("span");
+          text.className = "set__text";
+          const name = old.firstChild;
+          name.className = "set__label";
+          text.appendChild(name);
+          if (hint) text.appendChild(hint);
+          if (input.type === "checkbox") input.classList.add("set__switch");
+          line.append(text, input);
+          old.remove();
+          return line;
+        };
+        const card = (...ids) => {
+          const box = document.createElement("div");
+          box.className = "set__card";
+          box.append(...ids.map(row));
+          return box;
+        };
+        const heading = (text) => {
+          const title = document.createElement("h2");
+          title.className = "settings__heading";
+          title.textContent = text;
+          return title;
+        };
         const general = document.createElement("div");
         general.className = "settings__pane";
-        general.append(...Array.from(middle.childNodes));
-        const tabs = document.createElement("div");
-        tabs.className = "settings__tabs";
+        general.append(heading(T("General")), card("lang", "wheel", "zoomSpeed", ...(discord ? ["discord"] : [])), card("language", "ligature", "hyphenate", "textOnTop"));
+        middle.textContent = "";
         const panes = { general };
         if (generative) panes.generative = generative.pane;
-        if (shortcuts) panes.shortcuts = shortcuts.pane;
+        if (shortcuts) {
+          panes.shortcuts = shortcuts.pane;
+          shortcuts.pane.classList.add("settings__pane--keys");
+        }
+        const nav = document.createElement("nav");
+        nav.className = "settings__nav";
+        const title = document.createElement("p");
+        title.className = "settings__title";
+        title.textContent = T("Settings");
+        nav.appendChild(title);
+        const main = document.createElement("div");
+        main.className = "settings__main";
         const buttons = {};
         const open = (name) => {
           Object.keys(panes).forEach((key) => {
             panes[key].hidden = key !== name;
             buttons[key].classList.toggle("is-on", key === name);
+            buttons[key].setAttribute("aria-current", key === name ? "page" : "false");
           });
-          // One width for every tab: the dialog doesn't jump from one to the other
-          ui.modal.classList.add("modal--settings");
           if (name === "generative") setTimeout(generative.focusKey);
         };
-        [["general", T("General")], ["generative", T("Generative Fill")], ["shortcuts", T("Keyboard Shortcuts")]].filter(([name]) => panes[name]).forEach(([name, text]) => {
+        [["general", T("General"), "settings"], ["generative", T("Generative Fill"), "sparkles"], ["shortcuts", T("Keyboard Shortcuts"), "keyboard"]].filter(([name]) => panes[name]).forEach(([name, text, icon]) => {
           const button = document.createElement("button");
           button.type = "button";
-          button.textContent = text;
+          button.innerHTML = ICON[icon];
+          const label = document.createElement("span");
+          label.textContent = text;
+          button.appendChild(label);
           button.addEventListener("click", () => open(name));
           buttons[name] = button;
-          tabs.appendChild(button);
+          nav.appendChild(button);
+          if (name !== "general") panes[name].prepend(heading(text));
         });
-        middle.append(tabs, ...Object.values(panes));
+        main.append(...Object.values(panes));
+        middle.append(nav, main);
         open(panes[tab] ? tab : "general");
       },
       fields: [
         { id: "lang", label: T("Interface language"), value: lang, options: Object.keys(LANGUAGES).map((code) => [code, LANGUAGES[code]]) },
         { id: "wheel", label: T("Mouse wheel"), value: settings.wheel, options: [["pan", T("Like Photoshop")], ["zoom", T("The wheel zooms")], ...(IS_MAC ? [] : [["auto", T("Mouse zooms, trackpad scrolls")]])], hint: (value) => (value === "zoom" ? T("The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.") : T(value === "auto" ? "A mouse's wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers scroll and a pinch zooms." : "The wheel scrolls up and down. Alt + wheel zooms, Ctrl or Cmd + wheel scrolls sideways. On a trackpad, two fingers scroll and a pinch zooms.")) },
+        { id: "zoomSpeed", label: T("Zoom speed"), value: settings.zoomSpeed, options: [["normal", T("Normal")], ["fast", T("Fast")], ["veryFast", T("Very fast")]], hint: () => T("When dragging sideways with Ctrl + Space or the Zoom tool.") },
+        ...(discord ? [{ id: "discord", label: T("Discord activity"), value: settings.discord, options: [["page", T("With the page's name")], ["app", T("Without the page's name")], ["off", T("Off")]], hint: () => T("What your Discord friends see while you work. Discord must be open on this computer.") }] : []),
         { id: "language", label: T("Language of new text"), value: d.language, options: PS.TEXT_LANGUAGES.map(([name, , own]) => [name, own]) },
         { id: "ligature", label: T("Standard ligatures in new text"), type: "checkbox", checked: d.ligature },
+        { id: "hyphenate", label: T("Hyphenate new paragraph text"), type: "checkbox", checked: Boolean(d.hyphenate) },
+        { id: "textOnTop", label: T("Always place new text on top"), type: "checkbox", checked: Boolean(d.textOnTop), hint: () => T("When off, new text goes right above the selected layer, as in Photoshop.") },
       ],
     });
     if (!answer) return;
     settings.wheel = answer.wheel;
+    settings.zoomSpeed = answer.zoomSpeed;
+    if (discord) settings.discord = answer.discord;
     d.language = answer.language;
     d.ligature = answer.ligature;
+    d.hyphenate = answer.hyphenate;
+    d.textOnTop = answer.textOnTop;
     keepSettings();
     if (shortcuts) shortcuts.save();
     if (generative) generative.save();
@@ -2453,6 +3286,35 @@
   } catch (error) {
     app.textDefaults.verticalAlign = "center";
   }
+
+  // The Type tool's font, size and anti-aliasing come back after a reload, as in Photoshop
+  const STORE_TEXT_TOOL = "typer.web.textTool";
+  const TEXT_TOOL_FONT = { font: app.textDefaults.font, family: app.textDefaults.family, style: app.textDefaults.style };
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(STORE_TEXT_TOOL)) || {};
+    const d = app.textDefaults;
+    if (saved.font && saved.family) Object.assign(d, { font: String(saved.font), family: String(saved.family), style: String(saved.style || "Regular") });
+    if (Number(saved.size) >= 1 && Number(saved.size) <= 2000) d.size = Number(saved.size);
+    if (/^antiAlias/.test(saved.antiAlias)) d.antiAlias = saved.antiAlias;
+  } catch (error) {
+    console.warn("TypeR web: could not read the Type tool's settings", error);
+  }
+  const keepTextTool = () => {
+    const d = app.textDefaults;
+    try {
+      window.localStorage.setItem(STORE_TEXT_TOOL, JSON.stringify({ font: d.font, family: d.family, style: d.style, size: d.size, antiAlias: d.antiAlias }));
+    } catch (error) {
+      console.warn("TypeR web: could not keep the Type tool's settings", error);
+    }
+  };
+  // A font kept from last time that is no longer on this computer gives way to the first one.
+  // What was kept stays: the font may come back.
+  const checkTextToolFont = async () => {
+    const d = app.textDefaults;
+    if (d.font === TEXT_TOOL_FONT.font || (await Fonts.ensure(d.font, d.family))) return;
+    Object.assign(d, TEXT_TOOL_FONT);
+    renderOptions();
+  };
   const inBoxOf = (layer) => {
     const shape = layer.params.layerText.textShape && layer.params.layerText.textShape[0];
     return shape && shape.textType === "box" && shape.box;
@@ -2503,11 +3365,13 @@
       const face = Fonts.get(faces.value);
       if (!face) return;
       Object.assign(d, { font: face.postScriptName, family: face.family, style: face.style });
+      keepTextTool();
       Fonts.ensure(face.postScriptName).then(() => applyTextPatch({ fontPostScriptName: face.postScriptName, fontName: face.family, fontStyleName: face.style }, null, "font"));
     });
     const size = numberInput(style ? Math.round((style.impliedFontSize || style.size) * 10) / 10 : d.size, 1, 2000, (value) => {
       if (!value) return;
       d.size = value;
+      keepTextTool();
       applyTextPatch({ size: value }, null, "size");
     });
     size.title = T("Size");
@@ -2564,6 +3428,7 @@
     antiAlias.value = current;
     antiAlias.addEventListener("change", () => {
       d.antiAlias = antiAlias.value;
+      keepTextTool();
       const texts = activeTexts();
       if (!texts.length) return;
       if (texts.some((item) => item.raster && Fonts.isMissing(item.params.layerText.textStyleRange[0].textStyle.fontPostScriptName))) toast(T("This text's font is missing: it will be drawn with another font."), true);
@@ -2579,7 +3444,15 @@
     const done = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
     done.catch((error) => console.warn("TypeR web: full screen refused", error));
   });
-  fullScreen.classList.add("obar__end");
+  // Settings sits just left of it, so they're one click away from every tool.
+  const quickSettings = iconButton("settings", T("Settings"), false, () => {
+    quickSettings.blur();
+    showSettings();
+  });
+  const barEnd = document.createElement("span");
+  barEnd.className = "obar__end";
+  barEnd.appendChild(quickSettings);
+  if (document.fullscreenEnabled) barEnd.appendChild(fullScreen);
   document.addEventListener("fullscreenchange", () => {
     const on = Boolean(document.fullscreenElement);
     const title = T(on ? "Exit Full Screen" : "Full Screen");
@@ -2604,12 +3477,29 @@
   // Task Bar brings it back). It follows the text, and steps aside during a drag.
   const taskBar = $("ctxbar");
   let taskBarKey = "";
+  // Its size, measured when it's built again, or a few times a second: measuring it on every
+  // frame, after the overlay was written, costs a layout each time
+  let taskBarMeasured = { key: null, built: null, at: 0, width: 0, height: 0 };
+  const taskBarSize = () => {
+    const now = performance.now();
+    if (taskBarMeasured.key !== taskBarKey || taskBarMeasured.built !== taskBar.firstChild || now - taskBarMeasured.at > 250) {
+      taskBarMeasured = { key: taskBarKey, built: taskBar.firstChild, at: now, width: taskBar.offsetWidth, height: taskBar.offsetHeight };
+    }
+    return taskBarMeasured;
+  };
+  // The generative settings, read from storage once a second at most, not on every frame
+  let genAccountRead = { at: -Infinity, account: null };
+  const genAccount = () => {
+    const now = performance.now();
+    if (now - genAccountRead.at > 1000) genAccountRead = { at: now, account: Gen.load() };
+    return genAccountRead.account;
+  };
   const setTaskBar = (on) => {
     settings.taskBar = on;
     keepSettings();
     taskBarKey = "";
     schedule(false);
-    if (!on) toast(fill(T("Contextual task bar hidden. {menu} shows it again."), { menu: `${T("Window")} > ${T("Contextual Task Bar")}` }));
+    if (!on) toast(fill(T("Contextual task bar hidden. {menu} shows it again."), { menu: `${T("Window")} > ${T("Contextual Task Bar")}` }), true);
   };
   const buildTaskBar = () => {
     const c = textControls(taskBar, true);
@@ -2656,8 +3546,7 @@
     }
     taskBar.hidden = false;
     // Under the text, or over it near the bottom, or inside the page's view as a last resort
-    const width = taskBar.offsetWidth;
-    const height = taskBar.offsetHeight;
+    const { width, height } = taskBarSize();
     const GAP = 12;
     let top = box.y1 + GAP;
     if (top + height > stageH - 8) top = box.y0 - GAP - height >= 8 ? box.y0 - GAP - height : stageH - height - 8;
@@ -2693,6 +3582,37 @@
   };
   // A service as people read it: the local one in their language
   const serviceName = (name) => (Gen.isLocal(name) ? T("On this device") : Gen.SERVICES[name].name);
+  const modelName = (settings, model = Gen.modelOf(settings)) => (Gen.modelsOf(settings).find(([id]) => id === model) || [model, model])[1];
+  // A download's size, as the system shows it
+  const sizeText = (bytes) => {
+    const big = bytes >= 1e9;
+    try {
+      return new Intl.NumberFormat((window.TYPER_I18N && window.TYPER_I18N.lang) || "en", { style: "unit", unit: big ? "gigabyte" : "megabyte", maximumFractionDigits: 1 }).format(big ? bytes / 1e9 : bytes / 1e6);
+    } catch (error) {
+      return big ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.round(bytes / 1e6)} MB`;
+    }
+  };
+  // Why FLUX can't run here: too little memory, or a computer its engine isn't made for
+  const cantRunText = (now, model) => fill(T(now.memory === false ? "{model} needs a computer with at least 16 GB of memory." : "{model} doesn't run on this computer."), { model });
+  // FLUX on this computer is downloaded the first time it's used, once agreed: about 6 GB
+  const agreeToDownload = async (account) => {
+    if (Gen.isLocal(account.service) && Gen.isFlux(Gen.modelOf(account))) {
+      const now = await Gen.localStatus().catch(() => null);
+      if (now && !now.available) {
+        await dialog({ title: modelName(account), body: cantRunText(now, modelName(account)), ok: T("Close"), cancel: false });
+        return false;
+      }
+    }
+    const bytes = await Gen.localDownload(account).catch(() => 0);
+    if (!bytes) return true;
+    const model = modelName(account);
+    const answer = await dialog({
+      title: fill(T("Download {model}?"), { model }),
+      body: fill(T("{model} runs on this computer. It needs a download of {size}, once; you can remove it in Generative Fill's settings."), { model, size: sizeText(bytes) }),
+      ok: T("Download"),
+    });
+    return Boolean(answer);
+  };
   // Settings > Generative Fill: both services' keys, the model used, and models added by their
   // slug. Nothing is kept until the dialog's Save.
   const generativePane = () => {
@@ -2717,6 +3637,11 @@
       title.className = "gensettings__heading";
       title.textContent = text;
       return title;
+    };
+    const card = () => {
+      const box = document.createElement("div");
+      box.className = "set__card set__card--fields";
+      return box;
     };
     const hint = (text) => {
       const p = document.createElement("p");
@@ -2752,7 +3677,33 @@
         options(qualitySelect, qualities.map(([value, usd]) => [value, `${QUALITY_NAMES[value] || value} · ${money(usd)}`]));
         qualitySelect.value = Gen.qualityOf({ quality }, service, model);
       }
-      if (one && one.free) {
+      if (one && one.free && Gen.isFlux(model)) {
+        // FLUX on this computer: what it is, then a way to free its room once it's here (its size,
+        // and whether it's downloaded, are in the list of models)
+        const named = modelName({ custom, service }, model);
+        price.textContent = fill(T("Free, on this computer: {model} redraws the selection from what surrounds it, and follows your prompt if you write one. About a minute per fill on a recent Mac, less with a good graphics card."), { model: named });
+        Gen.localStatus().then((now) => {
+          const here = now && now.models && now.models[model];
+          if (!here || !price.isConnected || modelSelect.value !== model) return;
+          const line = document.createElement("span");
+          line.className = "gensettings__local";
+          if (!now.available) line.textContent = cantRunText(now, named);
+          else if (here.installed) {
+            line.textContent = `${fill(T("On this computer: {size}."), { size: sizeText(here.size) })} `;
+            const drop = document.createElement("button");
+            drop.type = "button";
+            drop.className = "btn btn--small";
+            drop.textContent = T("Remove");
+            drop.addEventListener("click", async () => {
+              drop.disabled = true;
+              await Gen.localRemove(model).catch(() => null);
+              if (price.isConnected) showModels();
+            });
+            line.appendChild(drop);
+          } else return;
+          price.append(" ", line);
+        });
+      } else if (one && one.free) {
         // Free, after a download: says whether it's done
         price.textContent = T("Free, without a key: the model runs in this browser and takes no prompt, it redraws the selection from what surrounds it. It downloads once (234 MB), then works offline.");
         Gen.localReady().then((here) => {
@@ -2763,6 +3714,8 @@
       else if (Math.abs(one.large - one.usd) > 1e-9) price.textContent = fill(T("{price} per picture, {large} for a large selection (sent at 2K)."), { price: money(one.usd), large: money(one.large) });
       else price.textContent = fill(T("{price} per picture."), { price: money(one.usd) });
     };
+    // A list built again while the models' state is read: only the last one gets it
+    let modelsTurn = 0;
     const showModels = () => {
       options(modelSelect, Gen.modelsOf({ custom }, service).map(([id, text]) => {
         const one = Gen.priceOf({ quality }, service, id);
@@ -2770,6 +3723,18 @@
       }));
       modelSelect.value = Gen.modelOf({ models, custom }, service);
       showPrice();
+      // FLUX on this computer: its size beside it, and whether it's already downloaded
+      const turn = ++modelsTurn;
+      if (!Gen.isLocal(service)) return;
+      Gen.localStatus().then((now) => {
+        if (!now || !now.models || !modelSelect.isConnected || turn !== modelsTurn) return;
+        Array.from(modelSelect.options).forEach((option) => {
+          const here = now.models[option.value];
+          const bytes = here && (here.installed ? here.size : here.download);
+          if (!bytes || !Gen.isFlux(option.value)) return;
+          option.textContent += ` · ${sizeText(bytes)}${here.installed ? ` · ${T("Downloaded")}` : ""}`;
+        });
+      });
     };
     serviceSelect.addEventListener("change", () => {
       service = serviceSelect.value;
@@ -2809,9 +3774,12 @@
     showSpent();
     // fal.ai's prices, read again when they're a day old
     Gen.refreshPrices(saved).then((changed) => { if (changed && pane.isConnected) showModels(); });
-    pane.append(hint(T("Generative Fill sends the selection, with what surrounds it, to an image model. Use your own key: it stays on this device and goes only to the service it belongs to, which bills you.")), field(T("Service"), serviceSelect), field(T("Model"), modelSelect), price, qualityField, total);
+    const used = card();
+    used.append(field(T("Service"), serviceSelect), field(T("Model"), modelSelect), price, qualityField, total);
+    pane.append(hint(T("Generative Fill sends the selection, with what surrounds it, to an image model. Use your own key: it stays on this device and goes only to the service it belongs to, which bills you.")), used);
     // The keys, one per service
-    pane.appendChild(heading(T("API keys")));
+    const keysCard = card();
+    pane.append(heading(T("API keys")), keysCard);
     const keyInputs = {};
     Object.keys(Gen.SERVICES).filter((name) => !Gen.isLocal(name)).forEach((name) => {
       const one = Gen.SERVICES[name];
@@ -2836,10 +3804,11 @@
       link.rel = "noopener";
       link.textContent = T("Get a key");
       box.append(input, eye, link);
-      pane.appendChild(field(one.name, box));
+      keysCard.appendChild(field(one.name, box));
     });
     // Other models, by their slug
-    pane.appendChild(heading(T("Other models")));
+    const otherCard = card();
+    pane.append(heading(T("Other models")), otherCard);
     const list = document.createElement("ul");
     list.className = "gensettings__models";
     const showCustom = () => {
@@ -2912,7 +3881,7 @@
     });
     adder.append(addService, slugInput, addButton);
     showCustom();
-    pane.append(list, adder, problem, hint(T("An image-editing model, by its slug: on fal.ai, the end of its page's address (fal-ai/flux-pro/kontext); at Google, its model id (gemini-3-pro-image).")));
+    otherCard.append(list, adder, problem, hint(T("An image-editing model, by its slug: on fal.ai, the end of its page's address (fal-ai/flux-pro/kontext); at Google, its model id (gemini-3-pro-image).")));
     return {
       pane,
       focusKey: () => {
@@ -2935,8 +3904,8 @@
     const service = serviceName(settings.service);
     const detail = error && error.detail ? ` (${error.detail})` : "";
     switch (error && error.kind) {
-      case "download": return T("LaMa Manga couldn't be downloaded. Check the connection and try again.") + detail;
-      case "local": return T("LaMa Manga couldn't run in this browser.") + detail;
+      case "download": return fill(T("{model} couldn't be downloaded. Check the connection and try again."), { model: modelName(settings) }) + detail;
+      case "local": return (Gen.isFlux(Gen.modelOf(settings)) ? fill(T("{model} couldn't run on this computer."), { model: modelName(settings) }) : T("LaMa Manga couldn't run in this browser.")) + detail;
       case "key": return fill(T("{service} refused the key. Check it in Generative Fill's settings."), { service }) + detail;
       case "quota": return fill(T("{service} says the quota or the balance is used up."), { service }) + detail;
       case "blocked": return T("The model refused this picture or this prompt.") + detail;
@@ -2963,7 +3932,7 @@
       return {};
     }
   })();
-  const expectedTime = (model) => genTimes[model] || 15000;
+  const expectedTime = (model) => genTimes[model] || (/^flux/.test(model) ? 60000 : 15000);
   const noteTime = (model, ms) => {
     genTimes[model] = genTimes[model] ? Math.round(genTimes[model] * 0.7 + ms * 0.3) : ms;
     try {
@@ -2975,6 +3944,11 @@
   const genActive = () => genJobs.some((job) => job.state === "waiting" || job.state === "drawing" || job.state === "aligning" || job.state === "settling");
   // Something under way that a new layer would disturb: it lands once it's over
   const pageBusy = () => Boolean(gesture || polygon || scrubbing || ui.modal.open || !ui.editor.hidden || (app.doc && app.doc.live) || transformOf() || cropOf() || warpedLayer() || (window.TypeRReshapeTool && window.TypeRReshapeTool.busy()));
+  // Resolves once nothing is under way on `doc`, or at once when it isn't the page shown
+  const pageFree = (doc) => new Promise((resolve) => {
+    const check = () => (app.doc !== doc || !pageBusy() ? resolve() : setTimeout(check, 250));
+    check();
+  });
   const settleFor = (job) => (doc) => new Promise((resolve) => {
     const check = () => {
       if (doc !== app.doc || !pageBusy()) resolve();
@@ -3012,6 +3986,9 @@
         name: job.name || (job.prompt ? job.prompt.replace(/\s+/g, " ").slice(0, 60) : T("Generative Fill")),
         ratios: Gen.ratiosFor(model),
         fixed: Gen.fixedSize(job.account),
+        inPlace: Gen.drawsInPlace(job.account),
+        longest: Gen.longestFor(job.account),
+        folder: job.folder,
         settle: settleFor(job),
         draw: async (canvas, info) => {
           job.thumb = genThumb(canvas, info.inside);
@@ -3103,6 +4080,7 @@
       account = await generativeSettings();
       if (!account || !Gen.ready(account) || app.doc !== doc) return false;
     }
+    if (!(await agreeToDownload(account)) || app.doc !== doc) return false;
     genJobs.push({ id: ++genJobCount, doc, selection, activeIds: doc.state.activeIds.slice(), size: [doc.width, doc.height], prompt, name, hide, account, state: "waiting", percent: 0, controller: new AbortController() });
     genTrayOpen = true;
     startJobs();
@@ -3113,16 +4091,47 @@
   const runGenerative = async () => {
     if (!Gen || pixelsOnly()) return;
     const doc = app.doc;
-    if (!doc || !doc.state.selection || doc.state.quickMask) return;
+    const selection = doc && doc.state.selection;
+    if (!selection || doc.state.quickMask) return;
     let account = Gen.load();
+    // Nothing to describe: the parts of the selection on a plain background are filled with
+    // that colour at once, as the Bubble Cleaner does, and only the rest goes to the model
+    let plain = [];
+    let target = selection;
+    if (Mask && !(Gen.takesPrompt(account) && gen.prompt.trim())) {
+      const full = ops.selectionFullMask(selection);
+      const areas = selectionAreas(doc, full, ops.reshapePage());
+      plain = areas.filter((area) => area.plain);
+      if (plain.length && plain.length === areas.length) {
+        fillPlainAreas(doc, plain, "Generative Fill");
+        ops.deselect();
+        schedule(false);
+        return;
+      }
+      if (plain.length) {
+        const rest = new Uint8Array(full.length);
+        areas.filter((area) => !area.plain).forEach((area) => {
+          for (let y = 0; y < area.height; y++) {
+            const row = (area.top + y) * doc.width + area.left;
+            for (let x = 0; x < area.width; x++) if (area.data[y * area.width + x]) rest[row + x] = 1;
+          }
+        });
+        target = ops.fullMaskSelection(rest, "mask");
+      }
+    }
     if (!Gen.ready(account)) {
       account = await generativeSettings();
-      if (!account || !Gen.ready(account) || app.doc !== doc || !doc.state.selection) return;
+      if (!account || !Gen.ready(account) || app.doc !== doc || doc.state.selection !== selection) return;
+    }
+    if (!(await agreeToDownload(account)) || app.doc !== doc || doc.state.selection !== selection) return;
+    if (plain.length) {
+      fillPlainAreas(doc, plain, "Generative Fill");
+      ops.deselect();
     }
     genJobs.push({
       id: ++genJobCount,
       doc,
-      selection: doc.state.selection,
+      selection: target,
       activeIds: doc.state.activeIds.slice(),
       size: [doc.width, doc.height],
       prompt: Gen.takesPrompt(account) ? gen.prompt.trim() : "",
@@ -3135,6 +4144,226 @@
     startJobs();
     renderGenTray();
     schedule(false);
+  };
+  // Parts of a selection on a plain background, painted over with that colour on TypeR Clean
+  const fillPlainAreas = (doc, areas, name) => {
+    const result = ops.fillPlain(doc, areas, name);
+    if (result && result.hidden) toast(T("Cleaned, but the TypeR Clean layer is hidden. Show it in the Layers panel to see the result."), true);
+  };
+
+  /* --------------------------- Select Text, Remove Text --------------------------- */
+
+  // Select > Text: the page, without its texts, goes to the text detection model; where it
+  // finds letters becomes the selection, a little grown so their edges and outlines go too. Its
+  // answer is kept while the page's pixels don't change: asking again costs nothing.
+  const textFind = { running: false, landing: false, doc: null, data: null, confidence: null, mask: null };
+  // How far around the letters the selection goes, and how close two letters must be to make
+  // one area: both follow the page's size
+  const textGrow = (doc) => Math.max(2, Math.round(Math.max(doc.width, doc.height) * 0.003));
+  const textLink = (doc) => Math.max(6, Math.round(Math.max(doc.width, doc.height) * 0.01));
+  const textMaskMessage = (error) => {
+    const detail = error && error.detail ? ` (${error.detail})` : "";
+    switch (error && error.kind) {
+      case "network": return T("The text detection couldn't be reached.");
+      case "key": return T("The text detection refused the request.") + detail;
+      case "quota": return error.retry ? fill(T("Too many pages sent to the text detection for now. Try again in {seconds} s."), { seconds: error.retry }) : T("Too many pages sent to the text detection for now. Try again in a moment.");
+      case "big": return T("This page is too large for the text detection.");
+      default: return T("The text detection didn't go through.") + (detail || ` (${String((error && error.message) || error)})`);
+    }
+  };
+  // The selection's areas, each told whether it lies on a plain background
+  const selectionAreas = (doc, full, page) => Mask.split(full, doc.width, doc.height, textLink(doc)).map((area) => Object.assign(area, Mask.plainOf(area, page.data, doc.width, doc.height, full)));
+  // While the text is looked for, a small note at the bottom left of the page: nothing waits on it
+  const selectText = async () => {
+    if (!TextMask || textFind.running || textFind.landing || pixelsOnly()) return;
+    if (!TextMask.available()) {
+      toast(T("Select Text isn't available for the moment. Try again later."));
+      return;
+    }
+    const doc = app.doc;
+    if (!doc || doc.state.quickMask) return;
+    const page = ops.reshapePage();
+    const { confidence } = TextMask.load();
+    let mask = textFind.doc === doc && textFind.data === page.data && textFind.confidence === confidence ? textFind.mask : null;
+    if (!mask) {
+      textFind.running = true;
+      const task = background(onPage(T("Finding the text…"), doc));
+      taskBarKey = "";
+      renderOptions();
+      schedule(false);
+      try {
+        const found = await TextMask.detect(page, { confidence });
+        mask = found.mask;
+        Object.assign(textFind, { doc, data: page.data, confidence, mask });
+        console.info(`TypeR web: the text detection found ${found.count === null ? "?" : found.count} texts in ${found.seconds === null ? "?" : found.seconds} s`);
+      } catch (error) {
+        if (!error || error.name !== "AbortError") {
+          console.warn("TypeR web: Select Text failed", error);
+          toast(textMaskMessage(error), true);
+        }
+        return;
+      } finally {
+        textFind.running = false;
+        task.done();
+        taskBarKey = "";
+        renderOptions();
+        schedule(false);
+      }
+    }
+    // Found while something is under way on the page: the selection comes once it's over
+    textFind.landing = true;
+    await pageFree(doc);
+    textFind.landing = false;
+    if (!app.docs.includes(doc)) return;
+    // Another page came forward meanwhile: its answer waits, and comes at once there
+    if (app.doc !== doc) {
+      toast(fill(T("The text of {name} is found: choose Select Text again on it."), { name: doc.name }));
+      return;
+    }
+    const grown = TextMask.dilate(mask, doc.width, doc.height, textGrow(doc));
+    const areas = selectionAreas(doc, grown, page);
+    if (!areas.length) {
+      toast(T("No text found on this page."));
+      return;
+    }
+    ops.quietSelection(ops.fullMaskSelection(grown, "text"), "Select Text");
+    const plain = areas.filter((area) => area.plain).length;
+    toast(fill(T("{count} text areas: {plain} on a plain background, {art} over the art."), { count: areas.length, plain, art: areas.length - plain }), true);
+    gen.open = false;
+    taskBarKey = "";
+    schedule(false);
+  };
+  // Remove Text: the selection split into its areas. Those on a plain background are filled
+  // with that colour at once, on TypeR Clean, in one step; those over the art are redrawn by
+  // Generative Fill with its model, each on its own layer in a "Text removed" folder.
+  // `which`: "all", "art" (over the art only) or "plain" (plain backgrounds only).
+  const removeText = async (which = "all") => {
+    if (!TextMask || pixelsOnly()) return;
+    const doc = app.doc;
+    const selection = doc && doc.state.selection;
+    if (!selection || doc.state.quickMask) return;
+    const full = ops.selectionFullMask(selection);
+    const areas = selectionAreas(doc, full, ops.reshapePage());
+    const plain = which === "art" ? [] : areas.filter((area) => area.plain);
+    const art = which === "plain" ? [] : areas.filter((area) => !area.plain);
+    if (!plain.length && !art.length) {
+      toast(which === "art" ? T("No text over the art in the selection.") : which === "plain" ? T("No text on a plain background in the selection.") : T("Nothing to fill."));
+      return;
+    }
+    let account = null;
+    if (art.length) {
+      if (!Gen) return;
+      account = Gen.load();
+      if (!Gen.ready(account)) {
+        account = await generativeSettings();
+        if (!account || !Gen.ready(account) || app.doc !== doc || doc.state.selection !== selection) return;
+      }
+      if (!(await agreeToDownload(account)) || app.doc !== doc || doc.state.selection !== selection) return;
+      // A paid model, several areas: what it will cost, asked first
+      const price = Gen.priceOf(account, account.service, Gen.modelOf(account));
+      if (art.length > 1 && price && !price.free && price.usd > 0) {
+        const answer = await dialog({
+          title: T("Remove Text"),
+          body: fill(T("{count} areas over the art will be redrawn with {model}, for about {total} billed by {service}."), { count: art.length, model: modelName(account), total: money(price.usd * art.length), service: serviceName(account.service) }),
+          ok: T("Remove Text"),
+        });
+        if (!answer || app.doc !== doc || doc.state.selection !== selection) return;
+      }
+    }
+    if (plain.length) fillPlainAreas(doc, plain, "Remove Text");
+    if (art.length) {
+      const folder = { name: T("Text removed"), id: null };
+      const activeIds = doc.state.activeIds.slice();
+      art.forEach((area, index) => {
+        genJobs.push({
+          id: ++genJobCount,
+          doc,
+          selection: ops.maskSelection(area.data, area.width, area.height, area.left, area.top, "text"),
+          activeIds,
+          size: [doc.width, doc.height],
+          prompt: "",
+          name: fill(T("Text removed {number}"), { number: index + 1 }),
+          folder,
+          account,
+          state: "waiting",
+          percent: 0,
+          controller: new AbortController(),
+        });
+      });
+      genTrayOpen = true;
+      startJobs();
+      renderGenTray();
+    }
+    // Its work is handed out: the selection goes, so it isn't removed twice
+    ops.deselect();
+    schedule(false);
+  };
+  // Remove Text in the selection's bar, its menu for the part to take
+  const removeTextButton = () => {
+    const main = document.createElement("button");
+    main.type = "button";
+    main.className = "ctxbar__gen";
+    main.innerHTML = ICON.clean;
+    main.append(T("Remove Text"));
+    main.title = T("Plain backgrounds are filled at once, the art is redrawn by Generative Fill");
+    main.addEventListener("click", () => removeText("all"));
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "ctxbar__model ctxbar__more";
+    more.innerHTML = ICON.chevronDown;
+    more.title = T("Remove Text options");
+    more.setAttribute("aria-label", more.title);
+    more.setAttribute("aria-haspopup", "menu");
+    let menuWasOpen = false;
+    more.addEventListener("pointerdown", () => { menuWasOpen = Boolean(contextMenu); });
+    more.addEventListener("click", (event) => {
+      if (menuWasOpen || (event.detail === 0 && contextMenu)) {
+        menuWasOpen = false;
+        closeContextMenu();
+        return;
+      }
+      const box = more.getBoundingClientRect();
+      openContextMenu(box.left, box.bottom + 4, [
+        { label: "Remove All Text", action: () => removeText("all") },
+        { label: "Only Over the Art (Generative Fill)", action: () => removeText("art") },
+        { label: "Only on Plain Backgrounds", action: () => removeText("plain") },
+      ]);
+    });
+    return [main, more];
+  };
+  // With nothing selected and no text picked, the bar offers Select Text, under the page
+  // With nothing selected, the bar offers Select Text only with a tool for cleaning the page:
+  // whoever only letters doesn't see it. The marquees have it in their options bar instead, as
+  // the Bubble Cleaner also does; and it's always in Select > Text.
+  const TEXT_BAR_TOOLS = new Set(["clean", "heal", "stamp", "brush", "eraser", "magicEraser", "lasso", "polygon", "wand"]);
+  const placeTextBar = (doc) => {
+    const key = JSON.stringify(["text", textFind.running]);
+    if (key !== taskBarKey) {
+      taskBarKey = key;
+      taskBar.textContent = "";
+      taskBar.setAttribute("aria-label", T("Contextual Task Bar"));
+      const find = document.createElement("button");
+      find.type = "button";
+      find.className = "ctxbar__gen";
+      find.innerHTML = ICON.sparkles;
+      find.append(textFind.running ? T("Finding the text…") : T("Select Text"));
+      find.disabled = textFind.running;
+      find.addEventListener("click", () => selectText());
+      const line = document.createElement("span");
+      line.className = "ctxbar__sep";
+      const hide = iconButton("close", T("Hide the contextual task bar"), false, () => setTaskBar(false));
+      hide.classList.add("ctxbar__hide");
+      taskBar.append(find, line, hide);
+    }
+    taskBar.hidden = false;
+    const [x0] = toScreen(0, 0);
+    const [x1, y1] = toScreen(doc.width, doc.height);
+    const width = taskBar.offsetWidth;
+    const height = taskBar.offsetHeight;
+    const top = Math.max(8, Math.min(stageH - height - 8, y1 + 12));
+    const left = Math.max(8, Math.min(stageW - width - 8, (x0 + x1) / 2 - width / 2));
+    taskBar.style.left = `${Math.round(left)}px`;
+    taskBar.style.top = `${Math.round(top)}px`;
   };
   // A small picture of the selection, for the tray
   const genThumb = (canvas, inside) => {
@@ -3323,6 +4552,7 @@
     if (!promptless) gen.prompt = values.prompt;
     runGenerative();
   };
+  const textSelection = () => Boolean(TextMask && app.doc && app.doc.state.selection && app.doc.state.selection.source === "text");
   const buildSelectionBar = () => {
     const separator = () => {
       const line = document.createElement("span");
@@ -3342,6 +4572,11 @@
     deselect.addEventListener("click", () => ops.deselect());
     if (!Gen) {
       taskBar.append(deselect, separator(), hide);
+      return;
+    }
+    // A selection made by Select Text: Remove Text, which sends the art alone to Generative Fill
+    if (textSelection()) {
+      taskBar.append(...removeTextButton(), separator(), deselect, separator(), hide);
       return;
     }
     if (!gen.open) {
@@ -3430,6 +4665,8 @@
           entries.push({ label: text, check: () => account.service === name && Gen.modelOf(account) === id, action: () => choose(name, id) });
         });
       });
+      // Last, the way to Settings > Generative Fill: keys, models added by their slug, quality
+      entries.push(null, { label: "More…", check: () => false, action: () => generativeSettings() });
       const box = modelPick.getBoundingClientRect();
       openContextMenu(box.left, box.bottom + 4, entries);
       if (event.detail === 0 && contextMenu) {
@@ -3437,8 +4674,8 @@
         if (row) row.focus();
       }
     });
-    const keyButton = iconButton("key", T("Generative Fill settings"), false, () => generativeSettings());
-    taskBar.append(back, modelPick, input, go, keyButton, separator(), deselect, separator(), hide);
+    const settingsButton = iconButton("settings", T("Generative Fill settings"), false, () => generativeSettings());
+    taskBar.append(back, modelPick, input, go, settingsButton, separator(), deselect, separator(), hide);
     if (gen.focus) {
       gen.focus = false;
       requestAnimationFrame(() => (promptless ? go : input).focus());
@@ -3447,12 +4684,16 @@
   const placeSelectionBar = () => {
     const doc = app.doc;
     const selection = doc && doc.state.selection;
+    if (!selection && TextMask && TextMask.available() && TEXT_BAR_TOOLS.has(app.tool) && doc && !doc.state.quickMask && !gesture && !polygon && !transformOf() && !cropOf() && !warpedLayer() && !pixelsOnly()) {
+      placeTextBar(doc);
+      return;
+    }
     if (!selection || doc.state.quickMask || gesture || polygon || transformOf() || cropOf() || warpedLayer()) {
       taskBar.hidden = true;
       return;
     }
-    const account = Gen && Gen.load();
-    const key = JSON.stringify(["selection", gen.open, settings.spellcheck, Boolean(Gen), Boolean(Gen) && [account.service, Gen.modelOf(account), account.custom]]);
+    const account = Gen && genAccount();
+    const key = JSON.stringify(["selection", textSelection(), gen.open, settings.spellcheck, Boolean(Gen), Boolean(Gen) && [account.service, Gen.modelOf(account), account.custom]]);
     if (key !== taskBarKey) {
       const typing = taskBar.contains(document.activeElement) && document.activeElement.tagName === "INPUT";
       taskBarKey = key;
@@ -3463,8 +4704,7 @@
     const b = selection.bounds;
     const [x0, y0] = toScreen(b.left, b.top);
     const [x1, y1] = toScreen(b.right, b.bottom);
-    const width = taskBar.offsetWidth;
-    const height = taskBar.offsetHeight;
+    const { width, height } = taskBarSize();
     const GAP = 12;
     let top = y1 + GAP;
     if (top + height > stageH - 8) top = y0 - GAP - height >= 8 ? y0 - GAP - height : stageH - height - 8;
@@ -3478,10 +4718,57 @@
     taskBar.style.top = `${Math.round(Math.max(8, top))}px`;
   };
 
+  // Select Text in the options bar of the Bubble Cleaner and the marquees, one search at a time
+  // Greyed while the text detection doesn't answer: a click says why
+  const selectTextButton = () => {
+    const find = document.createElement("button");
+    find.type = "button";
+    find.className = "btn btn--small";
+    find.textContent = textFind.running ? T("Finding the text…") : T("Select Text");
+    find.disabled = textFind.running;
+    if (!TextMask.available()) {
+      find.classList.add("is-unavailable");
+      find.setAttribute("aria-disabled", "true");
+      find.title = T("Select Text isn't available for the moment. Try again later.");
+    }
+    find.addEventListener("click", () => selectText());
+    return find;
+  };
+  // The text detection gone or back: the bars follow
+  if (TextMask) {
+    TextMask.watch(() => {
+      taskBarKey = "";
+      renderOptions();
+      schedule(false);
+    });
+  }
+  // What the options bar shows for the Move and Type tools, as a cheap signature: the bar is
+  // built again only when it changes (identities, the state never changing in place)
+  const NO_STATE = {};
+  const tokens = new WeakMap();
+  let nextToken = 1;
+  const tokenOf = (object) => {
+    if (!object || typeof object !== "object") return 0;
+    let token = tokens.get(object);
+    if (!token) {
+      token = nextToken++;
+      tokens.set(object, token);
+    }
+    return token;
+  };
+  let optionsShown = "";
+  const optionsSignature = () => {
+    const doc = app.doc;
+    // A transform or a warp under way: the bar shows its numbers, built again every time as before
+    if (transform || warpedLayer()) return "live:" + nextToken++;
+    const active = doc ? doc.state.layers.filter((layer) => doc.state.activeIds.includes(layer.id)) : [];
+    return [app.tool, doc ? doc.id : "", Fonts.generation, settings.hiddenChars ? 1 : 0, editing ? editing.id + ":" + (editRange() || []).join("-") : "", active.map((layer) => layer.id + ":" + tokenOf(layer)).join(","), tokenOf(app.textDefaults)].join("|");
+  };
   const renderOptions = () => {
     const bar = ui.options;
     if (scrubbing) return;
     if (bar.contains(document.activeElement) && document.activeElement.tagName === "INPUT" && document.activeElement.type !== "checkbox") return;
+    optionsShown = optionsSignature();
     bar.textContent = "";
     const tool = app.tool;
     const head = document.createElement("span");
@@ -3492,13 +4779,13 @@
     bar.appendChild(head);
     if (transform) {
       transformOptions(bar);
-      if (document.fullscreenEnabled) bar.appendChild(fullScreen);
+      bar.appendChild(barEnd);
       return;
     }
     const surface = warpedLayer();
     if (surface) {
       surfaceOptions(bar, surface);
-      if (document.fullscreenEnabled) bar.appendChild(fullScreen);
+      bar.appendChild(barEnd);
       return;
     }
     if (tool === "sfx" && window.TypeRSFX) window.TypeRSFX.options(bar);
@@ -3513,6 +4800,7 @@
         }));
       });
       bar.appendChild(modes);
+      if (TextMask && (tool === "rectangle" || tool === "ellipse")) bar.appendChild(selectTextButton());
     }
     if (tool === "wand") {
       bar.appendChild(scrubbed(T("Tolerance"), numberInput(app.tolerance, 0, 255, (value) => { app.tolerance = Math.max(0, Math.min(255, value)); })));
@@ -3535,15 +4823,14 @@
       bar.appendChild(shapes);
       bar.appendChild(scrubbed(T("Tolerance"), numberInput(app.cleanTolerance, 0, 255, (value) => { app.cleanTolerance = Math.max(0, Math.min(255, value)); })));
       bar.appendChild(scrubbed(T("Margin"), numberInput(app.cleanMargin, 0, 20, (value) => { app.cleanMargin = Math.max(0, Math.min(20, value)); })));
+      if (TextMask) bar.appendChild(selectTextButton());
     }
     if (tool === "move") {
       bar.appendChild(checkbox(T("Auto-select"), app.autoSelect, (on) => { app.autoSelect = on; }));
       if (!Shell.touch) {
         bar.appendChild(checkbox(T("Show Transform Controls"), settings.transformControls, (on) => {
-          settings.transformControls = on;
-          keepSettings();
           document.activeElement.blur();
-          schedule(false);
+          setTransformControls(on);
         }));
       }
       const layer = activeLayer();
@@ -3564,10 +4851,10 @@
       }
       if (activeTexts().length) {
         const c = textControls(bar, true);
-        bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns);
+        bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns, hiddenCharsButton());
       }
     }
-    if (tool === "brush" || tool === "eraser" || tool === "stamp") {
+    if (tool === "brush" || tool === "eraser" || tool === "stamp" || tool === "heal") {
       const size = document.createElement("input");
       size.type = "range";
       size.min = 1;
@@ -3602,7 +4889,9 @@
         percent.value = app.brush.hardness;
       });
       previewWhileHeld(hardness);
-      bar.append(labelled(T("Size"), size), number, labelled(T("Hardness"), hardness), percent);
+      // The Spot Healing Brush blends its edge by itself
+      if (tool === "heal") bar.append(labelled(T("Size"), size), number);
+      else bar.append(labelled(T("Size"), size), number, labelled(T("Hardness"), hardness), percent);
       if (tool === "stamp") {
         bar.appendChild(checkbox(T("Aligned"), stamp.aligned, (on) => {
           stamp.aligned = on;
@@ -3625,9 +4914,10 @@
         bar.appendChild(labelled(T("Sample"), sample));
       }
     }
+    if ((tool === "heal" || tool === "gradient") && window.TypeRRetouch) window.TypeRRetouch.options(bar);
     if (tool === "text") {
       const c = textControls(bar, true);
-      bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns);
+      bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns, hiddenCharsButton());
     }
     if (tool === "crop") cropOptions(bar);
     if (tool === "zoom" || tool === "hand") {
@@ -3643,7 +4933,7 @@
       actual.addEventListener("click", () => zoomTo(1));
       bar.append(fit, actual);
     }
-    if (document.fullscreenEnabled) bar.appendChild(fullScreen);
+    bar.appendChild(barEnd);
   };
 
   /* ------------------------------- gestures ------------------------------- */
@@ -3661,7 +4951,6 @@
   };
   // Dragged sideways, the zoom follows the pointer from where it was pressed: to the right it
   // comes closer, to the left it goes back. A click without a drag is one step, Alt one step back.
-  const ZOOM_DRAG = 150;
   const beginZoom = (base, event) => {
     const rect = ui.stage.getBoundingClientRect();
     gesture = Object.assign(base, { kind: "zoom", zoom: view().zoom, cx: event.clientX - rect.left, cy: event.clientY - rect.top });
@@ -3697,7 +4986,7 @@
   // and fingers pan.
   let multi = null;
   let penSeen = false;
-  const DRAWN_TOOLS = new Set(["brush", "eraser", "rectangle", "ellipse", "lasso", "polygon"]);
+  const DRAWN_TOOLS = new Set(["brush", "eraser", "rectangle", "ellipse", "lasso", "polygon", "heal", "gradient"]);
   const isFinger = (event) => Shell.touch && event.pointerType !== "mouse";
 
   const selectionMode = (event) => {
@@ -3721,10 +5010,15 @@
   // Down makes it harder, up softer.
   const isBrushAdjust = (event) => (event.button === 2 && event.altKey) || (IS_MAC && event.button === 0 && event.ctrlKey && event.altKey);
   // Alt turns the brush into the eyedropper while it is held, except during what it is already doing
-  const isSampling = (event) => app.tool === "brush" && event.altKey && !event.ctrlKey && !event.metaKey && !spacing;
+  const isSampling = (event) => (app.tool === "brush" || app.tool === "gradient") && event.altKey && !event.ctrlKey && !event.metaKey && !spacing;
   // Ctrl or Cmd sets the wand aside for as long as it is held: a click on a text edits it, a drag
   // moves it, and nothing gets selected.
   const wandSetAside = (event) => app.tool === "wand" && (event.ctrlKey || event.metaKey) && !event.altKey;
+  // Cmd on a Mac, Ctrl elsewhere, lends the Move tool while it is held, as in Photoshop: a drag
+  // moves the layer, a click on another one picks it. Not to the tools Ctrl already means
+  // something to (the Magic Wand, the Bubble Cleaner, the SFX), nor while a polygon is drawn.
+  const LENDS_MOVE = new Set(["rectangle", "ellipse", "lasso", "polygon", "brush", "eraser", "magicEraser", "stamp", "heal", "gradient", "eyedropper", "text"]);
+  const moveLent = (event) => LENDS_MOVE.has(app.tool) && (IS_MAC ? event.metaKey : event.ctrlKey) && !spacing && !polygon && Boolean(app.doc) && !transformOf();
   let hoverAt = null;
   const showWandSetAside = (event) => {
     // A key has no position: it goes by where the pointer last was
@@ -3735,6 +5029,7 @@
   };
   const showSampling = (event) => {
     showWandSetAside(event);
+    ui.stage.classList.toggle("is-move-lent", gesture ? Boolean(gesture.lent) : ui.editor.hidden && moveLent(event));
     ui.stage.classList.toggle("is-sampling", gesture ? gesture.kind === "pick" : isSampling(event));
     const cloning = !gesture && app.tool === "stamp" && event.altKey && !event.ctrlKey && !event.metaKey && !spacing;
     ui.stage.classList.toggle("is-cloning", cloning);
@@ -4071,6 +5366,17 @@
   // What one finger means. With the wand, the tool a phone opens with, nothing needs a change
   // of tool: a tap on a bubble pastes, a tap on a text selects it, a second tap edits it, a
   // drag moves it, and a drag anywhere else moves the page.
+  // When a tap pastes the script's line, only a bubble takes it: a tap on a panel's background
+  // or a gutter, often only meant to let go of a text, lets go and pastes nothing
+  const tapWand = (point, mode) => {
+    const pastes = Boolean(window.TypeRTouch && window.TypeRTouch.pastesOnTap());
+    if (ops.wandAt(point[0], point[1], mode, pastes) !== false) return;
+    const doc = app.doc;
+    const held = doc.state.activeIds.length || doc.state.selection;
+    if (doc.state.activeIds.length) ops.clearActiveLayers();
+    if (doc.state.selection) ops.deselect();
+    if (!held) toast(T("That's not a bubble: tap inside one to paste the line."));
+  };
   const fingerGesture = (event, base, tool, point) => {
     const doc = app.doc;
     const pan = (extra) => Object.assign(base, { kind: "pan", vx: doc.view.x, vy: doc.view.y }, extra);
@@ -4100,13 +5406,14 @@
     // can also move the page, to see where the text goes: only its tap ends the edit.
     const turnWhileTyping = !ui.editor.hidden && Boolean(editing) && !hitHandle(event) && turnControls && !isFinger(event) && inRotateZone(event);
     const handleWhileTyping = !ui.editor.hidden && (hitHandle(event) || turnWhileTyping);
+    const moveWhileTyping = !handleWhileTyping && event.button === 0 && !moveLent(event) && inTypingMoveZone(event);
     const fingerWhileTyping = !ui.editor.hidden && !handleWhileTyping && isFinger(event);
-    if (!ui.editor.hidden && !handleWhileTyping && !fingerWhileTyping) {
+    if (!ui.editor.hidden && !handleWhileTyping && !fingerWhileTyping && !moveWhileTyping) {
       endEdit();
       // The click that closes a text only closes it: with the wand it would paste the next line
-      if (app.tool === "text" || (app.tool === "wand" && !wandSetAside(event))) return;
+      if ((app.tool === "text" && !moveLent(event)) || (app.tool === "wand" && !wandSetAside(event))) return;
     }
-    if (!handleWhileTyping && !fingerWhileTyping) ui.stage.focus({ preventScroll: true });
+    if (!handleWhileTyping && !fingerWhileTyping && !moveWhileTyping) ui.stage.focus({ preventScroll: true });
     if (event.pointerType === "pen") penSeen = true;
     pointers.set(event.pointerId, [event.clientX, event.clientY]);
     if (event.pointerType === "touch" && pointers.size === 2 && gesture && gesture.moved && isMarquee(gesture.kind) && !(gesture.carry && gesture.carry.id !== null)) {
@@ -4126,6 +5433,7 @@
       ui.stage.classList.add("is-pinching");
       if (gesture && gesture.kind === "stroke") ops.endStroke();
       if (gesture && gesture.kind === "move") ops.endLiveMove(false);
+      if (gesture && gesture.kind === "retouch") window.TypeRRetouch.cancel(gesture);
       gesture = null;
       setDrag("");
       hud(null);
@@ -4135,9 +5443,21 @@
     if (multi) return;
     const doc = app.doc;
     if (!doc) return;
-    const tool = app.tool;
+    const lent = !handleWhileTyping && !isFinger(event) && moveLent(event);
+    const tool = lent ? "move" : app.tool;
     const point = toDoc(event);
-    const base = { id: event.pointerId, start: point, last: point, x: event.clientX, y: event.clientY, moved: false, slop: event.pointerType === "touch" ? 8 : 3, shiftAtStart: event.shiftKey, altAtStart: event.altKey };
+    const base = { id: event.pointerId, start: point, last: point, x: event.clientX, y: event.clientY, moved: false, slop: event.pointerType === "touch" ? 8 : 3, shiftAtStart: event.shiftKey, altAtStart: event.altKey, lent };
+    if (moveWhileTyping) {
+      if (ops.beginLiveMove([editing.id]).length) {
+        gesture = Object.assign(base, { kind: "move", endsEdit: true });
+        ui.stage.setPointerCapture(event.pointerId);
+        event.preventDefault();
+      } else {
+        ops.endLiveMove(false);
+        endEdit();
+      }
+      return;
+    }
     if (fingerWhileTyping) {
       gesture = Object.assign(base, { kind: "pan", vx: doc.view.x, vy: doc.view.y, tapEnds: true });
       ui.stage.setPointerCapture(event.pointerId);
@@ -4148,7 +5468,7 @@
       beginZoom(base, event);
       return;
     }
-    if ((tool === "brush" || tool === "eraser" || tool === "stamp") && isBrushAdjust(event)) {
+    if ((tool === "brush" || tool === "eraser" || tool === "stamp" || tool === "heal") && isBrushAdjust(event)) {
       gesture = Object.assign(base, { kind: "brushAdjust", size: app.brush.size, hardness: app.brush.hardness, slop: 0 });
       ui.stage.setPointerCapture(event.pointerId);
       showSampling(event);
@@ -4222,7 +5542,7 @@
       ui.stage.setPointerCapture(event.pointerId);
       return;
     }
-    if (tool === "move" && pixelControls) {
+    if (tool === "move" && !lent && pixelControls) {
       const over = hitHandle(event);
       if ((over || inRotateZone(event)) && beginTransform()) {
         const { cx, cy, sx, sy, angle } = transform;
@@ -4231,7 +5551,7 @@
         return;
       }
     }
-    if (textGroup && !handleWhileTyping && (tool === "move" || (Shell.touch && tool === "wand"))) {
+    if (textGroup && !handleWhileTyping && !lent && (tool === "move" || (Shell.touch && tool === "wand"))) {
       const over = hitHandle(event);
       if (over || (tool === "move" && turnControls && !isFinger(event) && inRotateZone(event))) {
         const wanted = new Set(textGroup.ids);
@@ -4246,17 +5566,17 @@
         return;
       }
     }
-    const handle = tool === "move" || handleWhileTyping || (Shell.touch && tool === "wand") ? hitHandle(event) : null;
+    const handle = (tool === "move" && !lent) || handleWhileTyping || (Shell.touch && tool === "wand") ? hitHandle(event) : null;
     const handled = handle && (handleWhileTyping ? doc.state.layers.find((layer) => layer.id === editing.id) : activeTexts()[0]);
     if (handled) {
       gestureCount++;
-      gesture = Object.assign(base, { kind: handle.kind.startsWith("warp") ? "warp" : handled.warp ? "surface" : handle.kind.length === 2 ? "scale" : "side", handle: handle.kind, layer: handled, frame: PS.frameOf(handled, doc), token: `gesture:${gestureCount}` });
+      gesture = Object.assign(base, { kind: handle.kind.startsWith("warp") ? "warp" : handled.warp ? "surface" : boxHandle(handle, handled, handleWhileTyping, event) ? "side" : "scale", handle: handle.kind, layer: handled, frame: PS.frameOf(handled, doc), token: `gesture:${gestureCount}` });
       if (Fonts.isMissing(handled.params.layerText.textStyleRange[0].textStyle.fontPostScriptName) && handled.raster) toast(T("This text's font is missing: it will be drawn with another font."), true);
       ui.stage.setPointerCapture(event.pointerId);
       event.preventDefault();
       return;
     }
-    if ((tool === "move" || turnWhileTyping) && turnControls && !isFinger(event) && inRotateZone(event)) {
+    if (((tool === "move" && !lent) || turnWhileTyping) && turnControls && !isFinger(event) && inRotateZone(event)) {
       const layer = turnWhileTyping ? typedLayer() : activeTexts()[0];
       if (layer) {
         gestureCount++;
@@ -4294,6 +5614,16 @@
       event.preventDefault();
       return;
     }
+    if ((tool === "heal" || tool === "gradient") && window.TypeRRetouch) {
+      const made = window.TypeRRetouch.down(event, point, base);
+      if (made) {
+        gesture = made;
+        ui.stage.setPointerCapture(event.pointerId);
+        schedule(false);
+      }
+      event.preventDefault();
+      return;
+    }
     if (tool === "text") {
       const hit = textAt(point);
       if (hit) beginEdit(hit);
@@ -4308,11 +5638,13 @@
     if (tool === "move") {
       if (app.autoSelect) {
         const hit = ops.hitLayer(point[0], point[1]);
-        const additive = event.shiftKey || event.metaKey || event.ctrlKey;
+        // Lent, Cmd is what lends it: only Shift adds
+        const additive = event.shiftKey || (!lent && (event.metaKey || event.ctrlKey));
         if (hit && !doc.state.activeIds.includes(hit.id)) ops.selectLayer(hit.id, additive);
         else if (hit && additive) ops.selectLayer(hit.id, true);
-        // A click beside every layer drops the active ones, as the selection tools drop theirs
-        if (!hit) {
+        // A click beside every layer drops the active ones, as the selection tools drop theirs.
+        // Lent to another tool, it moves them: the brush keeps its layer.
+        if (!hit && !lent) {
           if (!additive) ops.clearActiveLayers();
           return;
         }
@@ -4407,7 +5739,7 @@
       const [a, b] = Array.from(pointers.values());
       const distance = Math.hypot(a[0] - b[0], a[1] - b[1]);
       const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-      const rect = ui.stage.getBoundingClientRect();
+      const rect = stageRectOf(event);
       panBy(mid[0] - pinch.mid[0], mid[1] - pinch.mid[1]);
       zoomTo(pinch.zoom * (distance / pinch.distance), mid[0] - rect.left, mid[1] - rect.top);
       pinch.mid = mid;
@@ -4422,8 +5754,8 @@
       if (!event.altKey) showStampPreview(event);
       schedule(false);
     }
-    if ((tool === "brush" || tool === "eraser" || tool === "stamp") && !(event.pointerType === "touch" && !gesture) && !(gesture && gesture.kind === "brushAdjust")) {
-      const rect = ui.stage.getBoundingClientRect();
+    if ((tool === "brush" || tool === "eraser" || tool === "stamp" || tool === "heal") && !(event.pointerType === "touch" && !gesture) && !(gesture && gesture.kind === "brushAdjust")) {
+      const rect = stageRectOf(event);
       ui.brushRing.setAttribute("cx", event.clientX - rect.left);
       ui.brushRing.setAttribute("cy", event.clientY - rect.top);
       ui.brushRing.setAttribute("r", Math.max(1, (app.brush.size / 2) * view().zoom));
@@ -4431,7 +5763,7 @@
     }
     if ((tool === "move" || !ui.editor.hidden) && !gesture && app.doc) {
       const over = hitHandle(event);
-      ui.stage.style.cursor = over ? handleCursor(over) : rotateZoneCursor(event) || "";
+      ui.stage.style.cursor = over ? handleCursor(over) : rotateZoneCursor(event) || (inTypingMoveZone(event) ? "move" : "");
     }
     const turning = transformOf();
     if (turning && !gesture) ui.stage.style.cursor = transformCursor(turning, event);
@@ -4443,6 +5775,7 @@
     if (polygon && (tool === "polygon" || polygon.clean) && !gesture && !pinch) showPolygon(polygonAim(toDoc(event), event));
     if (tool === "sfx" && !gesture && app.doc && window.TypeRSFX) window.TypeRSFX.hover(event, toDoc(event));
     if (tool === "reshape" && !gesture && app.doc && window.TypeRReshapeTool) window.TypeRReshapeTool.hover(event, toDoc(event));
+    if (tool === "gradient" && !gesture && app.doc && window.TypeRRetouch) window.TypeRRetouch.hover(event, toDoc(event));
     if (!gesture || event.pointerId !== gesture.id) {
       if (SELECTION_TOOLS.has(tool) && app.doc && !event.shiftKey && !event.altKey && app.selectionMode === "new") {
         const [x, y] = toDoc(event);
@@ -4459,6 +5792,10 @@
     }
     if (current.kind === "sfx") {
       window.TypeRSFX.move(current, event, toDoc(event));
+      return;
+    }
+    if (current.kind === "retouch") {
+      window.TypeRRetouch.move(current, event, toDoc(event));
       return;
     }
     if (current.kind === "brushAdjust") {
@@ -4482,7 +5819,7 @@
     }
     if (current.kind === "crop") dragCrop(current, point, event);
     else if (current.kind === "transform") dragTransform(current, point, event);
-    else if (current.kind === "zoom") zoomTo(current.zoom * Math.pow(2, (event.clientX - current.x) / ZOOM_DRAG), current.cx, current.cy);
+    else if (current.kind === "zoom") zoomTo(current.zoom * Math.pow(2, (event.clientX - current.x) / ZOOM_SPEEDS[settings.zoomSpeed]), current.cx, current.cy);
     else if (current.kind === "pan") {
       const doc = app.doc;
       doc.view.x = current.vx + event.clientX - current.x;
@@ -4613,16 +5950,20 @@
       const next = { left: f.left, top: f.top, width: f.width, height: f.height, autoHeight: wasBox ? Boolean(wasBox.autoHeight) : true };
       const dx = point[0] - current.start[0];
       const dy = point[1] - current.start[1];
-      if (current.handle === "e" || current.handle === "w") {
-        const grow = (current.handle === "e" ? dx : -dx) * (event.altKey ? 2 : 1);
+      // A corner, while the text is typed in, moves both its sides: the box, not the letters
+      const east = current.handle.includes("e");
+      const north = current.handle.includes("n");
+      if (east || current.handle.includes("w")) {
+        const grow = (east ? dx : -dx) * (event.altKey ? 2 : 1);
         next.width = Math.max(room, f.width + grow);
-        if (current.handle === "w") next.left = f.right - next.width;
+        if (!east) next.left = f.right - next.width;
         if (event.altKey) next.left = f.xMid - next.width / 2;
-      } else {
-        const grow = (current.handle === "s" ? dy : -dy) * (event.altKey ? 2 : 1);
+      }
+      if (north || current.handle.includes("s")) {
+        const grow = (north ? -dy : dy) * (event.altKey ? 2 : 1);
         next.height = Math.max(room, f.height + grow);
         next.autoHeight = false;
-        if (current.handle === "n") next.top = f.bottom - next.height;
+        if (north) next.top = f.bottom - next.height;
         if (event.altKey) next.top = f.yMid - next.height / 2;
       }
       ops.setTextFrame(current.layer, next, current.token);
@@ -4717,6 +6058,10 @@
       window.TypeRSFX.up(current, event, point, cancelled);
       return;
     }
+    if (kind === "retouch") {
+      window.TypeRRetouch.up(current, event, point, cancelled);
+      return;
+    }
     if (kind === "transform") {
       const t = transformOf();
       if (t && cancelled) {
@@ -4737,6 +6082,11 @@
     } else if (kind === "move") {
       ops.endLiveMove(!cancelled);
       if (!cancelled && !current.moved && current.tapEdit) beginEdit(current.tapEdit);
+      // Moved while typed in: the caret goes along. Only clicked: the edit ends, as anywhere outside.
+      if (current.endsEdit) {
+        if (current.moved || cancelled) placeEditor();
+        else endEdit();
+      }
     } else if (kind === "stroke") ops.endStroke();
     else if (cancelled) return;
     else if (kind === "pendingStroke") {
@@ -4749,7 +6099,7 @@
       else if (current.tapEdit) beginEdit(current.tapEdit);
       else if (current.tapText) ops.selectLayer(current.tapText.id);
       else if (current.tapWand === "new" && ops.selectionContains(point[0], point[1])) ops.deselect();
-      else if (current.tapWand) ops.wandAt(point[0], point[1], current.tapWand);
+      else if (current.tapWand) tapWand(point, current.tapWand);
     } else if (kind === "clean") {
       cleanAt(current, point, event);
     } else if (kind === "magicErase") {
@@ -4797,7 +6147,8 @@
   });
   ui.stage.addEventListener("contextmenu", (event) => {
     // Ctrl + Space and a click is the zoom's, even where a Mac would see Ctrl + click
-    if (zoomHeld(event) || (gesture && gesture.kind === "zoom")) {
+    // So is Ctrl on a handle, which sizes the letters
+    if (zoomHeld(event) || (gesture && (gesture.kind === "zoom" || gesture.kind === "scale" || gesture.kind === "side" || gesture.kind === "scaleTexts"))) {
       event.preventDefault();
       return;
     }
@@ -5088,6 +6439,94 @@
     if (d) svgEl("path", { class: "type-selection", d }, marks);
   }
 
+  // View > Show Hidden Characters: on every text of the page, a dot for each space, a ring
+  // for a non-breaking one, ¶ where a paragraph ends and § where the text does. They are
+  // only drawn over the page: nothing of them goes in the file.
+  const NO_BREAK_SPACE = /[   ]/;
+  const OTHER_SPACE = /[  - 　]/;
+  function drawHiddenChars() {
+    ui.textMarks.textContent = "";
+    const doc = app.doc;
+    if (!settings.hiddenChars || !doc || transformOf()) return;
+    const z = view().zoom;
+    const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
+    const live = doc.live;
+    doc.state.layers.forEach((stored) => {
+      if (stored.kind !== "text" || stored.visible === false) return;
+      // An SFX's letters are texts of one letter each: marks would only hide them
+      for (let id = stored.group; id && byId.get(id); id = byId.get(id).group) {
+        if (byId.get(id).visible === false || byId.get(id).sfx) return;
+      }
+      const layer = doc.preview && doc.preview.id === stored.id ? doc.preview : stored;
+      // A text on a surface, or turned without being typed on the page, has no straight lines
+      const turn = turnOfTyped(layer, doc);
+      if (layer.warp || (layer.rotated && !turn)) return;
+      const lines = PS.caretLines(layer, doc);
+      if (!lines.length) return;
+      const text = String(layer.params.layerText.textKey || "");
+      const [dx, dy] = live && live.ids.has(layer.id) ? [live.dx, live.dy] : [0, 0];
+      let marks = ui.textMarks;
+      if (turn) {
+        const [a, b, c, d] = turn.spin;
+        const [sx, sy] = toScreen(turn.anchor[0] + dx, turn.anchor[1] + dy);
+        marks = svgEl("g", { transform: `matrix(${a} ${b} ${c} ${d} ${sx - a * sx - c * sy} ${sy - b * sx - d * sy})` }, ui.textMarks);
+      }
+      const at = (x, y) => toScreen(x + dx, y + dy);
+      let dots = "";
+      let rings = "";
+      const glyphs = [];
+      lines.forEach((line, i) => {
+        const r = Math.max(0.9, Math.min(3, line.size * 0.05 * z));
+        const middle = line.baseline - line.size * 0.28;
+        const dot = (x) => {
+          const [cx, cy] = at(x, middle);
+          dots += `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
+        };
+        for (let k = line.start; k < line.end; k++) {
+          const x = (line.xs[k - line.start] + line.xs[k - line.start + 1]) / 2;
+          if (NO_BREAK_SPACE.test(text[k])) {
+            const [cx, cy] = at(x, line.baseline - line.size * 0.55);
+            const ring = r * 1.6;
+            rings += `M${cx - ring} ${cy}a${ring} ${ring} 0 1 0 ${2 * ring} 0a${ring} ${ring} 0 1 0 ${-2 * ring} 0`;
+          } else if (OTHER_SPACE.test(text[k])) dot(x);
+          else if (text[k] === "\t") glyphs.push(["»", x, line]);
+        }
+        // Where a line wraps, the spaces it ends on take no room: they show after it
+        let x = line.xs[line.xs.length - 1];
+        const gap = line.size * 0.25;
+        const next = lines[i + 1];
+        let k = line.end;
+        for (; k < text.length && text[k] === " " && !(next && k >= next.start); k++) {
+          dot(x + gap / 2);
+          x += gap;
+        }
+        if (text[k] === "\r" || text[k] === "\n") glyphs.push(["¶", x + gap * 0.3, line, "start"]);
+        else if (k >= text.length && !next) glyphs.push(["§", x + gap * 0.3, line, "start"]);
+      });
+      if (dots) svgEl("path", { class: "text-mark", d: dots }, marks);
+      if (rings) svgEl("path", { class: "text-mark text-mark--ring", d: rings, style: `stroke-width: ${Math.max(0.8, Math.min(2, lines[0].size * 0.03 * z))}px` }, marks);
+      glyphs.forEach(([glyph, x, line, anchor]) => {
+        const [gx, gy] = at(x, line.baseline);
+        const mark = svgEl("text", { class: "text-mark text-mark--glyph", x: gx, y: gy, "font-size": Math.max(7, line.size * 0.7 * z), "text-anchor": anchor || "middle" }, marks);
+        mark.textContent = glyph;
+      });
+    });
+  }
+  // From the View menu, its shortcut or the Type tool's options
+  const setHiddenChars = (on) => {
+    settings.hiddenChars = on;
+    keepSettings();
+    renderOptions();
+    schedule(false);
+  };
+  const hiddenCharsButton = () => {
+    const item = MENUS.find(([name]) => name === "View")[1].find((entry) => entry && entry.label === "Show Hidden Characters");
+    const title = item && item.keys ? `${T(item.label)} (${keyLabel(item.keys)})` : T("Show Hidden Characters");
+    const button = iconButton("pilcrow", title, settings.hiddenChars, () => setHiddenChars(!settings.hiddenChars));
+    button.classList.add("obar__gap");
+    return button;
+  };
+
   const selectTyped = (anchor, focus) => {
     ui.editor.setSelectionRange(Math.min(anchor, focus), Math.max(anchor, focus), focus < anchor ? "backward" : "forward");
   };
@@ -5211,6 +6650,7 @@
     if (Shell.touch) ui.editor.setSelectionRange(ui.editor.value.length, ui.editor.value.length);
     else if (!isNew) ui.editor.select();
     schedule(false);
+    renderStatus();
     PS.announce("editing");
   };
 
@@ -5231,6 +6671,7 @@
     }
     ui.stage.focus({ preventScroll: true });
     schedule(false);
+    renderStatus();
     PS.announce("editing");
   };
 
@@ -5244,6 +6685,7 @@
     if (target >= 0 && app.doc.historyIndex > target) ops.rollbackHistory(target);
     ui.stage.focus({ preventScroll: true });
     schedule(false);
+    renderStatus();
     PS.announce("editing");
   };
 
@@ -5317,7 +6759,8 @@
       renderCharacter();
     } else if (event.key === "Escape") {
       event.preventDefault();
-      cancelEdit();
+      // As with Photoshop's "Use the Esc key to commit text": Esc keeps what was typed
+      endEdit();
     } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey || event.code === "NumpadEnter")) {
       event.preventDefault();
       endEdit();
@@ -5856,11 +7299,16 @@
     layersKey = "";
     renderLayers();
   };
-  const thumbs = new WeakMap();
+  // One per layer: a layer's past versions, kept by the history, don't keep a thumbnail each
+  const thumbs = new Map();
   const thumbOf = (layer, doc) => {
     const pixels = thumbPixels();
-    const kept = thumbs.get(layer);
-    if (kept && kept.pixels === pixels) return kept.canvas;
+    const kept = thumbs.get(layer.id);
+    if (kept && kept.layer === layer && kept.pixels === pixels) return kept.canvas;
+    if (thumbs.size > 400) {
+      const alive = new Set(app.docs.flatMap((item) => item.state.layers.map((each) => each.id)));
+      thumbs.forEach((item, id) => { if (!alive.has(id)) thumbs.delete(id); });
+    }
     const visual = PS.visualOf(layer, doc);
     const canvas = document.createElement("canvas");
     const scale = pixels / Math.max(doc.width, doc.height);
@@ -5871,7 +7319,7 @@
       ctx.imageSmoothingQuality = "high";
       ctx.drawImage(visual.canvas, visual.x * scale, visual.y * scale, visual.canvas.width * scale, visual.canvas.height * scale);
     }
-    thumbs.set(layer, { pixels, canvas });
+    thumbs.set(layer.id, { layer, pixels, canvas });
     return canvas;
   };
 
@@ -6122,7 +7570,13 @@
     shownActive = activeKey;
     if (activeChanged && !finding()) setFoldersOpen(doc, foldersAround(doc), true);
     const target = ops.maskTarget();
-    const key = JSON.stringify([doc.id, doc.state.activeIds, doc.historyIndex, doc.state.layers.map((layer) => [layer.id, layer.visible, layer.name, layer.locked, layer.open, (layer.paint || []).length, Boolean(layer.clipping), layer.color || "", layer.locks || 0, PS.fillOf(layer), layer.link || 0, hasFx(layer) ? [layer.stroke.enabled !== false, fxOpen.has(layer.id)] : 0]), Fonts.generation, target ? [target.id, target.part] : null, doc.maskView ? doc.maskView.mode : null, thumbPixels(), layerFind.open, layerFind.words, Array.from(layerFind.kinds)]);
+    // The text being typed renames its layer at every key: its row follows, the list stays
+    const typed = editing && !finding() ? doc.state.layers.find((layer) => layer.id === editing.id) : null;
+    if (typed) {
+      const shownName = ui.layers.querySelector(`#layer-row-${typed.id} .layer__name`);
+      if (shownName && !shownName.firstElementChild && shownName.textContent !== typed.name) shownName.textContent = typed.name;
+    }
+    const key = JSON.stringify([doc.id, doc.state.activeIds, doc.historyIndex, doc.state.layers.map((layer) => [layer.id, layer.visible, typed === layer ? "" : layer.name, layer.locked, layer.open, (layer.paint || []).length, Boolean(layer.clipping), layer.color || "", layer.locks || 0, PS.fillOf(layer), layer.link || 0, hasFx(layer) ? [layer.stroke.enabled !== false, fxOpen.has(layer.id)] : 0]), Fonts.generation, target ? [target.id, target.part] : null, doc.maskView ? doc.maskView.mode : null, thumbPixels(), layerFind.open, layerFind.words, Array.from(layerFind.kinds)]);
     if (key === layersKey) return;
     layersKey = key;
     const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
@@ -6929,32 +8383,50 @@
     typography.className = "character__row wide";
     typography.append(languageRow, iconTextToggle("fi", T("Standard ligatures"), style.ligature !== false, () => patchTypography({ ligature: style.ligature === false })));
     host.appendChild(typography);
+    const hyphenRow = document.createElement("div");
+    hyphenRow.className = "character__row wide";
+    const hyphenate = checkbox(T("Hyphenate"), isParagraph(layer) && hyphenates(layer), (on) => setHyphenate(on));
+    hyphenate.querySelector("input").disabled = !isParagraph(layer);
+    hyphenate.title = isParagraph(layer) ? T("Cuts long words at the end of a line, with a hyphen, by the rules of the text's language.") : T("Hyphenation only cuts the words of paragraph text.");
+    hyphenRow.appendChild(hyphenate);
+    host.appendChild(hyphenRow);
     const row = document.createElement("div");
     row.className = "character__row wide";
     row.append(c.color, c.aligns,
       iconTextToggle("B", T("Faux bold"), style.syntheticBold, () => applyTextPatch({ syntheticBold: !style.syntheticBold })),
-      iconTextToggle("I", T("Faux italic"), style.syntheticItalic, () => applyTextPatch({ syntheticItalic: !style.syntheticItalic })));
+      iconTextToggle("I", T("Faux italic"), style.syntheticItalic, () => applyTextPatch({ syntheticItalic: !style.syntheticItalic })),
+      // In capitals by the text's language, as in Photoshop: the letters typed stay as they are
+      iconTextToggle("TT", T("All Caps"), style.fontCaps === "allCaps", () => patchTypography({ fontCaps: style.fontCaps === "allCaps" ? "normal" : "allCaps" })));
     host.appendChild(row);
     const stroke = layer.stroke && layer.stroke.enabled ? layer.stroke : null;
     const strokeRow = document.createElement("div");
     strokeRow.className = "character__row wide";
+    // On every selected text layer. What changes is changed on each one's own stroke, so a size
+    // keeps their colours; a layer without a stroke takes the one shown.
+    // Read when used: adding layers to the selection doesn't draw the panel again
+    const strokeIds = () => activeTexts().map((item) => item.id);
+    const strokeOf = (item) => (item.stroke && item.stroke.enabled ? item.stroke : stroke);
+    const changeStrokes = (change, coalesce) => ops.setTextStroke(strokeIds(), (item) => change(strokeOf(item)), coalesce);
     const strokeOn = checkbox(T("Stroke"), Boolean(stroke), (on) => {
-      ops.setTextStroke([layer.id], on ? { enabled: true, size: 3, opacity: 100, position: "outer", color: { r: 255, g: 255, b: 255 } } : null);
+      const fresh = { enabled: true, size: 3, opacity: 100, position: "outer", color: { r: 255, g: 255, b: 255 } };
+      ops.setTextStroke(strokeIds(), on ? (item) => (item.stroke && item.stroke.enabled ? item.stroke : fresh) : null);
     });
     strokeRow.appendChild(strokeOn);
     if (stroke) {
-      strokeRow.appendChild(numberInput(stroke.size, 1, 100, (value) => ops.setTextStroke([layer.id], Object.assign({}, stroke, { size: value }), "stroke")));
+      const strokeSize = numberInput(stroke.size, 1, 100, (value) => changeStrokes((own) => Object.assign({}, own, { size: value }), "stroke"));
+      wheelChanges(strokeSize, strokeSize);
+      strokeRow.appendChild(strokeSize);
       const color = document.createElement("input");
       color.type = "color";
       color.value = toHex(stroke.color);
       color.setAttribute("aria-label", T("Stroke colour"));
-      color.addEventListener("input", () => ops.setTextStroke([layer.id], Object.assign({}, stroke, { color: fromHex(color.value) }), "stroke"));
+      color.addEventListener("input", () => changeStrokes((own) => Object.assign({}, own, { color: fromHex(color.value) }), "stroke"));
       strokeRow.appendChild(color);
       // A stroke around the stroke, black around a light one, white around a dark one
       if (!stroke.outer) {
         const light = stroke.color.r * 0.299 + stroke.color.g * 0.587 + stroke.color.b * 0.114 > 127;
         const add = iconButton("plus", T("Add a stroke around the stroke"), false, () => {
-          ops.setTextStroke([layer.id], Object.assign({}, stroke, { outer: { size: 3, color: light ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 } } }));
+          changeStrokes((own) => (own.outer ? own : Object.assign({}, own, { outer: { size: 3, color: light ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 } } })));
         });
         add.classList.add("character__end");
         strokeRow.appendChild(add);
@@ -6969,17 +8441,21 @@
       label.textContent = T("Around");
       label.className = "character__label";
       outerRow.appendChild(label);
-      outerRow.appendChild(numberInput(outer.size, 1, 100, (value) => ops.setTextStroke([layer.id], Object.assign({}, stroke, { outer: Object.assign({}, outer, { size: value }) }), "stroke")));
+      const outerSize = numberInput(outer.size, 1, 100, (value) => changeStrokes((own) => Object.assign({}, own, { outer: Object.assign({}, own.outer || outer, { size: value }) }), "stroke"));
+      wheelChanges(outerSize, outerSize);
+      outerRow.appendChild(outerSize);
       const outerColor = document.createElement("input");
       outerColor.type = "color";
       outerColor.value = toHex(outer.color);
       outerColor.setAttribute("aria-label", T("Colour of the stroke around the stroke"));
-      outerColor.addEventListener("input", () => ops.setTextStroke([layer.id], Object.assign({}, stroke, { outer: Object.assign({}, outer, { color: fromHex(outerColor.value) }) }), "stroke"));
+      outerColor.addEventListener("input", () => changeStrokes((own) => Object.assign({}, own, { outer: Object.assign({}, own.outer || outer, { color: fromHex(outerColor.value) }) }), "stroke"));
       outerRow.appendChild(outerColor);
       const remove = iconButton("trash", T("Remove the stroke around the stroke"), false, () => {
-        const next = Object.assign({}, stroke);
-        delete next.outer;
-        ops.setTextStroke([layer.id], next);
+        changeStrokes((own) => {
+          const next = Object.assign({}, own);
+          delete next.outer;
+          return next;
+        });
       });
       remove.classList.add("character__end");
       outerRow.appendChild(remove);
@@ -6999,7 +8475,12 @@
     });
     kerning.value = style.autoKern === "manual" ? "manual" : "metricsKern";
     kerning.title = T("Alt + left or right arrow: kerning at the cursor, or tracking of the selection.");
-    kerning.addEventListener("change", () => patchTypography({ autoKern: kerning.value }));
+    // The last one chosen is the one new text takes, as the font and the size
+    kerning.addEventListener("change", () => {
+      app.textDefaults.autoKern = kerning.value;
+      keepSettings();
+      patchTypography({ autoKern: kerning.value });
+    });
     const kerningRow = labelled(T("Kerning"), kerning);
     kerningRow.classList.add("wide");
     host.append(kerningRow);
@@ -7008,6 +8489,25 @@
   const patchTypography = (patch) => {
     if (activeTexts().some((item) => item.raster && Fonts.isMissing(item.params.layerText.textStyleRange[0].textStyle.fontPostScriptName))) toast(T("This text's font is missing: it will be drawn with another font."), true);
     applyTextPatch(patch);
+  };
+  // Hyphenate, as Photoshop's: long words cut at a syllable, with a hyphen, at the end of a
+  // line in a box. A point text has no lines to fill and keeps its own. What it is set to
+  // is also what the next box does.
+  const hyphenates = (layer) => layer.params.layerText.paragraphStyleRange[0].paragraphStyle.hyphenate === true;
+  const hyphenateShown = () => {
+    const boxes = activeTexts().filter(isParagraph);
+    return boxes.length ? boxes.every(hyphenates) : Boolean(app.textDefaults.hyphenate);
+  };
+  const setHyphenate = (on) => {
+    app.textDefaults.hyphenate = on;
+    keepSettings();
+    const boxes = activeTexts().filter(isParagraph);
+    if (!boxes.length) {
+      toast(T(activeTexts().length ? "Hyphenation only cuts the words of paragraph text." : on ? "New paragraph text will be hyphenated." : "New paragraph text won't be hyphenated."));
+      return;
+    }
+    if (boxes.some((item) => item.raster && Fonts.isMissing(item.params.layerText.textStyleRange[0].textStyle.fontPostScriptName))) toast(T("This text's font is missing: it will be drawn with another font."), true);
+    ops.setTextStyle(boxes.map((item) => item.id), null, { hyphenate: on });
   };
   const iconTextToggle = (letter, title, on, action) => {
     const button = document.createElement("button");
@@ -7311,7 +8811,7 @@
     renderPager();
     const painting = doc && maskPainting();
     const onMask = painting && (app.tool === "brush" || app.tool === "eraser");
-    const hint = transform ? T(TRANSFORM_HINT) : onMask && painting.target === "quick" ? T("Quick Mask: black takes away from the selection, white adds to it. Q: back to the selection.") : onMask && painting.target === "mask" ? T("On the layer mask: black hides the layer, white shows it, grey half. X: swap the colours.") : warpedLayer() ? T("Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.") : T(TOOL_HINT[app.tool] || "");
+    const hint = transform ? T(TRANSFORM_HINT) : onMask && painting.target === "quick" ? T("Quick Mask: black takes away from the selection, white adds to it. Q: back to the selection.") : onMask && painting.target === "mask" ? T("On the layer mask: black hides the layer, white shows it, grey half. X: swap the colours.") : warpedLayer() ? T("Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.") : !ui.editor.hidden && !Shell.touch ? T(TYPING_HINT) : `${app.tool === "reshape" ? T("Experimental tool, still being improved.") + " " : ""}${T(TOOL_HINT[app.tool] || "")}`;
     $("status-hint").textContent = hint.replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl");
     ui.start.hidden = Boolean(doc);
   };
@@ -7608,7 +9108,9 @@
       const input = document.createElement("input");
       input.type = "file";
       input.multiple = true;
-      input.accept = ".psd,.psb,.png,.jpg,.jpeg,.webp";
+      // iOS greys out the PSDs as soon as there's a filter (see touch.js): what can't be opened
+      // is refused once picked
+      if (!Shell.touch) input.accept = ".psd,.psb,.png,.jpg,.jpeg,.webp";
       input.addEventListener("change", () => openChapter(Array.from(input.files)));
       input.click();
       return;
@@ -7716,9 +9218,11 @@
     renderMenusState();
     const bridge = !fromPanel && panelBridge();
     if (bridge && !chapter && had) bridge.unlinkPages();
+    if (window.TypeRTouch) window.TypeRTouch.chapterChanged();
     if (!chapter) return;
-    const next = windowItem("Next Page").keys;
-    const previous = windowItem("Previous Page").keys;
+    // Without a keyboard, the pages are in the top bar
+    const next = !Shell.touch && windowItem("Next Page").keys;
+    const previous = !Shell.touch && windowItem("Previous Page").keys;
     toast(next && previous
       ? fill(T("{count} pages imported. {next}: next page, {previous}: previous page."), { count: pages.length, next: keyLabel(next), previous: keyLabel(previous) })
       : fill(T("{count} pages imported."), { count: pages.length }));
@@ -7740,7 +9244,7 @@
       if (pageOf(app.doc) !== target) return;
       chapter.at = target;
       // Kept open: a page with changes to save, or saved only as a download
-      if (left && left !== app.doc && app.docs.includes(left) && !PS.isDirty(left) && (left.handle || left.historyIndex === 0)) {
+      if (left && left !== app.doc && app.docs.includes(left) && !savingDocs.has(left) && !PS.isDirty(left) && (left.handle || left.historyIndex === 0)) {
         if (left.handle) chapter.pages[at].handle = left.handle;
         ops.closeDoc(left);
       }
@@ -7749,6 +9253,7 @@
     } finally {
       paging = false;
       renderStatus();
+      if (window.TypeRTouch) window.TypeRTouch.chapterChanged();
     }
   };
   const stepPage = (direction) => {
@@ -7914,20 +9419,38 @@
     await writable.close();
   };
 
+  // The page as it is now, as a PSD. The page stays free meanwhile: an edit made during the
+  // write stays unsaved.
   const buildPsd = async (doc, target) => {
-    working(fill(T("Saving {name}…"), { name: doc.name }));
-    await nextPaint();
-    // Taken before writing: an edit made during the write stays unsaved
     const savedId = doc.history[doc.historyIndex].id;
+    return { blob: new Blob([await window.TypeRPSD.write(doc, target)], { type: "image/vnd.adobe.photoshop" }), savedId };
+  };
+  // While a PSD is made and written: a note that stops nothing, or the screen that waits when
+  // something comes right after (closing the page)
+  const savingNote = (doc, block) => {
+    const text = fill(T("Saving {name}…"), { name: doc.name });
+    if (!block) return background(text);
+    working(text);
+    return { done: () => working(null) };
+  };
+  // One save at a time for a page: a second Cmd+S while the first writes is turned away
+  const savingDocs = new Map();
+  const oneSaveAtATime = (run) => async (doc = app.doc, options = {}) => {
+    if (!doc) return false;
+    if (savingDocs.has(doc)) {
+      toast(fill(T("{name} is already being saved."), { name: doc.name }));
+      return false;
+    }
+    const going = run(doc, options);
+    savingDocs.set(doc, going);
     try {
-      return { blob: new Blob([await window.TypeRPSD.write(doc, target)], { type: "image/vnd.adobe.photoshop" }), savedId };
+      return await going;
     } finally {
-      working(null);
+      savingDocs.delete(doc);
     }
   };
 
-  const saveAs = async (doc = app.doc) => {
-    if (!doc) return false;
+  const saveAsNow = async (doc, { block = false } = {}) => {
     if (!ui.editor.hidden) endEdit();
     if (doc.idml) return saveInDesign(doc, true);
     const name = psdName(doc);
@@ -7935,16 +9458,31 @@
     let copyOnly = false;
     try {
       if (window.showSaveFilePicker) {
-        const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: "Photoshop", accept: { "image/vnd.adobe.photoshop": [photoshopExtension(doc), ".psd", ".psb"].filter((item, at, all) => all.indexOf(item) === at) } }] });
-        const built = await buildPsd(doc, handle.name);
-        savedId = built.savedId;
-        await writeTo(handle, built.blob);
+        // PNG, JPEG and WebP too, as in Photoshop: the format is the one chosen in the dialog
+        const images = Object.keys(IMAGE_EXTENSIONS).filter((type) => type !== "image/webp" || canWriteWebp);
+        const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: "Photoshop", accept: { "image/vnd.adobe.photoshop": [photoshopExtension(doc), ".psd", ".psb"].filter((item, at, all) => all.indexOf(item) === at) } }, ...images.map((type) => ({ description: IMAGE_LABELS[type], accept: { [type]: type === "image/jpeg" ? [".jpg", ".jpeg"] : [IMAGE_EXTENSIONS[type]] } }))] });
+        const image = images.find((type) => (type === "image/jpeg" ? /\.jpe?g$/i : new RegExp(`\\${IMAGE_EXTENSIONS[type]}$`, "i")).test(handle.name));
+        if (image) return saveImageCopy(doc, handle, image);
+        const note = savingNote(doc, block);
+        try {
+          const built = await buildPsd(doc, handle.name);
+          savedId = built.savedId;
+          await writeTo(handle, built.blob);
+        } finally {
+          note.done();
+        }
         doc.handle = handle;
         doc.name = handle.name;
         ops.fileWritten(doc, await handle.getFile());
         Recent.add([handle]);
       } else {
-        const built = await buildPsd(doc, name);
+        const note = savingNote(doc, block);
+        let built;
+        try {
+          built = await buildPsd(doc, name);
+        } finally {
+          note.done();
+        }
         savedId = built.savedId;
         await shareOrDownload([{ blob: built.blob, name }]);
         doc.name = name;
@@ -7962,6 +9500,21 @@
     return true;
   };
 
+  // A picture holds no layers: it is written as a copy, as Photoshop does, and the page stays
+  // the PSD it was, still to be saved. So closing a page doesn't take a picture for its save.
+  const saveImageCopy = async (doc, handle, type) => {
+    const quality = await askQuality(type, T("Save"));
+    if (quality === null) return false;
+    const note = savingNote(doc, true);
+    try {
+      await writeTo(handle, await imageBlob(doc, type, quality));
+    } finally {
+      note.done();
+    }
+    toast(fill(T("Saved {name}."), { name: handle.name }));
+    return false;
+  };
+
   // Someone else, or Photoshop, may have written the file since it was opened or saved here
   const changedOnDisk = async (doc) => {
     if (!doc.stamp) return false;
@@ -7972,34 +9525,42 @@
     }
   };
 
-  const save = async (doc = app.doc) => {
-    if (!doc) return false;
+  const saveNow = async (doc, { block = false } = {}) => {
     if (!ui.editor.hidden) endEdit();
     if (doc.idml) return saveInDesign(doc, false);
     if (doc.handle && /\.ps[db]$/i.test(doc.name)) {
       try {
-        if (doc.handle.requestPermission && (await doc.handle.requestPermission({ mode: "readwrite" })) !== "granted") return saveAs(doc);
+        if (doc.handle.requestPermission && (await doc.handle.requestPermission({ mode: "readwrite" })) !== "granted") return saveAsNow(doc, { block });
         if (await changedOnDisk(doc)) {
           const answer = await dialog({ title: doc.name, body: T("This file changed on disk after it was opened or saved here. Replace it with your version?"), ok: T("Replace"), also: T("Save As…") });
           if (!answer) return false;
-          if (answer.also) return saveAs(doc);
+          if (answer.also) return saveAsNow(doc, { block });
         }
-        const built = await buildPsd(doc, doc.name);
-        await writeTo(doc.handle, built.blob);
-        ops.fileWritten(doc, await doc.handle.getFile());
+        const handle = doc.handle;
+        const note = savingNote(doc, block);
+        let built;
+        try {
+          built = await buildPsd(doc, doc.name);
+          await writeTo(handle, built.blob);
+        } finally {
+          note.done();
+        }
+        ops.fileWritten(doc, await handle.getFile());
         ops.markSaved(doc, built.savedId);
         toast(fill(T("Saved {name}."), { name: doc.name }));
         return true;
       } catch (error) {
         // A place the system protects, opened by a double-click: it can be read, not written
-        if (error.name === "SecurityError") return saveAs(doc);
+        if (error.name === "SecurityError") return saveAsNow(doc, { block });
         console.error(error);
         toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
         return false;
       }
     }
-    return saveAs(doc);
+    return saveAsNow(doc, { block });
   };
+  const save = oneSaveAtATime(saveNow);
+  const saveAs = oneSaveAtATime(saveAsNow);
 
   const flattened = (doc, background) => {
     const canvas = document.createElement("canvas");
@@ -8027,6 +9588,35 @@
   const IMAGE_EXTENSIONS = { "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp" };
   const IMAGE_LABELS = { "image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WebP" };
 
+  // JPEG and WebP have a quality: the one Batch Save keeps for that format, asked each time
+  // a page is exported or saved as one, and kept for next time
+  const QUALITY_OF_TYPE = { "image/jpeg": "quality", "image/webp": "webpQuality" };
+  const keptQuality = (type) => (QUALITY_OF_TYPE[type] ? batchSettings()[QUALITY_OF_TYPE[type]] : 100);
+  const askQuality = async (type, ok) => {
+    const key = QUALITY_OF_TYPE[type];
+    if (!key) return 100;
+    const answer = await dialog({
+      title: IMAGE_LABELS[type],
+      ok,
+      fields: [{ id: "quality", label: T("Quality"), type: "range", min: 1, value: keptQuality(type), hint: (value) => value }],
+      ready: (inputs) => showSliderFill(inputs.quality),
+    });
+    if (!answer) return null;
+    const quality = Math.max(1, Math.min(100, Math.round(Number(answer.quality)) || 92));
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(BATCH_STORE)) || {};
+      saved[key] = quality;
+      window.localStorage.setItem(BATCH_STORE, JSON.stringify(saved));
+    } catch (error) {
+      console.warn("TypeR web: could not keep the quality", error);
+    }
+    return quality;
+  };
+  const imageBlob = async (doc, type, quality) => {
+    const canvas = flattened(doc, type === "image/jpeg" ? "#fff" : null);
+    return PS.withResolution(await new Promise((resolve) => canvas.toBlob(resolve, type, quality / 100)), doc.resolution);
+  };
+
   const exportImage = async (type) => {
     const doc = app.doc;
     if (!doc) return;
@@ -8035,10 +9625,11 @@
       toast(T("This browser can't write WebP."), true);
       return;
     }
+    const quality = await askQuality(type, T("Export"));
+    if (quality === null) return;
     const extension = IMAGE_EXTENSIONS[type];
     const name = doc.name.replace(/\.[^.]+$/, "") + extension;
-    const canvas = flattened(doc, type === "image/jpeg" ? "#fff" : null);
-    const blob = await PS.withResolution(await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92)), doc.resolution);
+    const blob = await imageBlob(doc, type, quality);
     try {
       if (window.showSaveFilePicker) {
         const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: IMAGE_LABELS[type], accept: { [type]: [extension] } }] });
@@ -8063,7 +9654,7 @@
     await nextPaint();
     for (const doc of app.docs) {
       const canvas = flattened(doc, type === "image/jpeg" ? "#fff" : null);
-      entries.push({ blob: await PS.withResolution(await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92)), doc.resolution), name: doc.name.replace(/\.[^.]+$/, "") + extension });
+      entries.push({ blob: await PS.withResolution(await new Promise((resolve) => canvas.toBlob(resolve, type, keptQuality(type) / 100)), doc.resolution), name: doc.name.replace(/\.[^.]+$/, "") + extension });
     }
     working(null);
     try {
@@ -8401,8 +9992,21 @@
   });
 
   // Every image in every format chosen. One that fails doesn't stop the others.
+  let batchSaving = false;
   const batchSave = async () => {
+    if (batchSaving) {
+      toast(T("A Batch Save is already under way."));
+      return;
+    }
     if (!ui.editor.hidden) endEdit();
+    batchSaving = true;
+    try {
+      await batchSaveNow();
+    } finally {
+      batchSaving = false;
+    }
+  };
+  const batchSaveNow = async () => {
     const choice = await askBatchSave();
     if (!choice) return;
     const { settings, items, root, keepTree } = choice;
@@ -8479,9 +10083,13 @@
     let saved = 0;
     const failed = [];
     const written = [];
+    // Written aside: the pages stay free meanwhile. Each open page is saved as it is when its
+    // turn comes; one closed before then is left out.
+    const task = background(T("Batch Save"));
     for (const [index, { item, outputs }] of plan.entries()) {
-      working(fill(T("Saving {current}/{total}: {name}…"), { current: index + 1, total: plan.length, name: item.name }));
+      task.say(fill(T("Saving {current}/{total}: {name}…"), { current: index + 1, total: plan.length, name: item.name }));
       await nextPaint();
+      if (item.doc && !app.docs.includes(item.doc)) continue;
       let doc = item.doc;
       let file = null;
       try {
@@ -8512,7 +10120,7 @@
         if (doc && !item.doc) ops.dropDetached(doc);
       }
     }
-    working(null);
+    task.done();
     if (entries.length) {
       try {
         await shareOrDownload(entries);
@@ -8534,10 +10142,197 @@
     else toast(fill(T("Images saved: {count}."), { count: saved }));
   };
 
+  // Open in Photoshop (the desktop app only): the page, or all the open pages, go on in the
+  // Photoshop installed, as files. A page with its own PSD is saved there first. The others become
+  // PSDs in a folder the user picks, and are those files from then on, as with Save As.
+  const Studio = (window.TypeRDesktop && window.TypeRDesktop.photoshop) || null;
+  const PHOTOSHOP_STORE = "typer.studio.openInPhotoshop";
+  const ownPsd = (doc) => !doc.idml && Boolean(doc.handle) && doc.handle.kind === "file" && /\.ps[db]$/i.test(doc.handle.name);
+
+  // Where a handle's file is on the disk, or null: asking about its permission tells the app
+  const whereIs = async (handle) => {
+    const token = await Studio.whereStart(handle.name, handle.kind === "directory");
+    try {
+      await handle.queryPermission({ mode: "read" });
+    } catch (error) {
+      console.warn("TypeR Studio: a file's place can't be found", error);
+    }
+    return Studio.whereEnd(token);
+  };
+
+  // The script in the panel's open tab, { name, text }, or null when that tab is empty
+  const panelScript = () => {
+    let data = null;
+    try {
+      const bridge = panelBridge();
+      const path = Kit.activeStoragePath();
+      data = JSON.parse((bridge ? bridge.getFile(path) : Kit.read(path)) || "null");
+    } catch (error) {
+      return null;
+    }
+    if (!data || typeof data !== "object") return null;
+    const tab = (Array.isArray(data.tabs) && data.tabs.find((item) => item && item.id === data.currentTabId)) || data;
+    const text = typeof tab.text === "string" ? tab.text : "";
+    return text.trim() ? { name: typeof tab.name === "string" ? tab.name : "", text } : null;
+  };
+
+  const askOpenInPhotoshop = async (apps) => {
+    let kept = {};
+    try {
+      kept = JSON.parse(window.localStorage.getItem(PHOTOSHOP_STORE)) || {};
+    } catch (error) {}
+    // TypeR in Photoshop takes the script into a tab of its own: an app too old to send it doesn't offer it
+    const script = Studio.sendsScript ? panelScript() : null;
+    const fields = [];
+    if (app.docs.length > 1) fields.push({ id: "pages", label: T("Pages"), value: kept.pages === "all" ? "all" : "one", options: [["one", T("This page")], ["all", fill(T("All open pages ({count})"), { count: app.docs.length })]] });
+    if (apps.length > 1) fields.push({ id: "app", label: T("Open with"), value: apps.some((one) => one.id === kept.app) ? kept.app : apps[0].id, options: apps.map((one) => [one.id, one.version ? `${one.name} (${one.version})` : one.name]) });
+    if (script) fields.push({ id: "script", label: T("Import the script"), type: "checkbox", checked: kept.script === true, hint: () => T("TypeR in Photoshop opens it in a new tab, or in the tab that already holds it.") });
+    let answer = { pages: "one", app: apps[0].id, script: false };
+    if (fields.length) {
+      answer = await dialog({ title: T("Open in Photoshop"), body: T("Unsaved changes are saved first. Pages without a Photoshop file yet are saved as PSD in a folder you choose."), fields, ok: T("Open in Photoshop") });
+      if (!answer) return null;
+      answer = Object.assign({ pages: "one", app: apps[0].id, script: false }, answer);
+      try {
+        window.localStorage.setItem(PHOTOSHOP_STORE, JSON.stringify({ pages: answer.pages, app: answer.app, script: script ? answer.script : kept.script === true }));
+      } catch (error) {}
+    }
+    return {
+      docs: answer.pages === "all" ? app.docs.slice() : [app.doc],
+      target: apps.find((one) => one.id === answer.app) || apps[0],
+      script: script && answer.script ? script : null,
+    };
+  };
+
+  // The pages with no PSD of their own, written in a folder the user picks. [doc, path] for each.
+  const writeForPhotoshop = async (docs) => {
+    toast(T("Choose a folder for the pages that have no Photoshop file yet."));
+    const near = docs.map((doc) => doc.handle).find((handle) => handle && handle.kind === "file");
+    let folder;
+    try {
+      folder = await window.showDirectoryPicker(Object.assign({ id: "typer-photoshop", mode: "readwrite" }, near ? { startIn: near } : {}));
+    } catch (error) {
+      if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      return null;
+    }
+    const taken = new Set();
+    const plan = docs.map((doc) => {
+      const base = doc.name.replace(/\.[^.]+$/, "");
+      const extension = photoshopExtension(doc);
+      let name = base + extension;
+      for (let copy = 2; taken.has(name.toLowerCase()); copy++) name = `${base} (${copy})${extension}`;
+      taken.add(name.toLowerCase());
+      return { doc, name };
+    });
+    const existing = [];
+    for (const { name } of plan) if (await folder.getFileHandle(name).catch(() => null)) existing.push(name);
+    if (existing.length) {
+      const body = document.createElement("div");
+      body.className = "batch";
+      const about = document.createElement("p");
+      about.textContent = T("Already in this folder, and will be replaced:");
+      const list = document.createElement("ul");
+      existing.forEach((name) => {
+        const row = document.createElement("li");
+        row.textContent = name;
+        list.appendChild(row);
+      });
+      body.append(about, list);
+      if (!(await dialog({ title: T("Open in Photoshop"), body, ok: T("Replace") }))) return null;
+    }
+    const placed = [];
+    for (const { doc, name } of plan) {
+      if (!app.docs.includes(doc)) continue;
+      const note = savingNote(doc, false);
+      try {
+        const handle = await folder.getFileHandle(name, { create: true });
+        const built = await buildPsd(doc, name);
+        await writeTo(handle, built.blob);
+        // An InDesign page stays one: its PSD is a copy
+        if (!doc.idml) {
+          doc.handle = handle;
+          doc.name = handle.name;
+          ops.fileWritten(doc, await handle.getFile());
+          ops.markSaved(doc, built.savedId);
+          Recent.add([handle]);
+        }
+        const where = await whereIs(handle);
+        if (where) placed.push([doc, where]);
+      } catch (error) {
+        console.error(error);
+        toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        return null;
+      } finally {
+        note.done();
+      }
+    }
+    return placed;
+  };
+
+  let sendingToPhotoshop = false;
+  const openInPhotoshop = async () => {
+    if (!Studio || sendingToPhotoshop) return;
+    // The menu item waits for a page; the panel's button doesn't
+    if (!app.doc) {
+      toast(T("Open a page first."), true);
+      return;
+    }
+    if (!ui.editor.hidden) endEdit();
+    sendingToPhotoshop = true;
+    try {
+      const apps = await Studio.list().catch(() => []);
+      if (!apps.length) {
+        await dialog({ title: T("Open in Photoshop"), body: T("No Photoshop was found on this computer."), cancel: false });
+        return;
+      }
+      const choice = await askOpenInPhotoshop(apps);
+      if (!choice) return;
+      const { docs, target, script } = choice;
+      for (const doc of docs) {
+        if (app.docs.includes(doc) && ownPsd(doc) && PS.isDirty(doc) && !(await save(doc))) return;
+      }
+      const places = new Map();
+      const elsewhere = [];
+      for (const doc of docs) {
+        if (!app.docs.includes(doc)) continue;
+        const where = ownPsd(doc) ? await whereIs(doc.handle) : null;
+        if (where) places.set(doc, where);
+        else elsewhere.push(doc);
+      }
+      if (elsewhere.length) {
+        const placed = await writeForPhotoshop(elsewhere);
+        if (!placed) return;
+        placed.forEach(([doc, where]) => places.set(doc, where));
+      }
+      const opening = docs.filter((doc) => places.has(doc));
+      if (!opening.length) return;
+      const result = await Studio.open(target.id, opening.map((doc) => places.get(doc)), script);
+      if (!result || !result.ok) {
+        toast(fill(T("{app} could not be opened: {error}"), { app: target.name, error: (result && result.message) || "?" }), true);
+        return;
+      }
+      if (result.scriptError) {
+        toast(fill(T("The script could not be sent to TypeR: {error}"), { error: result.scriptError }), true);
+        return;
+      }
+      toast(opening.length === 1
+        ? fill(T("Opening {name} in {app}…"), { name: opening[0].name, app: target.name })
+        : fill(T("Opening {count} pages in {app}…"), { count: opening.length, app: target.name }));
+    } finally {
+      sendingToPhotoshop = false;
+    }
+  };
+
   const closeDoc = async (doc = app.doc) => {
     if (!doc) return;
     if (!ui.editor.hidden) endEdit();
     if (!settleTransform()) return;
+    // A save under way ends first: the page may need no question after it
+    if (savingDocs.has(doc)) {
+      working(fill(T("Saving {name}…"), { name: doc.name }));
+      await savingDocs.get(doc).catch(() => false);
+      working(null);
+      if (!app.docs.includes(doc)) return;
+    }
     if (PS.isDirty(doc)) {
       PS.setActiveDoc(doc);
       const answer = await dialog({
@@ -8547,7 +10342,8 @@
         also: T("Don't save"),
       });
       if (!answer) return;
-      if (!answer.also && !(await save(doc))) return;
+      // Closed right after: the page waits for its save
+      if (!answer.also && !(await save(doc, { block: true }))) return;
     }
     ops.closeDoc(doc);
   };
@@ -8806,7 +10602,11 @@
   let filling = false;
   const contentAwareFill = async () => {
     if (pixelsOnly()) return;
-    if (filling || !hasSelection()) return;
+    if (!hasSelection()) return;
+    if (filling) {
+      toast(T("A Content-Aware Fill is already under way."));
+      return;
+    }
     const values = await dialog({
       title: T("Content-Aware Fill"),
       body: T("Fills the selection with what surrounds it, read from the pixel layers and never from the text."),
@@ -8818,17 +10618,22 @@
         { id: "adapt", label: T("Colour adaptation"), type: "checkbox", checked: fillPrefs.adapt },
       ],
     });
-    if (!values) return;
+    if (!values || filling || !hasSelection()) return;
     Object.assign(fillPrefs, { area: values.area, output: values.output, mirror: values.mirror, adapt: values.adapt });
+    // Worked out aside: the page stays free meanwhile, and the fill lands once what is under
+    // way on it is over
     filling = true;
-    working(T("Content-Aware Fill…"));
+    const doc = app.doc;
+    const label = (percent) => onPage(percent === undefined ? T("Content-Aware Fill…") : `${T("Content-Aware Fill…")} ${percent}%`, doc);
+    const task = background(label());
     try {
-      const outcome = await ops.contentAwareFill({ area: values.area, output: values.output, mirror: values.mirror, adapt: values.adapt, name: nextLayerName() }, (fraction) => working(`${T("Content-Aware Fill…")} ${Math.round(fraction * 100)}%`));
+      const outcome = await ops.contentAwareFill({ area: values.area, output: values.output, mirror: values.mirror, adapt: values.adapt, name: nextLayerName(), settle: pageFree }, (fraction) => task.say(label(Math.round(fraction * 100))));
       if (outcome === "none") toast(T("Nothing to fill from."));
+      else if (outcome === "gone" && app.docs.includes(doc)) toast(T("The page changed size or its layer went meanwhile: nothing was filled."), true);
     } catch (error) {
       toast(T("The fill didn't go through."), true);
     } finally {
-      working(null);
+      task.done();
       filling = false;
     }
   };
@@ -8856,9 +10661,27 @@
     copiedFrom = { doc: app.doc, left: left || 0, top: top || 0, width: canvas.width, height: canvas.height };
   };
 
+  // Text layers copied with Copy, no selection being drawn: their words, which the clipboard
+  // holds as long as nothing else was copied since, and Paste brings the layers back
+  let copiedTexts = null;
   const copySelection = async () => {
     const doc = app.doc;
-    if (!doc || !navigator.clipboard || !window.ClipboardItem) return;
+    if (!doc) return;
+    const texts = activeTexts();
+    if (!doc.state.selection && texts.length && texts.length === activeLayers().length) {
+      ops.copyLayers();
+      const words = texts.map((layer) => layer.params.layerText.textKey || "").join("\n").replace(/\r/g, "\n");
+      copiedTexts = { words };
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(words);
+      } catch (error) {
+        // The layers are copied all the same: Paste Layer brings them back
+      }
+      toast(T("Copied."));
+      return;
+    }
+    copiedTexts = null;
+    if (!navigator.clipboard || !window.ClipboardItem) return;
     const whole = flattened(doc, null);
     const selection = doc.state.selection;
     await toClipboard(selection ? insideSelection(selection, whole, 0, 0) : whole, selection && selection.bounds.left, selection && selection.bounds.top);
@@ -8896,13 +10719,21 @@
   };
 
   // The list of layers with the keyboard, once reached with Tab. After a click on a row, arrow
-  // keys still move the layer, as in Photoshop.
+  // keys still move the layer, as in Photoshop. How the list got the focus is kept here: Chrome
+  // shows the focus of a clicked list as soon as a key is pressed, so ":focus-visible" can't tell.
+  let layersByKeys = false;
+  let pointerHeld = false;
+  window.addEventListener("pointerdown", () => { pointerHeld = true; }, true);
+  ["pointerup", "pointercancel"].forEach((type) => window.addEventListener(type, () => { pointerHeld = false; }, true));
+  ui.layers.addEventListener("pointerdown", () => { layersByKeys = false; }, true);
+  ui.layers.addEventListener("focus", () => { layersByKeys = !pointerHeld; });
   ui.layers.tabIndex = 0;
   ui.layers.setAttribute("aria-label", T("Layers"));
   ui.layers.setAttribute("aria-multiselectable", "true");
   ui.layers.addEventListener("keydown", (event) => {
     const doc = app.doc;
-    if (!doc || event.target !== ui.layers || !ui.layers.matches(":focus-visible")) return;
+    // With Cmd or Ctrl, the keys are the page's: they move the layer, or edit its text
+    if (!doc || event.target !== ui.layers || !layersByKeys || isCommand(event)) return;
     const rows = doc.state.layers;
     const act = () => {
       event.preventDefault();
@@ -9014,6 +10845,14 @@
       return;
     }
     const text = event.clipboardData && event.clipboardData.getData("text/plain");
+    // The text layers copied last, if their words are still what the clipboard holds
+    if (copiedTexts && app.layerClipboard && text && text.replace(/\r\n?/g, "\n") === copiedTexts.words) {
+      event.preventDefault();
+      if (!ui.editor.hidden) endEdit();
+      cancelTransform();
+      ops.pasteLayers();
+      return;
+    }
     if (text) {
       event.preventDefault();
       const doc = app.doc;
@@ -9025,6 +10864,13 @@
 
   const hasDoc = () => Boolean(app.doc);
   const hasSelection = () => Boolean(app.doc && app.doc.state.selection);
+  // With a selection on a pixel layer, as Photoshop's Cmd+J: only what is selected is copied
+  const duplicateLayer = () => {
+    if (oneSfx()) return window.TypeRSFX.duplicate();
+    const copied = ops.layerViaCopy(nextLayerName());
+    if (copied === "empty") toast(T("The selected area is empty."));
+    else if (!copied) ops.duplicateLayers();
+  };
   const hasLayer = () => Boolean(activeLayer());
   // One SFX chosen: its copy is an SFX of its own, with letters of its own
   const oneSfx = () => Boolean(window.TypeRSFX && app.doc && app.doc.state.activeIds.length === 1 && window.TypeRSFX.activeSfx() && window.TypeRSFX.activeSfx().id === app.doc.state.activeIds[0]);
@@ -9558,7 +11404,12 @@
     ["reposition", "Reposition", "Only moves, by whole pixels: the pixels stay exactly as they are."],
   ];
   const canAutoAlign = () => ops.alignableIds().length > 1;
+  let aligning = false;
   const autoAlignLayers = async () => {
+    if (aligning) {
+      toast(T("An Auto-Align Layers is already under way."));
+      return;
+    }
     settleForResize();
     let kept = "auto";
     try {
@@ -9579,20 +11430,28 @@
     } catch (error) {
       // Not kept: Auto next time
     }
-    const busy = (percent) => working(fill(T("Aligning the layers… {percent}%"), { percent }));
-    busy(0);
+    if (aligning) return;
+    // Worked out aside: the page stays free, and the layers move once what is under way is over
+    const doc = app.doc;
+    const label = (percent) => onPage(fill(T("Aligning the layers… {percent}%"), { percent }), doc);
+    const task = background(label(0));
+    aligning = true;
     let result;
     try {
-      result = await ops.autoAlignLayers(values.projection, busy);
+      result = await ops.autoAlignLayers(values.projection, (percent) => task.say(label(percent)), pageFree);
     } catch (error) {
       console.warn("TypeR web: Auto-Align Layers failed", error);
-      working(null);
       toast(T("The layers could not be aligned."));
       return;
+    } finally {
+      aligning = false;
+      task.done();
     }
-    working(null);
-    if (!result) toast(T("The page changed during the alignment: nothing was moved."));
-    else if (!result.moved && result.failed) toast(T("These layers have too little in common to be aligned."), true);
+    if (!result) {
+      if (app.docs.includes(doc)) toast(T("The page changed during the alignment: nothing was moved."), true);
+      return;
+    }
+    if (!result.moved && result.failed) toast(T("These layers have too little in common to be aligned."), true);
     else if (!result.moved) toast(T("The layers are already aligned."));
     else if (result.failed) toast(fill(T("Layers aligned: {count}. With too little in common, {failed} stayed in place."), { count: result.moved, failed: result.failed }), true);
     // Reposition only moves: a layer of another size (a page made again by an image model) was resized too
@@ -9760,6 +11619,235 @@
     renderMenusState();
   };
 
+  // Select > Color Range: what it takes shows on the preview as it changes. The eyedropper
+  // picks on the page behind the dialog or on the preview; Shift adds to the sample, Alt
+  // takes away. Its settings come back the next time, as in Photoshop.
+  const COLOR_RANGE_MODES = [["sampled", "Sampled Colors"], ["reds", "Reds"], ["yellows", "Yellows"], ["greens", "Greens"], ["cyans", "Cyans"], ["blues", "Blues"], ["magentas", "Magentas"], ["highlights", "Highlights"], ["midtones", "Midtones"], ["shadows", "Shadows"], ["skin", "Skin Tones"]];
+  let colorRangeKept = null;
+  const openColorRange = async () => {
+    const doc = app.doc;
+    if (!doc) return;
+    if (!ui.editor.hidden) endEdit();
+    commitTransform();
+    const source = ops.colorRangeSource(320);
+    if (!source) return;
+    const kept = colorRangeKept || {};
+    const settings = {
+      mode: kept.mode || "sampled",
+      fuzziness: kept.fuzziness === undefined ? 40 : kept.fuzziness,
+      clusters: Boolean(kept.clusters),
+      reach: kept.reach === undefined ? 50 : kept.reach,
+      invert: Boolean(kept.invert),
+      view: kept.view || "selection",
+      // The foreground colour, until something is picked
+      range: kept.range || PS.labRange.point([app.fg.r, app.fg.g, app.fg.b]),
+      points: [],
+    };
+    let dropper = "sample";
+    const reachPixels = () => (settings.reach / 100) * Math.max(doc.width, doc.height);
+    const judged = () => ({ mode: settings.mode, fuzziness: settings.fuzziness, range: settings.range, invert: settings.invert, points: settings.points, localized: settings.clusters ? reachPixels() : 0 });
+
+    const make = (tag, className, parent, text) => {
+      const el = document.createElement(tag);
+      if (className) el.className = className;
+      if (text !== undefined) el.textContent = text;
+      if (parent) parent.appendChild(el);
+      return el;
+    };
+    const body = make("div", "crange");
+    const top = make("label", "crange__select", body);
+    make("span", null, top, T("Select"));
+    const select = make("select", null, top);
+    COLOR_RANGE_MODES.forEach(([value, label]) => {
+      const option = make("option", null, select, T(label));
+      option.value = value;
+    });
+    select.value = settings.mode;
+    const clusters = make("label", "crange__check", body);
+    const clustersBox = make("input", null, clusters);
+    clustersBox.type = "checkbox";
+    clustersBox.checked = settings.clusters;
+    make("span", null, clusters, T("Localized Color Clusters"));
+    const slider = (label, key, max, unit) => {
+      const row = make("label", "mask-props__row", body);
+      make("span", null, row, label);
+      const range = make("input", null, row);
+      range.type = "range";
+      const number = make("input", null, row);
+      number.type = "number";
+      [range, number].forEach((input) => {
+        input.min = "0";
+        input.max = String(max);
+        input.step = "1";
+        input.value = String(settings[key]);
+      });
+      make("span", "mask-props__unit", row, unit);
+      const set = (value, from) => {
+        const v = Math.max(0, Math.min(max, Math.round(Number(value) || 0)));
+        settings[key] = v;
+        if (from !== range) range.value = String(v);
+        if (from !== number) number.value = String(v);
+        showSliderFill(range);
+        refresh();
+      };
+      range.addEventListener("input", () => set(range.value, range));
+      number.addEventListener("input", () => set(number.value, number));
+      showSliderFill(range);
+      return { row, inputs: [range, number] };
+    };
+    const fuzziness = slider(T("Fuzziness"), "fuzziness", 200, "");
+    const reach = slider(T("Range"), "reach", 100, "%");
+
+    const middle = make("div", "crange__middle", body);
+    const preview = make("canvas", "crange__preview", middle);
+    preview.width = source.width;
+    preview.height = source.height;
+    const tools = make("div", "crange__tools", middle);
+    const droppers = [["sample", "Eyedropper", ""], ["add", "Add to Sample", "+"], ["subtract", "Subtract from Sample", "−"]].map(([id, label, badge]) => {
+      const button = make("button", "icon-btn crange__dropper", tools);
+      button.type = "button";
+      button.title = T(label);
+      button.setAttribute("aria-label", T(label));
+      button.innerHTML = ICON.eyedropper;
+      if (badge) make("span", "crange__badge", button, badge);
+      button.addEventListener("click", () => {
+        dropper = id;
+        showDroppers();
+      });
+      return { id, button };
+    });
+    const invert = make("label", "crange__check", tools);
+    const invertBox = make("input", null, invert);
+    invertBox.type = "checkbox";
+    invertBox.checked = settings.invert;
+    make("span", null, invert, T("Inverse"));
+    const views = make("div", "crange__views", body);
+    const viewInputs = [["selection", "Selection"], ["image", "Image"]].map(([value, label]) => {
+      const option = make("label", "crange__check", views);
+      const input = make("input", null, option);
+      input.type = "radio";
+      input.name = "crange-view";
+      input.value = value;
+      input.checked = settings.view === value;
+      make("span", null, option, T(label));
+      input.addEventListener("change", () => {
+        settings.view = value;
+        refresh();
+      });
+      return input;
+    });
+    const hint = make("p", "modal__hint", body);
+
+    const showDroppers = () => droppers.forEach(({ id, button }) => {
+      button.classList.toggle("is-on", id === dropper);
+      button.setAttribute("aria-pressed", String(id === dropper));
+    });
+    // What each choice can change: Photoshop greys out the rest
+    const showControls = () => {
+      const sampled = settings.mode === "sampled";
+      const hues = ["reds", "yellows", "greens", "cyans", "blues", "magentas"].includes(settings.mode);
+      fuzziness.inputs.forEach((input) => { input.disabled = hues; });
+      fuzziness.row.classList.toggle("is-off", hues);
+      clustersBox.disabled = !sampled;
+      clusters.classList.toggle("is-off", !sampled);
+      reach.inputs.forEach((input) => { input.disabled = !sampled || !settings.clusters; });
+      reach.row.classList.toggle("is-off", !sampled || !settings.clusters);
+      droppers.forEach(({ button }) => { button.disabled = !sampled; });
+      hint.textContent = sampled ? T("Click the page or the preview to pick a colour. Shift adds to the sample, Alt takes it away.") : "";
+    };
+
+    const pctx = preview.getContext("2d");
+    let frame = 0;
+    const draw = () => {
+      frame = 0;
+      if (settings.view === "image") {
+        pctx.putImageData(source.image, 0, 0);
+        return;
+      }
+      const cover = ops.colorRangePreview(source, judged());
+      const image = pctx.createImageData(source.width, source.height);
+      for (let i = 0; i < cover.length; i++) {
+        const j = i * 4;
+        image.data[j] = image.data[j + 1] = image.data[j + 2] = cover[i];
+        image.data[j + 3] = 255;
+      }
+      pctx.putImageData(image, 0, 0);
+    };
+    const refresh = () => {
+      showControls();
+      if (!frame) frame = requestAnimationFrame(draw);
+    };
+
+    // A colour picked at (x, y) on the page
+    const pick = (x, y, how) => {
+      const rgb = ops.colorAt(x, y);
+      if (!rgb || settings.mode !== "sampled") return;
+      if (how === "add") settings.range = PS.labRange.add(settings.range, rgb);
+      else if (how === "subtract") settings.range = PS.labRange.subtract(settings.range, rgb, settings.fuzziness);
+      else {
+        settings.range = PS.labRange.point(rgb);
+        settings.points = [];
+      }
+      if (how !== "subtract") settings.points.push([x, y]);
+      refresh();
+    };
+    const howFor = (event) => (event.shiftKey ? "add" : event.altKey ? "subtract" : dropper);
+    preview.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      const rect = preview.getBoundingClientRect();
+      pick(((event.clientX - rect.left) / rect.width) * doc.width, ((event.clientY - rect.top) / rect.height) * doc.height, howFor(event));
+    });
+
+    select.addEventListener("change", () => {
+      settings.mode = select.value;
+      refresh();
+    });
+    clustersBox.addEventListener("change", () => {
+      settings.clusters = clustersBox.checked;
+      refresh();
+    });
+    invertBox.addEventListener("change", () => {
+      settings.invert = invertBox.checked;
+      refresh();
+    });
+    showDroppers();
+    showControls();
+    draw();
+
+    const answer = await dialog({
+      title: T("Color Range"),
+      body,
+      ready: () => {
+        const modal = ui.modal;
+        modal.classList.add("modal--crange");
+        // The page shows behind the dialog: a click there picks from it
+        modal.onpointerdown = (event) => {
+          if (event.target !== modal) return;
+          const box = modal.getBoundingClientRect();
+          if (event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom) return;
+          const stage = ui.stage.getBoundingClientRect();
+          if (event.clientX < stage.left || event.clientX > stage.right || event.clientY < stage.top || event.clientY > stage.bottom) return;
+          event.preventDefault();
+          const [x, y] = toDoc(event);
+          pick(x, y, howFor(event));
+        };
+      },
+    });
+    if (frame) cancelAnimationFrame(frame);
+    colorRangeKept = { mode: settings.mode, fuzziness: settings.fuzziness, clusters: settings.clusters, reach: settings.reach, invert: settings.invert, view: settings.view, range: settings.range };
+    if (!answer || app.doc !== doc) return;
+    working(T("Color Range"));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    let done = false;
+    try {
+      done = ops.colorRange(judged());
+    } finally {
+      working("");
+    }
+    if (!done) toast(T("No pixels are more than 50% selected: the selection stays as it was."));
+    renderMenusState();
+  };
+
   const DESKTOP = Boolean(window.TypeRDesktop);
   const findItem = { label: "Find Layers", keys: "Alt+Shift+Cmd+F", enabled: hasDoc, action: () => openFind() };
   const MENUS = [
@@ -9779,6 +11867,8 @@
       { label: "Export as WebP…", enabled: () => hasDoc() && canWriteWebp, action: () => exportImage("image/webp") },
       { label: "Export for InDesign (IDML)…", enabled: hasDoc, action: exportInDesign },
       { label: "Batch Save…", action: batchSave },
+      // The desktop app only, once its own part knows how
+      ...(Studio ? [{ label: "Open in Photoshop…", enabled: hasDoc, action: openInPhotoshop }] : []),
       null,
       { label: "Import Styles and Fonts (.zip, .json)…", action: () => $("file-kit").click() },
       // The app sees the computer's fonts from the start: there's nothing to ask for
@@ -9823,7 +11913,7 @@
       // Photoshop's Shift+Cmd+N opens a private window from a browser tab: it only arrives in the installed app or full screen
       { label: "New Layer", keys: DESKTOP ? "Shift+Cmd+N" : "Alt+Shift+Cmd+N", alias: DESKTOP ? undefined : "Shift+Cmd+N", enabled: hasDoc, action: () => ops.newLayer(nextLayerName()) },
       { label: "New Group", enabled: hasDoc, action: () => ops.newGroup(T("Group")) },
-      { label: "Duplicate Layer", keys: "Cmd+J", enabled: hasLayer, action: () => (oneSfx() ? window.TypeRSFX.duplicate() : ops.duplicateLayers()) },
+      { label: "Duplicate Layer", keys: "Cmd+J", enabled: hasLayer, action: duplicateLayer },
       { label: "Delete Layer", enabled: hasLayer, action: () => ops.deleteLayers() },
       { label: "Group Layers", keys: "Cmd+G", enabled: () => activeLayers().some((layer) => !layer.isBackground), action: () => ops.groupLayers(T("Group")) },
       { label: "Ungroup Layers", keys: "Shift+Cmd+G", enabled: () => activeLayers().some((layer) => layer.kind === "group"), action: () => ops.ungroupLayers() },
@@ -9840,6 +11930,7 @@
       null,
       { label: "Convert to Paragraph Text", enabled: () => activeTexts().some((layer) => !isParagraph(layer)), action: () => activeTexts().forEach((layer) => { if (!isParagraph(layer)) ops.convertText(layer.id); }) },
       { label: "Convert to Point Text", enabled: () => activeTexts().some(isParagraph), action: () => activeTexts().forEach((layer) => { if (isParagraph(layer)) ops.convertText(layer.id); }) },
+      { label: "Hyphenate", keys: "Alt+Shift+Cmd+H", anywhere: true, check: hyphenateShown, enabled: hasDoc, action: () => setHyphenate(!hyphenateShown()) },
       { label: "Perspective", keys: "Shift+P", enabled: () => activeTexts().length === 1 && !activeTexts()[0].rotated, action: () => enterSurface(activeTexts()[0]) },
       { label: "Rasterize Type", enabled: () => activeTexts().length > 0, action: () => activeTexts().forEach((layer) => ops.rasterizeText(layer.id)) },
       null,
@@ -9886,6 +11977,9 @@
       { label: "Reselect", keys: "Shift+Cmd+D", enabled: () => hasDoc() && !app.doc.state.selection && Boolean(app.doc.state.lastSelection), action: () => ops.reselect() },
       { label: "Inverse", keys: "Shift+Cmd+I", enabled: hasSelection, action: () => ops.invert() },
       null,
+      { label: "Color Range…", enabled: hasDoc, action: () => openColorRange() },
+      ...(TextMask ? [{ label: "Text", id: "Select: Text", enabled: () => hasDoc() && !textFind.running && TextMask.available(), action: () => selectText() }] : []),
+      null,
       { label: "Expand…", enabled: hasSelection, action: () => askRadius(T("Expand selection"), (r) => ops.grow(r)) },
       { label: "Contract…", enabled: hasSelection, action: () => askRadius(T("Contract selection"), (r) => ops.grow(-r)) },
       null,
@@ -9905,6 +11999,9 @@
       null,
       { label: "Smart Guides", check: () => settings.smartGuides, action: () => { settings.smartGuides = !settings.smartGuides; keepSettings(); } },
       { label: "Snap Text", check: () => settings.snapText, enabled: () => settings.smartGuides, action: () => { settings.snapText = !settings.snapText; keepSettings(); } },
+      // No keys of its own, as in Photoshop: one can be given in the Shortcuts tab
+      { label: "Show Transform Controls", check: () => settings.transformControls, enabled: () => !Shell.touch, action: () => setTransformControls(!settings.transformControls) },
+      { label: "Show Hidden Characters", keys: "Alt+Shift+Cmd+I", anywhere: true, check: () => settings.hiddenChars, action: () => setHiddenChars(!settings.hiddenChars) },
     ]],
     ["Window", [
       { label: "Next Document", keys: "Alt+Shift+ArrowRight", alias: "Cmd+Tab", enabled: () => app.docs.length > 1, action: () => stepDoc(1) },
@@ -9924,10 +12021,11 @@
       ...(Shell.touch ? [] : [{ label: "Contextual Task Bar", check: () => settings.taskBar, action: () => setTaskBar(!settings.taskBar) }]),
       null,
       { label: "Reset Workspace", action: () => Workspace().reset() },
+      ...(Shell.touch ? [] : [{ label: "Import Photoshop Toolbar (.tbr)…", action: pickToolbar }, { label: "Reset Toolbar", action: resetToolbar }]),
       ...(DESKTOP ? [] : [{ label: "Touch Interface", action: () => Shell.prefer("touch") }]),
     ]],
     ["Help", [
-      { label: "TypeR Tutorial", action: () => startPanel({ tour: true }) },
+      { label: "TypeR Tutorial", action: () => (window.TypeRGuide && !Shell.touch ? window.TypeRGuide.show() : startPanel({ tour: true })) },
       { label: "Setup Assistant…", action: () => setupAgain() },
       { label: "What's New", action: () => window.TypeRWhatsNew && window.TypeRWhatsNew.show() },
       { label: "Keyboard Shortcuts", action: () => showShortcuts() },
@@ -9940,6 +12038,7 @@
       { label: "Report a Problem", action: () => window.open("https://github.com/ScanR/TypeR/issues/new", "_blank", "noopener") },
       { label: "Discord Server", action: () => window.open(DISCORD, "_blank", "noopener") },
       { label: "Support the Project", action: () => window.open(KOFI, "_blank", "noopener") },
+      { label: "About TypeR Studio…", action: () => showAbout() },
       ...(DESKTOP ? [] : [{ label: "Back to the Site", action: () => { window.location.href = "../"; } }]),
     ]],
   ];
@@ -9957,7 +12056,7 @@
 
   // Rectangle and Ellipse share M and Shift+M, as in Photoshop, until they get keys of their own,
   // Lasso and Polygonal Lasso share L and Shift+L, Eraser and Magic Eraser E and Shift+E
-  const TOOL_PAIRS = [["rectangle", "ellipse", "M"], ["lasso", "polygon", "L"], ["eraser", "magicEraser", "E"]];
+  const TOOL_PAIRS = [["rectangle", "ellipse", "M"], ["lasso", "polygon", "L"], ["eraser", "magicEraser", "E"], ["clean", "heal", "J"]];
   const pickTool = (id) => {
     const keyOf = (tool) => (TOOLS.find((entry) => entry && entry[0] === tool) || [])[2];
     const pair = TOOL_PAIRS.find(([first, second, key]) => (id === first || id === second) && keyOf(first) === key && keyOf(second) === `Shift+${key}`);
@@ -9996,6 +12095,9 @@
     { label: "Decrease text size", keys: "Shift+Cmd+<", alias: "Cmd+<", enabled: hasText, anywhere: true, action: () => stepTextSize(-1, false) },
     { label: "Increase text size a lot", keys: "Alt+Shift+Cmd+>", enabled: hasText, anywhere: true, action: () => stepTextSize(1, true) },
     { label: "Decrease text size a lot", keys: "Alt+Shift+Cmd+<", alias: "Alt+Cmd+<", enabled: hasText, anywhere: true, action: () => stepTextSize(-1, true) },
+    // The − and + of the Line Breaks panel, open or not
+    { label: "One line less", keys: "Alt+Cmd+-", enabled: hasText, action: () => window.TypeRBreaks && window.TypeRBreaks.fewer() },
+    { label: "One line more", keys: "Alt+Cmd+=", enabled: hasText, action: () => window.TypeRBreaks && window.TypeRBreaks.more() },
   ];
   // Keys that stand for the mouse's buttons, for where a click makes too much noise: none by
   // default (keyclick.js does the clicking)
@@ -10015,10 +12117,10 @@
     "Edit:Undo", "Edit:Redo", "Edit:Fill with Foreground Colour", "Edit:Content-Aware Fill…", "Edit:Free Transform",
     "Layer:New Layer", "Layer:Duplicate Layer", "Layer:Group Layers", "Layer:Merge Down",
     "Select:All", "Select:Deselect", "Select:Inverse",
-    "View:Zoom In", "View:Zoom Out", "View:Fit on Screen",
+    "View:Zoom In", "View:Zoom Out", "View:Fit on Screen", "View:Show Transform Controls",
     "Window:Next Page", "Window:Previous Page",
     "Colours and brush:Default colours", "Colours and brush:Swap colours", "Colours and brush:Decrease brush size", "Colours and brush:Increase brush size",
-    "Layers and text:Increase text size", "Layers and text:Decrease text size",
+    "Layers and text:Increase text size", "Layers and text:Decrease text size", "Layers and text:One line less", "Layers and text:One line more",
     "Mouse:Left click", "Mouse:Right click",
   ]);
   const STORE_MORE_SHORTCUTS = "typer.web.shortcutsMore";
@@ -10048,6 +12150,7 @@
     if (/^(Shift|Control|Alt|AltGraph|Meta|OS|Dead|CapsLock|Unidentified)$/.test(key)) return null;
     const besideP = event.altKey && !event.getModifierState("AltGraph") && (event.code === "BracketLeft" ? "[" : event.code === "BracketRight" ? "]" : null);
     if (besideP) key = besideP;
+    else if (event.altKey && (typedAlone(event) === "-" || typedAlone(event) === "=")) key = typedAlone(event);
     else if (key.length === 1) {
       const lower = key.toLowerCase();
       if (/^[a-z]$/.test(lower)) key = lower.toUpperCase();
@@ -10304,19 +12407,26 @@
         }
         applyShortcuts();
         buildMenus();
-        ui.tools.querySelectorAll("[data-tool]").forEach((button) => {
-          const entry = TOOLS.find((one) => one && one[0] === button.dataset.tool);
-          if (!entry) return;
-          const title = toolTitle(entry[1], entry[2]);
-          button.title = title;
-          button.setAttribute("aria-label", title);
-        });
+        renderToolSlots();
       },
     };
   };
 
   // AltGr reads as Ctrl+Alt: with it, a key only types its character
   const isCommand = (event) => (event.metaKey || event.ctrlKey) && !event.getModifierState("AltGraph");
+  // What a key types alone, Alt changing "-" and "=" on a Mac: the keyboard's own map where the
+  // browser gives it (not on AZERTY's places of QWERTY), else QWERTY's
+  let keyLayout = null;
+  const readKeyLayout = () => {
+    try {
+      if (navigator.keyboard && navigator.keyboard.getLayoutMap) navigator.keyboard.getLayoutMap().then((map) => { keyLayout = map; }, () => {});
+    } catch (error) {
+      keyLayout = null;
+    }
+  };
+  readKeyLayout();
+  window.addEventListener("focus", readKeyLayout);
+  const typedAlone = (event) => (keyLayout ? keyLayout.get(event.code) : { Minus: "-", Equal: "=" }[event.code]);
 
   const matches = (event, keys) => {
     const parts = keys.split("+");
@@ -10335,7 +12445,8 @@
     if (!bracket && wantAlt !== event.altKey) return false;
     if (!bracket && !(key === "=" && event.key === "+") && wantShift !== event.shiftKey) return false;
     const pressed = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-    if (key === "=") return pressed === "=" || pressed === "+";
+    if (key === "=") return pressed === "=" || pressed === "+" || (event.altKey && typedAlone(event) === "=");
+    if (key === "-") return pressed === "-" || (event.altKey && typedAlone(event) === "-");
     if ((key === "," || key === ".") && event.altKey) return pressed === key || event.code === (key === "," ? "Comma" : "Period");
     // Alt changes what these type on a Mac: their place counts too, on QWERTY and on AZERTY
     if (key === "<" || key === ">") {
@@ -10570,7 +12681,8 @@
       if (openMenu && !event.target.closest(".menu")) closeMenus();
     });
   };
-  const allMenuItems = () => MENUS.flatMap(([, list]) => list).flatMap((item) => (item && item.submenu ? [item, ...item.submenu] : [item])).filter(Boolean);
+  let menuItems = null;
+  const allMenuItems = () => menuItems || (menuItems = MENUS.flatMap(([, list]) => list).flatMap((item) => (item && item.submenu ? [item, ...item.submenu] : [item])).filter(Boolean));
   const renderMenusState = () => {
     allMenuItems().forEach((item) => {
       if (!item.row) return;
@@ -10585,6 +12697,21 @@
   };
 
   const showShortcuts = () => showSettings("shortcuts");
+  // Help > About TypeR Studio: the people to thank
+  const showAbout = () => {
+    const body = document.createElement("div");
+    body.className = "about";
+    const name = document.createElement("p");
+    name.className = "about__name";
+    name.textContent = "TypeR Studio";
+    const head = document.createElement("p");
+    head.className = "about__head";
+    head.textContent = T("Thanks");
+    const miller = document.createElement("p");
+    miller.textContent = T("Miller, for the help and the API behind automatic text detection.");
+    body.append(name, head, miller);
+    dialog({ title: T("About TypeR Studio"), body, cancel: false });
+  };
 
   // A right click: the commands of the menus that can act here and now, and only those
   let contextMenu = null;
@@ -10703,7 +12830,7 @@
 
   // 1 gives 10 %, 5 gives 50 %, 0 gives 100 %; two keys within a moment give their number,
   // 4 then 5 for 45 %, 0 then 0 for 0 %. The painting tools keep the keys, as in Photoshop.
-  const PAINTING_TOOLS = new Set(["brush", "eraser", "magicEraser", "stamp", "clean"]);
+  const PAINTING_TOOLS = new Set(["brush", "eraser", "magicEraser", "stamp", "clean", "heal", "gradient"]);
   let opacityKey = null;
   let opacityKeys = 0;
   // With Shift, Fill
@@ -10734,7 +12861,9 @@
     return true;
   };
 
-  const nudge = (dx, dy) => {
+  // With layers, even when a selection tool would move its selection: Cmd + arrows lend the
+  // Move tool, as in Photoshop
+  const nudge = (dx, dy, layers) => {
     const doc = app.doc;
     if (!doc) return;
     const turning = transformOf();
@@ -10754,7 +12883,7 @@
       schedule(false);
       return;
     }
-    if (doc.state.selection && SELECTION_TOOLS.has(app.tool)) ops.nudgeSelection(dx, dy, "nudge-selection");
+    if (doc.state.selection && SELECTION_TOOLS.has(app.tool) && !layers) ops.nudgeSelection(dx, dy, "nudge-selection");
     else ops.moveLayers(doc.state.activeIds, dx, dy, "nudge");
   };
 
@@ -10796,6 +12925,11 @@
         else showPolygon(polygon.pointer && polygonAim(polygon.pointer, event));
         return;
       }
+    }
+    // A gradient's ends, still draggable: Enter or Esc lets them go
+    if (!fromPanel && !openMenu && !isField(event.target) && window.TypeRRetouch && window.TypeRRetouch.key(event)) {
+      event.preventDefault();
+      return;
     }
     const turning = !fromPanel && !isField(event.target) && transformOf();
     if (turning) {
@@ -10846,13 +12980,13 @@
       kern(key === "arrowleft" ? -1 : 1, command);
       return;
     }
-    if (key.indexOf("arrow") === 0 && !command) {
+    if (key.indexOf("arrow") === 0 && !(command && event.altKey)) {
       event.preventDefault();
       const step = event.shiftKey ? 10 : 1;
-      if (key === "arrowleft") nudge(-step, 0);
-      if (key === "arrowright") nudge(step, 0);
-      if (key === "arrowup") nudge(0, -step);
-      if (key === "arrowdown") nudge(0, step);
+      if (key === "arrowleft") nudge(-step, 0, command);
+      if (key === "arrowright") nudge(step, 0, command);
+      if (key === "arrowup") nudge(0, -step, command);
+      if (key === "arrowdown") nudge(0, step, command);
       return;
     }
     // With Ctrl or Cmd as well, it is the zoom's
@@ -10874,6 +13008,16 @@
     if (warpedLayer() && (event.key === "Escape" || event.key === "Enter")) {
       leaveSurface();
       return;
+    }
+    // Cmd+Enter: the active text is edited, as a double-click on its thumbnail would. The same
+    // keys commit it in the box.
+    if (event.key === "Enter" && command && !event.altKey && !event.shiftKey && !fromPanel && !openMenu && ui.editor.hidden) {
+      const chosen = activeLayers();
+      if (chosen.length === 1 && chosen[0].kind === "text") {
+        event.preventDefault();
+        if (!event.repeat) beginEdit(chosen[0]);
+        return;
+      }
     }
     if (event.key === "Escape") {
       closeMenus();
@@ -10907,7 +13051,7 @@
     // Cmd+Tab never lets go of Cmd here: a lent shape goes back
     if (shapeHold && app.tool === "clean") setCleanShape(shapeHold.previous);
     shapeHold = null;
-    ui.stage.classList.remove("is-spacing", "is-sampling", "is-zoom-hold", "is-zoom-out");
+    ui.stage.classList.remove("is-spacing", "is-sampling", "is-zoom-hold", "is-zoom-out", "is-move-lent");
     PS.clearKeys();
   });
 
@@ -11056,7 +13200,9 @@
     }
     const kits = entries.filter((entry) => /\.(zip|json)$/i.test(entry.file.name));
     if (kits.length) importKits(kits.map((entry) => entry.file));
-    const pages = entries.filter((entry) => !/\.(ttf|otf|ttc|otc|woff2?|zip|json)$/i.test(entry.file.name));
+    const toolbar = entries.find((entry) => /\.tbr$/i.test(entry.file.name));
+    if (toolbar) importToolbar(toolbar.file);
+    const pages = entries.filter((entry) => !/\.(ttf|otf|ttc|otc|woff2?|zip|json|tbr)$/i.test(entry.file.name));
     if (pages.length) (folder ? openChapter(pages) : openFiles(pages));
   });
 
@@ -11097,8 +13243,67 @@
     setTimeout(done, 1500);
   });
 
+  // A script sent by TypeR for Photoshop (Open in TypeR Studio): the tab that already holds it,
+  // or a new one, becomes the panel's open tab, as TypeR does with one sent from here
+  const SCRIPT_TAB_FIELDS = ["text", "images", "currentLineIndex", "lastOpenedImagePath", "usedLineStyles"];
+  const importScript = async (script) => {
+    if (!script || typeof script.text !== "string" || !script.text.trim()) return;
+    const lines = (text) => String(text).replace(/\r\n?/g, "\n");
+    const text = lines(script.text);
+    const running = Boolean(ui.frame.src) && !/^about:blank/.test(ui.frame.src);
+    // The panel writes what it holds as it closes; only then can its file change
+    if (running) await closePanel();
+    const path = Kit.activeStoragePath();
+    let storage = null;
+    try {
+      storage = JSON.parse(Kit.read(path) || "null");
+    } catch (error) {
+      storage = null;
+    }
+    storage = storage || Kit.freshStorage(false);
+    const tabs = (Array.isArray(storage.tabs) ? storage.tabs : []).filter((tab) => tab && typeof tab === "object");
+    let tab = tabs.find((one) => typeof one.text === "string" && lines(one.text).trim() === text.trim());
+    if (!tab) {
+      tab = {
+        id: `typer-${Math.random().toString(36).slice(2, 10)}`,
+        name: script.name || "TypeR",
+        text,
+        images: [],
+        currentLineIndex: 0,
+        lastOpenedImagePath: null,
+        usedLineStyles: {},
+        autoName: !script.name,
+      };
+      tabs.push(tab);
+      // A new tab must be reachable, even with the tab bar hidden
+      if (storage.uiLayout && storage.uiLayout.visible && storage.uiLayout.visible.tabBar === false) storage.uiLayout.visible.tabBar = true;
+    }
+    storage.tabs = tabs;
+    storage.currentTabId = tab.id;
+    // The panel takes the script's own fields, beside the tabs, as the open tab's
+    SCRIPT_TAB_FIELDS.forEach((field) => {
+      if (!Object.prototype.hasOwnProperty.call(storage, field)) return;
+      if (field in tab) storage[field] = tab[field];
+      else delete storage[field];
+    });
+    const kept = await Kit.keep(path, JSON.stringify(storage));
+    if (running) startPanel();
+    if (!kept) toast(fill(T("Could not save: {error}"), { error: T("Script") }), true);
+  };
+  if (window.TypeRDesktop && window.TypeRDesktop.onImportScript) window.TypeRDesktop.onImportScript((script) => { importScript(script).catch((error) => console.error(error)); });
+
   /* ------------------------------ the engine's news ------------------------- */
 
+  // A change announces itself twice (history, then the page): the panels look once
+  let refreshedFor = null;
+  const refreshAfterChange = () => {
+    const key = app.doc ? app.doc.state : NO_STATE;
+    if (refreshedFor === key) return;
+    refreshedFor = key;
+    queueMicrotask(() => { refreshedFor = null; });
+    renderAfterState();
+    if (gesture === null && (app.tool === "move" || app.tool === "text") && optionsSignature() !== optionsShown) renderOptions();
+  };
   PS.on((type, detail) => {
     // Part of a page during a drag or a stroke: nothing else can have changed, so nothing
     // else needs looking at, sixty times a second
@@ -11107,10 +13312,10 @@
       return;
     }
     if (type === "render") schedule(true);
-    if (type === "render" || type === "history") {
-      renderAfterState();
-      if (gesture === null && (app.tool === "move" || app.tool === "text")) renderOptions();
-    } else if (type === "selection") showSelection(detail);
+    // Another layer chosen: the page is as it was, only what's drawn over it moves
+    if (type === "active") schedule(false);
+    if (type === "render" || type === "history" || type === "active") refreshAfterChange();
+    else if (type === "selection") showSelection(detail);
     else if (type === "options") renderOptions();
     else if (type === "alert") toast(detail.text, true);
     else if (type === "confirm") {
@@ -11125,6 +13330,8 @@
       } else viewChanged();
       showSelection(detail ? detail.state.selection : null);
       schedule(true);
+      refreshedFor = detail ? detail.state : NO_STATE;
+      queueMicrotask(() => { refreshedFor = null; });
       renderAfterState();
       renderStatus();
       renderOptions();
@@ -11214,7 +13421,7 @@
     window.location.href = url.href;
   });
 
-  $("get-plugin").textContent = T("Download");
+  $("get-plugin-text").textContent = T("Download TypeR Studio");
   $("get-plugin").addEventListener("click", (event) => {
     event.preventDefault();
     showDownloads();
@@ -11222,20 +13429,19 @@
   $("support-text").textContent = T("Support the project");
   $("support").title = T("Support the project");
   $("support").setAttribute("aria-label", T("Support the project"));
-  $("start-text").textContent = T("TypeR's real panel and engine in a Photoshop-like workspace. Open a PSD, a PNG or a JPEG, or drop it here. Everything stays on your computer.");
+  $("start-text").textContent = T("Open or drop a PSD, a PNG or a JPEG.");
   $("start-open").textContent = T("Open a file");
-  $("start-kit").textContent = T("Import my styles (.zip)");
   $("start-new").textContent = T("New document");
   $("start-open").addEventListener("click", openDialog);
   $("start-folder").textContent = T("Open pages");
   $("start-folder").addEventListener("click", openPages);
-  $("start-kit").addEventListener("click", () => $("file-kit").click());
   $("start-new").addEventListener("click", newDocument);
   $("start-practice").textContent = T("Try it on a practice page");
   $("start-practice").addEventListener("click", () => {
-    if (!Shell.touch) startPanel({ tour: true });
+    if (Shell.touch) return;
+    if (window.TypeRGuide) window.TypeRGuide.show();
+    else startPanel({ tour: true });
   });
-  $("start-flow").textContent = T("Load your script in the TypeR panel, then click a bubble with the Magic Wand: the next line lands in it.");
   // Arabic reads from the right where there are sentences. The workspace itself stays as in Photoshop.
   if (lang === "ar") ["modal", "toast", "busy", "start", "character", "status-hint", "breaks-hint", "breaks-empty"].forEach((id) => { $(id).dir = "rtl"; });
   $("head-layers").textContent = T("Layers");
@@ -11246,7 +13452,7 @@
   window.addEventListener("beforeunload", (event) => {
     window.TypeRSession.flush();
     // A generation under way would be lost too
-    if (genActive() || app.docs.some((doc) => PS.isDirty(doc) && !window.TypeRSession.isKept(doc))) {
+    if (genActive() || tasks.size || app.docs.some((doc) => PS.isDirty(doc) && !window.TypeRSession.isKept(doc))) {
       event.preventDefault();
       event.returnValue = "";
     }
@@ -11338,8 +13544,9 @@
   const applySetup = async (plan) => {
     if (plan.photoshop && window.TypeRStudio) await window.TypeRStudio.takePhotoshopSettings(plan.photoshop).catch((error) => console.warn("TypeR Studio: Photoshop's settings", error));
     if (plan.kits && plan.kits.length) await importKits(plan.kits, { restart: false });
-    // Without the tutorial asked for, a new panel doesn't start it by itself
-    if (!plan.tour && !Shell.touch && !Kit.storedPaths().some((path) => Kit.keeps(path))) await Kit.keep(`${Kit.ROOT}/storage`, JSON.stringify(Kit.freshStorage(false)));
+    // A new panel doesn't start its own tutorial: the app has its own (guide.js), started once
+    // the panel is up when it's asked for
+    if ((!plan.tour || window.TypeRGuide) && !Shell.touch && !Kit.storedPaths().some((path) => Kit.keeps(path))) await Kit.keep(`${Kit.ROOT}/storage`, JSON.stringify(Kit.freshStorage(false)));
   };
   // Help → Setup Assistant…: the same steps, from what is set now
   const setupAgain = async () => {
@@ -11348,12 +13555,15 @@
     if (!plan || !(plan.photoshop || (plan.kits && plan.kits.length) || plan.tour)) return;
     await closePanel();
     await applySetup(plan);
-    startPanel({ tour: plan.tour });
+    const guide = plan.tour && window.TypeRGuide && !Shell.touch;
+    startPanel({ tour: plan.tour && !guide });
+    if (guide) window.TypeRGuide.show();
   };
 
   const boot = async () => {
     await PS.ops.fontsReady();
     await Promise.all([Fonts.restore().catch(() => null), Kit.loadFiles().catch(() => null)]);
+    await checkTextToolFont().catch(() => null);
     initFontBar();
     // One thing at a time: the panel's tutorial starts once these are read. What's new comes
     // first, since it says nothing on the very first start, when the beta is said.
@@ -11368,7 +13578,8 @@
       // TypeR Studio offers to start from TypeR for Photoshop's settings (desktop.js)
       if (window.TypeRStudio) await window.TypeRStudio.beforePanel().catch((error) => console.warn("TypeR Studio: Photoshop's settings", error));
     }
-    startPanel({ tour: Boolean(plan && plan.tour) });
+    const guide = Boolean(plan && plan.tour && window.TypeRGuide && !Shell.touch);
+    startPanel({ tour: Boolean(plan && plan.tour) && !guide });
     await window.TypeRSession.restore({
       progress: (name) => working(name ? fill(T("Opening {name}…"), { name }) : null),
       failed: (name, error) => toast(fill(T("{name} can't be read: {error}"), { name, error: error.message || error }), true),
@@ -11378,6 +13589,7 @@
     registerWorker();
     window.TypeRApp.booted = true;
     window.dispatchEvent(new Event("typer-booted"));
+    if (guide) window.TypeRGuide.show();
   };
 
   // sw.js keeps a copy of the app to work offline. It starts once all is on screen, and is
@@ -11400,8 +13612,31 @@
   };
   boot();
 
+  const setupKeysOf = (label) => {
+    const one = SHORTCUTS.find(({ item }) => item.label === label);
+    return (one && one.item.keys) || "";
+  };
+  // What Discord friends see while TypeR Studio is open (desktop.js sends it): the page's name
+  // unless the user would rather not, what is being done on it, where it is in the chapter.
+  // Null: nothing shown. Moving around or zooming doesn't change what was being done.
+  const TYPESETTING = new Set(["text", "sfx", "wand"]);
+  const CLEANING = new Set(["brush", "eraser", "magicEraser", "stamp", "clean", "heal", "reshape"]);
+  let presenceWork = "";
+  const presence = () => {
+    if (settings.discord === "off") return null;
+    const doc = app.doc;
+    if (!doc) return {};
+    if (TYPESETTING.has(app.tool) || !ui.editor.hidden) presenceWork = "Typesetting";
+    else if (CLEANING.has(app.tool)) presenceWork = "Cleaning";
+    const at = pageOf(doc);
+    const where = at >= 0 ? fill(T("Page {at} of {count}"), { at: at + 1, count: chapter.pages.length }) : "";
+    const work = presenceWork ? T(presenceWork) : "";
+    if (settings.discord === "page") return { details: doc.name, state: [work, where].filter(Boolean).join(" · ") };
+    return { details: work, state: where };
+  };
+
   window.TypeRApp = {
-    // For the setup assistant (onboarding.js)
+    // For the setup assistant (onboarding.js), and the tutorial (guide.js)
     setup: {
       lang,
       LANGUAGES,
@@ -11412,10 +13647,19 @@
       useInstalledFonts,
       serviceName,
       money,
-      preferences: () => ({ wheel: settings.wheel, textLanguage: app.textDefaults.language }),
-      setPreferences({ wheel, textLanguage }) {
+      sizeText,
+      cantRunText,
+      // A menu command's keys as the menus show them, the user's own if changed
+      shortcut(label) {
+        return keyLabel(setupKeysOf(label));
+      },
+      // The same, as written in the shortcuts: "Alt+Cmd+T"
+      keysOf: (label) => setupKeysOf(label),
+      preferences: () => ({ wheel: settings.wheel, textLanguage: app.textDefaults.language, transformControls: settings.transformControls }),
+      setPreferences({ wheel, textLanguage, transformControls }) {
         if (wheel) settings.wheel = wheel;
         if (textLanguage) app.textDefaults.language = textLanguage;
+        if (typeof transformControls === "boolean") setTransformControls(transformControls);
         keepSettings();
         characterKey = "";
         renderCharacter();
@@ -11429,6 +13673,7 @@
       },
     },
     handleKey,
+    presence,
     generate: generateIn,
     showSampling,
     watchChoices,
@@ -11441,6 +13686,11 @@
     openFiles,
     setPages,
     openChapter,
+    goToPage,
+    stepPage,
+    // The chapter's pages for the touch interface: where the page in front is (-1: elsewhere),
+    // and each page's name and open document, if it is open
+    chapter: () => (chapter ? { at: pageOf(app.doc), last: chapter.at, pages: chapter.pages.map((page) => ({ name: page.file.name, doc: app.docs.find((doc) => doc.path === pageKey(page)) || null })) } : null),
     importKits,
     save,
     saveAs,
@@ -11448,12 +13698,14 @@
     exportAllPages,
     canWriteWebp,
     batchSave,
+    openInPhotoshop,
     closeDoc,
     switchDoc,
     newDocument,
     setTool,
     toScreen,
     startPanel,
+    closePanel,
     T,
     fill,
     ICON,
@@ -11480,6 +13732,12 @@
     facesOf,
     mainFace,
     working,
+    // For the Spot Healing Brush and the Gradient tool (retouch.js)
+    maskPainting,
+    pixelsOnly,
+    schedule,
+    hud,
+    toDoc,
     isEditing: () => !ui.editor.hidden,
     editingId: () => (editing ? editing.id : null),
     warnMissingFont(layer) {

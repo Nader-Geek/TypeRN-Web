@@ -73,7 +73,10 @@ const makePng = async (page, file) => {
 const main = async () => {
   /* ---------------------------- first launch, no connection --------------------------- */
   const profile = path.join(WORK, "profile");
-  let run = await launch(profile);
+  // Two Photoshops to choose from: the test notes what they're asked to open, nothing starts
+  const photoshops = [{ path: path.join(WORK, "Adobe Photoshop 2025.app"), name: "Adobe Photoshop 2025", version: "26.0" }, { path: path.join(WORK, "Adobe Photoshop 2026.app"), name: "Adobe Photoshop 2026", version: "27.0" }];
+  const exchange = path.join(WORK, "exchange");
+  let run = await launch(profile, { TYPER_TEST_PHOTOSHOP: JSON.stringify(photoshops), TYPER_EXCHANGE_DIR: exchange });
   step("starts with no connection, from its own copy", true, `${run.bootMs} ms to ready`);
   const page = run.page;
   const facts = await page.evaluate(async () => ({
@@ -141,6 +144,54 @@ const main = async () => {
   });
   step("the saved page is clean", !reread.dirty && reread.size === after.size);
 
+  /* ---------------------------------- Open in Photoshop -------------------------------- */
+  const listed2 = await page.evaluate(() => window.TypeRDesktop.photoshop.list());
+  step("the Photoshops installed are found, the newest first", listed2.map((one) => one.name).join() === "Adobe Photoshop 2026,Adobe Photoshop 2025", JSON.stringify(listed2));
+  const beforePs = fs.statSync(psd).mtimeMs;
+  await page.evaluate(() => window.TypeRPhotoshop.ops.newLayer("Before Photoshop"));
+  const sending = page.evaluate(() => window.TypeRApp.openInPhotoshop());
+  await page.waitForSelector("#modal[open] select", { timeout: 5000 });
+  const psAsked = await page.evaluate(() => Array.from(document.querySelectorAll("#modal[open] select")).map((select) => Array.from(select.options).map((option) => option.textContent)));
+  step("Open in Photoshop asks for this page or all of them, and which Photoshop", psAsked.length === 2 && psAsked[0].length === 2 && psAsked[1].length === 2, JSON.stringify(psAsked));
+  await page.selectOption("#modal[open] select >> nth=0", "one");
+  await page.selectOption("#modal[open] select >> nth=1", listed2[1].id);
+  await page.click("#modal[open] .modal__foot .btn--main");
+  await sending;
+  const sent = await run.app.evaluate(() => global.typerPhotoshopOpened || []);
+  const sentFiles = sent.length === 1 ? sent[0].files.map((file) => fs.realpathSync(file)) : [];
+  step("the page is saved first, then its own PSD opens in the Photoshop chosen", sent.length === 1 && sent[0].app === listed2[1].id && sentFiles.join() === fs.realpathSync(psd) && fs.statSync(psd).mtimeMs > beforePs, JSON.stringify(sent));
+  const psRefused = await page.evaluate((id) => window.TypeRDesktop.photoshop.open(id, ["/etc/hosts", "/tmp/elsewhere.psd"]), listed2[0].id);
+  step("only the files of open pages can be sent to Photoshop", psRefused && psRefused.ok === false && (await run.app.evaluate(() => global.typerPhotoshopOpened.length)) === 1, JSON.stringify(psRefused));
+  // Import the script: the panel's open tab goes with the pages, for TypeR in Photoshop
+  await page.evaluate(async () => {
+    const path = window.TypeRKit.activeStoragePath();
+    const frame = document.getElementById("panel-frame");
+    const bridge = frame && frame.contentWindow && frame.contentWindow.__typerWeb;
+    const data = JSON.parse((bridge ? bridge.getFile(path) : window.TypeRKit.read(path)) || "{}");
+    const tab = { id: "e2e-script", name: "Chapter 12", text: "Hello\r\nWorld", images: [], currentLineIndex: 0 };
+    data.tabs = (data.tabs || []).concat([tab]);
+    data.currentTabId = tab.id;
+    if (bridge) bridge.setFile(path, JSON.stringify(data));
+    else await window.TypeRKit.keep(path, JSON.stringify(data));
+  });
+  const sendingScript = page.evaluate(() => window.TypeRApp.openInPhotoshop());
+  await page.waitForSelector("#modal[open] input[type=checkbox]", { timeout: 5000 });
+  await page.check("#modal[open] input[type=checkbox]");
+  await page.click("#modal[open] .modal__foot .btn--main");
+  await sendingScript;
+  const sentScript = await run.app.evaluate(() => global.typerPhotoshopScript || null);
+  // The panel's own button to the other app is the app's Open in Photoshop
+  const panelButton = page.frameLocator("#panel-frame").locator(".footer-actions button[aria-label='Ouvrir dans Photoshop']");
+  const panelHasButton = await panelButton.waitFor({ timeout: 15000 }).then(() => true, () => false);
+  if (panelHasButton) {
+    await panelButton.click();
+    await page.waitForSelector("#modal[open] select", { timeout: 5000 }).catch(() => {});
+  }
+  const panelAsks = await page.evaluate(() => Boolean(document.querySelector("#modal[open] select")) && document.querySelector("#modal[open] .modal__head, #modal[open] h2, #modal[open]").textContent.includes("Photoshop"));
+  step("the panel's Open in Photoshop button opens the app's dialog", panelHasButton && panelAsks);
+  if (panelAsks) await page.click("#modal[open] .modal__foot .btn:not(.btn--main)");
+  step("Import the script sends the panel's script with the pages", sentScript && sentScript.name === "Chapter 12" && sentScript.text === "Hello\nWorld" && sentScript.files.length === 1, JSON.stringify(sentScript));
+
   // The other process that the system starts when the app is already open
   const clean = { ...process.env };
   delete clean.ELECTRON_RUN_AS_NODE;
@@ -148,6 +199,35 @@ const main = async () => {
   fs.copyFileSync(png, png2);
   spawnSync(electronPath, [DESKTOP, png2], { env: { ...clean, TYPER_TEST: "1", TYPER_USER_DATA: profile, TYPER_NO_UPDATE: "1" }, timeout: 15000 });
   await waitDocs(page, 3).then(() => step("a second launch hands its file to the open window", true)).catch(() => step("a second launch hands its file to the open window", false));
+
+  // TypeR for Photoshop's Open in TypeR Studio: a request in the folder both apps share, then
+  // typer-studio://open, which carries nothing itself
+  fs.mkdirSync(exchange, { recursive: true });
+  const request = path.join(exchange, "open.json");
+  const png4 = path.join(chapter, "page 4.png");
+  fs.copyFileSync(png, png4);
+  const sendFromPhotoshop = (name) => {
+    fs.writeFileSync(request, JSON.stringify({ from: "TypeR", version: 1, sent: Date.now(), files: [png4, "/etc/hosts"], script: { name, text: "One\r\nTwo" } }));
+    return run.app.evaluate((_, link) => global.typerTest.openLinks([link]), "typer-studio://open");
+  };
+  const scriptTabs = () => page.evaluate(() => {
+    const data = JSON.parse(window.TypeRKit.read(window.TypeRKit.activeStoragePath()) || "null") || {};
+    const tabs = (data.tabs || []).filter((tab) => tab.text === "One\nTwo");
+    return { count: tabs.length, current: tabs.some((tab) => tab.id === data.currentTabId), names: tabs.map((tab) => tab.name) };
+  });
+  await sendFromPhotoshop("From Photoshop");
+  const fromPhotoshop = await waitDocs(page, 4).then(() => true, () => false);
+  step("typer-studio://open opens the files TypeR for Photoshop left, only those, once", fromPhotoshop && !fs.existsSync(request), await page.evaluate(() => window.TypeRPhotoshop.app.docs.map((doc) => doc.name).join(", ")));
+  await page.waitForFunction(() => {
+    const data = JSON.parse(window.TypeRKit.read(window.TypeRKit.activeStoragePath()) || "null") || {};
+    return (data.tabs || []).some((tab) => tab.text === "One\nTwo" && tab.id === data.currentTabId);
+  }, null, { timeout: 10000 }).catch(() => {});
+  const firstTabs = await scriptTabs();
+  step("its script becomes the panel's open tab", firstTabs.count === 1 && firstTabs.current && firstTabs.names[0] === "From Photoshop", JSON.stringify(firstTabs));
+  await sendFromPhotoshop("Again");
+  await wait(2500);
+  const againTabs = await scriptTabs();
+  step("the same script again goes back to its tab, with no copy", againTabs.count === 1 && againTabs.current && !fs.existsSync(request), JSON.stringify(againTabs));
 
   /* ------------------------------------ the menus ------------------------------------- */
   if (process.platform === "darwin") {
@@ -278,6 +358,26 @@ const main = async () => {
   step("only the changed files are downloaded", asked.filter((item) => !item.endsWith("desktop-update.json")).join() === "/web/app.css", asked.join(", "));
   step("the open page doesn't change under the user", !(await cssHasMark(run.page)));
   step("the same update isn't taken twice", (await checkNow(run.app)) === false);
+  // What's downloaded is offered right away: Restart, or Later
+  await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send("update-ready"));
+  await run.page.waitForSelector("#update-note", { timeout: 3000 }).catch(() => null);
+  const note = await run.page.evaluate(() => {
+    const shown = document.getElementById("update-note");
+    return shown && { buttons: shown.querySelectorAll("button").length, text: shown.textContent };
+  });
+  step("a downloaded update offers to restart", Boolean(note) && note.buttons === 2, JSON.stringify(note));
+  // Restart closes as any closing does: unsaved work is asked about, and Cancel stays
+  await run.app.evaluate(({ dialog }) => {
+    global.typerAsked = 0;
+    dialog.showMessageBoxSync = () => { global.typerAsked += 1; return 1; };
+  });
+  await run.page.evaluate(() => window.addEventListener("beforeunload", (event) => { event.preventDefault(); event.returnValue = ""; }));
+  await run.page.click("#update-note .btn--main");
+  await wait(800);
+  const kept = await run.app.evaluate(({ BrowserWindow }) => ({ asked: global.typerAsked, open: BrowserWindow.getAllWindows().length }));
+  step("Restart with unsaved work asks first, and Cancel keeps the window", kept.asked === 1 && kept.open === 1, JSON.stringify(kept));
+  await run.page.click("#update-note .btn:not(.btn--main)");
+  step("Later puts the note away", !(await run.page.$("#update-note")));
   await close(run);
 
   await new Promise((resolve) => server.close(resolve));
@@ -343,6 +443,79 @@ const main = async () => {
   run = await launch(profile3, { TYPER_PHOTOSHOP_DIRS: plugin }, [], offered);
   step("and it's offered only once", (await modalText(run.page)) === null);
   await close(run);
+
+  /* -------------------------------- Discord's Rich Presence --------------------------- */
+
+  // A Discord of its own, on its own socket: the computer's Discord, on Windows's fixed pipe
+  // names, can't be kept out of it there
+  if (process.platform !== "win32") {
+    const ipc = fs.mkdtempSync("/tmp/typer-discord-");
+    const heard = [];
+    let gone = false;
+    const frame = (op, data) => {
+      const body = Buffer.from(JSON.stringify(data));
+      const head = Buffer.alloc(8);
+      head.writeInt32LE(op, 0);
+      head.writeInt32LE(body.length, 4);
+      return Buffer.concat([head, body]);
+    };
+    const fakeDiscord = require("net").createServer((client) => {
+      let pending = Buffer.alloc(0);
+      client.on("data", (chunk) => {
+        pending = Buffer.concat([pending, chunk]);
+        while (pending.length >= 8 && pending.length >= 8 + pending.readInt32LE(4)) {
+          const op = pending.readInt32LE(0);
+          const message = JSON.parse(pending.subarray(8, 8 + pending.readInt32LE(4)));
+          pending = pending.subarray(8 + pending.readInt32LE(4));
+          heard.push({ op, message });
+          // Ready, in two pieces, as a socket may give it
+          if (op === 0) {
+            const ready = frame(1, { cmd: "DISPATCH", evt: "READY", data: {} });
+            client.write(ready.subarray(0, 5));
+            setTimeout(() => client.write(ready.subarray(5)), 50);
+          }
+        }
+      });
+      client.on("close", () => { gone = true; });
+    }).listen(path.join(ipc, "discord-ipc-0"));
+    const shown = () => heard.filter((one) => one.op === 1).map((one) => one.message.args.activity || null);
+    const until = async (check) => {
+      for (let tries = 0; tries < 60 && !check(); tries += 1) await wait(250);
+      return check();
+    };
+    run = await launch(path.join(WORK, "profile-discord"), { TYPER_TEST_DISCORD: "1", TYPER_DISCORD_ID: "123", TMPDIR: ipc });
+    await until(() => heard.length > 0);
+    step("the app says who it is to Discord", heard.length > 0 && heard[0].op === 0 && heard[0].message.client_id === "123", JSON.stringify(heard[0]));
+    await run.page.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 200;
+      canvas.height = 300;
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      window.TypeRApp.openFiles([{ file: new File([blob], "page_07.png", { type: "image/png" }), handle: null }]);
+    });
+    await waitDocs(run.page, 1);
+    await run.page.evaluate(() => window.TypeRApp.setTool("text"));
+    await until(() => shown().some((one) => one && one.details === "page_07.png"));
+    const last = shown().pop();
+    step("Discord shows the page and what is done on it", Boolean(last) && last.details === "page_07.png" && last.state === "Typesetting" && last.assets.large_image.startsWith("https://"), JSON.stringify(last));
+    const asked = await run.page.evaluate(async () => {
+      for (const [, items] of window.TypeRApp.MENUS) for (const item of items) if (item && item.label === "Settings…") item.action();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const row = Array.from(document.querySelectorAll("#modal .set__row")).find((one) => one.textContent.includes("Discord"));
+      if (!row) return false;
+      const select = row.querySelector("select");
+      select.value = "off";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      const buttons = Array.from(document.querySelectorAll("#modal button")).filter((button) => button.textContent.trim() === "OK");
+      buttons[buttons.length - 1].click();
+      return true;
+    });
+    await until(() => gone);
+    step("Settings > Discord activity turns it off, and Discord is let go", asked && gone, `${shown().length} activities`);
+    await close(run);
+    fakeDiscord.close();
+    fs.rmSync(ipc, { recursive: true, force: true });
+  }
 
   const failed = results.filter((item) => !item.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
