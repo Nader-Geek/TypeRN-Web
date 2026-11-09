@@ -5360,6 +5360,17 @@
   // What one finger means. With the wand, the tool a phone opens with, nothing needs a change
   // of tool: a tap on a bubble pastes, a tap on a text selects it, a second tap edits it, a
   // drag moves it, and a drag anywhere else moves the page.
+  // When a tap pastes the script's line, only a bubble takes it: a tap on a panel's background
+  // or a gutter, often only meant to let go of a text, lets go and pastes nothing
+  const tapWand = (point, mode) => {
+    const pastes = Boolean(window.TypeRTouch && window.TypeRTouch.pastesOnTap());
+    if (ops.wandAt(point[0], point[1], mode, pastes) !== false) return;
+    const doc = app.doc;
+    const held = doc.state.activeIds.length || doc.state.selection;
+    if (doc.state.activeIds.length) ops.clearActiveLayers();
+    if (doc.state.selection) ops.deselect();
+    if (!held) toast(T("That's not a bubble: tap inside one to paste the line."));
+  };
   const fingerGesture = (event, base, tool, point) => {
     const doc = app.doc;
     const pan = (extra) => Object.assign(base, { kind: "pan", vx: doc.view.x, vy: doc.view.y }, extra);
@@ -6082,7 +6093,7 @@
       else if (current.tapEdit) beginEdit(current.tapEdit);
       else if (current.tapText) ops.selectLayer(current.tapText.id);
       else if (current.tapWand === "new" && ops.selectionContains(point[0], point[1])) ops.deselect();
-      else if (current.tapWand) ops.wandAt(point[0], point[1], current.tapWand);
+      else if (current.tapWand) tapWand(point, current.tapWand);
     } else if (kind === "clean") {
       cleanAt(current, point, event);
     } else if (kind === "magicErase") {

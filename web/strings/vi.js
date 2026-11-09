@@ -551,6 +551,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Smaller text": "Chữ nhỏ hơn",
     "Styles": "Kiểu",
     "Tap a bubble to paste the line. Two fingers zoom and pan; a two-finger tap undoes.": "Chạm vào bóng thoại để dán dòng. Hai ngón: thu phóng và di chuyển; chạm hai ngón: hoàn tác.",
+    "That's not a bubble: tap inside one to paste the line.": "Đây không phải bóng thoại: chạm vào bên trong một bóng thoại để dán dòng.",
     "Text": "Chữ",
     "The clipboard is empty.": "Bộ nhớ tạm trống.",
     "Tools": "Công cụ",

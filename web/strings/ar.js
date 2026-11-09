@@ -551,6 +551,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Smaller text": "نص أصغر",
     "Styles": "الأنماط",
     "Tap a bubble to paste the line. Two fingers zoom and pan; a two-finger tap undoes.": "المس فقاعة للصق السطر. إصبعان: تكبير وتحريك؛ لمسة بإصبعين: تراجع.",
+    "That's not a bubble: tap inside one to paste the line.": "هذه ليست فقاعة: المس داخل فقاعة للصق السطر.",
     "Text": "نص",
     "The clipboard is empty.": "الحافظة فارغة.",
     "Tools": "الأدوات",

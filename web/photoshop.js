@@ -3105,6 +3105,76 @@
     return makeSelection({ source: "wand", mask, boxW, boxH, left, top });
   };
 
+  // A bubble, or what's around it? The page's margins and gutters run to its edges, and a panel's
+  // background holds what's drawn on it: the bubbles, black or white inside, even those touching
+  // the panel's border, and the faces. A bubble only holds its letters, small strokes around
+  // small counters, and the white around it runs out of its box. Shares of the page.
+  const BUBBLE_AT_EDGE = 0.08;
+  const BUBBLE_MOST = 0.15;
+  const BUBBLE_HOLE = 0.004;
+  const BUBBLE_INNER_WHITE = 0.0015;
+  const looksLikeBubble = (doc, selection) => {
+    if (!selection.mask) return true;
+    const { data: mask, width: w, height: h, left, top } = selection.mask;
+    const page = doc.width * doc.height;
+    let area = 0;
+    for (let i = 0; i < mask.length; i++) area += mask[i];
+    if (!area) return true;
+    if (area > page * BUBBLE_MOST) return false;
+    const atEdge = left <= 0 || top <= 0 || left + w >= doc.width || top + h >= doc.height;
+    if (atEdge && area > page * BUBBLE_AT_EDGE) return false;
+    const data = sampleData(doc);
+    const white = new Uint8Array(w * h);
+    for (let i = 0; i < white.length; i++) {
+      if (mask[i]) continue;
+      const p = ((top + Math.floor(i / w)) * doc.width + left + (i % w)) * 4;
+      white[i] = data[p] * 0.299 + data[p + 1] * 0.587 + data[p + 2] * 0.114 >= 200 ? 1 : 0;
+    }
+    // Each patch of what isn't the region, inside its box: how big, and whether it reaches the
+    // box's sides (so goes on outside it). `within` says which pixels make up a patch.
+    const seen = new Uint8Array(w * h);
+    const stack = [];
+    const patch = (start, within) => {
+      let size = 0;
+      let open = false;
+      seen[start] = 1;
+      stack.push(start);
+      while (stack.length) {
+        const i = stack.pop();
+        size++;
+        const x = i % w;
+        if (x === 0 || x === w - 1 || i < w || i >= w * (h - 1)) open = true;
+        const next = (j) => {
+          if (!seen[j] && within(j)) {
+            seen[j] = 1;
+            stack.push(j);
+          }
+        };
+        if (x > 0) next(i - 1);
+        if (x < w - 1) next(i + 1);
+        if (i >= w) next(i - w);
+        if (i < w * (h - 1)) next(i + w);
+      }
+      return { size, open };
+    };
+    // Holes, whatever their colour: a black bubble on a panel's background
+    const outside = (i) => !mask[i];
+    for (let i = 0; i < mask.length; i++) {
+      if (mask[i] || seen[i]) continue;
+      const hole = patch(i, outside);
+      if (!hole.open && hole.size > page * BUBBLE_HOLE) return false;
+    }
+    // White patches held inside the box: a bubble, or a face, on the background tapped
+    seen.fill(0);
+    const isWhite = (i) => white[i] === 1;
+    for (let i = 0; i < mask.length; i++) {
+      if (!white[i] || seen[i]) continue;
+      const inner = patch(i, isWhite);
+      if (!inner.open && inner.size > page * BUBBLE_INNER_WHITE) return false;
+    }
+    return true;
+  };
+
   /* -------------------------------- Color Range ------------------------------- */
 
   // Select > Color Range, judged as Photoshop judges it (as photocraft measured it against its
@@ -5632,10 +5702,13 @@
       commitState(doc, "Magic Eraser", { layers: replaceLayer(doc, layer, changes) });
       return true;
     },
-    wandAt(x, y, mode) {
+    // bubbleOnly: a finger's tap that pastes the script's line. What isn't a bubble is left
+    // unselected, and false says so.
+    wandAt(x, y, mode, bubbleOnly) {
       const doc = app.doc;
       if (!doc) return null;
       const selection = floodSelect(doc, x, y, app.tolerance);
+      if (bubbleOnly && !looksLikeBubble(doc, selection)) return false;
       selection.trigger = { source: "wand", x: Math.round(x), y: Math.round(y) };
       return ops.userSelection(selection, "Magic Wand", mode);
     },

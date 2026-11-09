@@ -551,6 +551,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Smaller text": "Kleinere tekst",
     "Styles": "Stijlen",
     "Tap a bubble to paste the line. Two fingers zoom and pan; a two-finger tap undoes.": "Tik op een ballon om de regel te plakken. Twee vingers: zoomen en verschuiven; tikken met twee vingers: ongedaan maken.",
+    "That's not a bubble: tap inside one to paste the line.": "Dat is geen ballon: tik in een ballon om de regel te plakken.",
     "Text": "Tekst",
     "The clipboard is empty.": "Het klembord is leeg.",
     "Tools": "Gereedschap",

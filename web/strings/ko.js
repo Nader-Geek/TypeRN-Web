@@ -551,6 +551,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Smaller text": "글자 작게",
     "Styles": "스타일",
     "Tap a bubble to paste the line. Two fingers zoom and pan; a two-finger tap undoes.": "말풍선을 탭하면 줄이 붙여 넣어집니다. 두 손가락: 확대/축소와 이동, 두 손가락 탭: 실행 취소.",
+    "That's not a bubble: tap inside one to paste the line.": "말풍선이 아닙니다. 말풍선 안을 탭하면 줄이 붙여 넣어집니다.",
     "Text": "텍스트",
     "The clipboard is empty.": "클립보드가 비어 있습니다.",
     "Tools": "도구",

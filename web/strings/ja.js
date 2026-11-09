@@ -551,6 +551,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Smaller text": "文字を小さく",
     "Styles": "スタイル",
     "Tap a bubble to paste the line. Two fingers zoom and pan; a two-finger tap undoes.": "吹き出しをタップして行を貼り付けます。2本指:ズームと移動、2本指タップ:取り消し。",
+    "That's not a bubble: tap inside one to paste the line.": "吹き出しではありません。行を貼り付けるには吹き出しの内側をタップしてください。",
     "Text": "テキスト",
     "The clipboard is empty.": "クリップボードは空です。",
     "Tools": "ツール",
