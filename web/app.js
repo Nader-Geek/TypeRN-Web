@@ -13435,8 +13435,10 @@
     let key = event.key;
     if (/^(Shift|Control|Alt|AltGraph|Meta|OS|Dead|CapsLock|Unidentified)$/.test(key)) return null;
     const besideP = event.altKey && !event.getModifierState("AltGraph") && (event.code === "BracketLeft" ? "[" : event.code === "BracketRight" ? "]" : null);
+    // With Alt, "-" and "=" are read by their place: Alt and Shift were pressed for the shortcut
+    const placed = !besideP && event.altKey && (typedAlone(event) === "-" || typedAlone(event) === "=");
     if (besideP) key = besideP;
-    else if (event.altKey && (typedAlone(event) === "-" || typedAlone(event) === "=")) key = typedAlone(event);
+    else if (placed) key = typedAlone(event);
     else if (key.length === 1) {
       const lower = key.toLowerCase();
       if (/^[a-z]$/.test(lower)) key = lower.toUpperCase();
@@ -13444,7 +13446,7 @@
       else if (/^Digit\d$/.test(event.code)) key = event.code.slice(5);
     }
     if (key === "Delete") key = "Backspace";
-    const free = !besideP && (key === "[" || key === "]" || key === "=" || key === "+");
+    const free = !besideP && !placed && (key === "[" || key === "]" || key === "=" || key === "+");
     if (key === "+") key = "=";
     const parts = [];
     if (event.altKey && !free) parts.push("Alt");
@@ -13759,7 +13761,8 @@
     // AZERTY needs Option or AltGr for "[" and "]", and most layouts Shift for "+": the character is what counts
     const bracket = (key === "[" || key === "]") && event.key === key && !besideP;
     if (!bracket && wantAlt !== event.altKey) return false;
-    if (!bracket && !(key === "=" && event.key === "+") && wantShift !== event.shiftKey) return false;
+    // Shift types "+" on most keyboards, so "=" takes it, but not with Alt: there it was asked for
+    if (!bracket && !(key === "=" && event.key === "+" && !wantAlt) && wantShift !== event.shiftKey) return false;
     const pressed = event.key.length === 1 ? event.key.toLowerCase() : event.key;
     if (key === "=") return pressed === "=" || pressed === "+" || (event.altKey && typedAlone(event) === "=");
     if (key === "-") return pressed === "-" || (event.altKey && typedAlone(event) === "-");
