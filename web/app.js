@@ -795,6 +795,7 @@
     blit();
     drawOverlay();
     placeTaskBar();
+    placeReview();
   };
   const schedule = (compose, rect) => {
     if (compose) {
@@ -3562,7 +3563,8 @@
     const box = taskBarBox;
     const texts = box ? activeTexts() : [];
     const moving = (gesture && gesture.moved) || (app.doc && app.doc.live);
-    if (!settings.taskBar || Shell.touch || moving) {
+    // A page under review has its own bar, at the top
+    if (!settings.taskBar || Shell.touch || moving || reviewShown()) {
       taskBar.hidden = true;
       return;
     }
@@ -4090,6 +4092,15 @@
         dropJob(job);
         return;
       }
+      // Too many requests at once, for a page of Remove Text on several pages: it waits and goes
+      // again, the other generations of that service with it, a little longer each time
+      if (job.patient && error && error.rate && (job.tries || 0) < GEN_TRIES) {
+        job.tries = (job.tries || 0) + 1;
+        const wait = Math.min(300, error.retry || 15 * 2 ** (job.tries - 1)) * 1000;
+        genPaused[job.account.service] = Math.max(genPaused[job.account.service] || 0, Date.now() + wait);
+        Object.assign(job, { state: "waiting", started: 0, percent: 0, download: null, controller: new AbortController() });
+        return;
+      }
       console.warn("TypeR web: Generative Fill failed", error);
       job.state = "failed";
       job.kind = error && error.kind;
@@ -4109,13 +4120,30 @@
       }
     });
     let running = genJobs.filter((job) => job.state === "drawing" || job.state === "aligning").length;
+    const now = Date.now();
+    let next = Infinity;
     genJobs.forEach((job) => {
-      if (job.state === "waiting" && running < GEN_AT_ONCE) {
-        running++;
-        runJob(job);
+      if (job.state !== "waiting" || running >= GEN_AT_ONCE) return;
+      const until = genPaused[job.account.service] || 0;
+      if (until > now) {
+        next = Math.min(next, until);
+        return;
       }
+      running++;
+      runJob(job);
     });
+    // A service told to wait: its generations start again on their own
+    clearTimeout(genWakeTimer);
+    if (next < Infinity) genWakeTimer = setTimeout(() => {
+      startJobs();
+      renderGenTray();
+    }, next - now + 50);
   };
+  // How long a service asked to wait: Remove Text on several pages waits it out
+  const genPaused = {};
+  const GEN_TRIES = 6;
+  let genWakeTimer = 0;
+  const genWaitLeft = (job) => Math.max(0, Math.ceil(((genPaused[job.account.service] || 0) - Date.now()) / 1000));
   const dropJob = (job) => {
     const at = genJobs.indexOf(job);
     if (at >= 0) genJobs.splice(at, 1);
@@ -4332,33 +4360,86 @@
         if (!answer || app.doc !== doc || doc.state.selection !== selection) return;
       }
     }
-    if (plain.length) fillPlainAreas(doc, plain, "Remove Text");
-    if (art.length) {
-      const folder = { name: T("Text removed"), id: null };
-      const activeIds = doc.state.activeIds.slice();
-      art.forEach((area, index) => {
-        genJobs.push({
-          id: ++genJobCount,
-          doc,
-          selection: ops.maskSelection(area.data, area.width, area.height, area.left, area.top, "text"),
-          activeIds,
-          size: [doc.width, doc.height],
-          prompt: "",
-          name: fill(T("Text removed {number}"), { number: index + 1 }),
-          folder,
-          account,
-          state: "waiting",
-          percent: 0,
-          controller: new AbortController(),
-        });
-      });
-      genTrayOpen = true;
-      startJobs();
-      renderGenTray();
-    }
+    handOutRemoval(doc, plain, art, account, false);
     // Its work is handed out: the selection goes, so it isn't removed twice
     ops.deselect();
     schedule(false);
+  };
+  // Remove Text's work on `doc`: plain backgrounds filled now, the art handed to Generative
+  // Fill, each area on its own layer in a "Text removed" folder. `patient`: it waits out a
+  // service that says too many requests, instead of failing.
+  const handOutRemoval = (doc, plain, art, account, patient) => {
+    if (plain.length) fillPlainAreas(doc, plain, "Remove Text");
+    if (!art.length) return;
+    const folder = { name: T("Text removed"), id: null };
+    const activeIds = doc.state.activeIds.slice();
+    art.forEach((area, index) => {
+      genJobs.push({
+        id: ++genJobCount,
+        doc,
+        selection: ops.maskSelection(area.data, area.width, area.height, area.left, area.top, "text"),
+        activeIds,
+        size: [doc.width, doc.height],
+        prompt: "",
+        name: fill(T("Text removed {number}"), { number: index + 1 }),
+        folder,
+        account,
+        patient,
+        state: "waiting",
+        percent: 0,
+        controller: new AbortController(),
+      });
+    });
+    genTrayOpen = true;
+    startJobs();
+    renderGenTray();
+  };
+  // Generative Fill's model, changed here as in Settings: a small button, its menu every
+  // service's models, grouped, the choice kept at once. In Generative Fill's bar and Remove Text's
+  const genModelButton = () => {
+    const account = Gen.load();
+    const current = Gen.modelsOf(account).find(([id]) => id === Gen.modelOf(account));
+    const modelPick = document.createElement("button");
+    modelPick.type = "button";
+    modelPick.className = "ctxbar__model";
+    modelPick.innerHTML = ICON.sparkles + ICON.chevronDown;
+    modelPick.title = `${T("Model")}: ${current ? current[1] : Gen.modelOf(account)} (${serviceName(account.service)})`;
+    modelPick.setAttribute("aria-label", modelPick.title);
+    modelPick.setAttribute("aria-haspopup", "menu");
+    let menuWasOpen = false;
+    modelPick.addEventListener("pointerdown", () => { menuWasOpen = Boolean(contextMenu); });
+    modelPick.addEventListener("click", (event) => {
+      if (menuWasOpen || (event.detail === 0 && contextMenu)) {
+        menuWasOpen = false;
+        closeContextMenu();
+        return;
+      }
+      const choose = (name, id) => {
+        const now = Gen.load();
+        now.service = name;
+        now.models[name] = id;
+        if (!Gen.save(now)) toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
+        taskBarKey = "";
+        schedule(false);
+      };
+      const entries = [];
+      Object.keys(Gen.SERVICES).forEach((name) => {
+        if (entries.length) entries.push(null);
+        entries.push({ heading: serviceName(name) });
+        Gen.modelsOf(account, name).forEach(([id, text]) => {
+          entries.push({ label: text, check: () => account.service === name && Gen.modelOf(account) === id, action: () => choose(name, id) });
+        });
+      });
+      // Last, the way to Settings > Generative Fill: keys, models added by their slug, quality
+      entries.push(null, { label: "More…", check: () => false, action: () => generativeSettings() });
+      const box = modelPick.getBoundingClientRect();
+      openContextMenu(box.left, box.bottom + 4, entries);
+      if (event.detail === 0 && contextMenu) {
+        const row = contextMenu.querySelector(".menu__item");
+        if (row) row.focus();
+      }
+    });
+    return modelPick;
   };
   // Remove Text in the selection's bar, its menu for the part to take
   const removeTextButton = () => {
@@ -4389,6 +4470,8 @@
         { label: "Remove All Text", action: () => removeText("all") },
         { label: "Only Over the Art (Generative Fill)", action: () => removeText("art") },
         { label: "Only on Plain Backgrounds", action: () => removeText("plain") },
+        null,
+        { label: "Remove Text on Several Pages…", action: startTextBatch },
       ]);
     });
     return [main, more];
@@ -4399,7 +4482,8 @@
   // the Bubble Cleaner also does; and it's always in Select > Text.
   const TEXT_BAR_TOOLS = new Set(["clean", "heal", "stamp", "brush", "eraser", "magicEraser", "lasso", "polygon", "wand"]);
   const placeTextBar = (doc) => {
-    const key = JSON.stringify(["text", textFind.running]);
+    const several = app.docs.length > 1;
+    const key = JSON.stringify(["text", textFind.running, several]);
     if (key !== taskBarKey) {
       taskBarKey = key;
       taskBar.textContent = "";
@@ -4415,7 +4499,18 @@
       line.className = "ctxbar__sep";
       const hide = iconButton("close", T("Hide the contextual task bar"), false, () => setTaskBar(false));
       hide.classList.add("ctxbar__hide");
-      taskBar.append(find, line, hide);
+      taskBar.append(find);
+      // Several pages open: Remove Text on all of them, with or without a look at each first
+      if (several) {
+        const all = document.createElement("button");
+        all.type = "button";
+        all.className = "ctxbar__gen";
+        all.innerHTML = ICON.clean;
+        all.append(T("Remove Text on Several Pages…"));
+        all.addEventListener("click", () => startTextBatch());
+        taskBar.append(all);
+      }
+      taskBar.append(line, hide);
     }
     taskBar.hidden = false;
     const [x0] = toScreen(0, 0);
@@ -4452,7 +4547,7 @@
   const genStatus = (job) => {
     const seconds = job.started ? Math.max(0, Math.round(((job.ended || Date.now()) - job.started) / 1000)) : 0;
     switch (job.state) {
-      case "waiting": return T("Waiting…");
+      case "waiting": return genWaitLeft(job) ? fill(T("Too many requests: trying again in {seconds} s"), { seconds: genWaitLeft(job) }) : T("Waiting…");
       case "drawing": return job.download !== null && job.download !== undefined ? fill(T("Downloading the model… {percent} %"), { percent: Math.floor(job.download * 100) }) : `${T("Generating…")} ${seconds} s`;
       case "aligning": return T("Aligning…");
       case "settling": return T("Ready, lands when you finish your action");
@@ -4475,13 +4570,19 @@
     clearInterval(genTicker);
     genTicker = 0;
     drawGenAreas();
-    if (!genJobs.length) {
+    if (!genJobs.length && !textBatch) {
       genTray.hidden = true;
       genTray.textContent = "";
       return;
     }
     genTray.hidden = false;
     genTray.textContent = "";
+    // Remove Text on several pages, above its generations
+    const batchStatus = textBatch ? textBatchRow() : null;
+    if (batchStatus && !genJobs.length) {
+      tickTextBatch(batchStatus);
+      return;
+    }
     const running = genJobs.filter((job) => job.state === "drawing" || job.state === "aligning" || job.state === "settling").length;
     const waiting = genJobs.filter((job) => job.state === "waiting").length;
     const head = document.createElement("button");
@@ -4560,8 +4661,9 @@
       });
       genTray.appendChild(list);
       // Seconds and bars move on their own while something is under way
-      if (bars.some(({ job }) => job.state === "drawing" || job.state === "aligning")) {
+      if ((batchStatus && textBatch.waitUntil > Date.now()) || bars.some(({ job }) => job.state === "drawing" || job.state === "aligning" || (job.state === "waiting" && genWaitLeft(job)))) {
         genTicker = setInterval(() => {
+          if (batchStatus && textBatch) batchStatus.textContent = textBatchStatus(textBatch);
           bars.forEach(({ job, filled, status }) => {
             filled.style.width = `${Math.round(genFraction(job) * 100)}%`;
             status.textContent = app.docs.length > 1 ? `${job.doc.name} · ${genStatus(job)}` : genStatus(job);
@@ -4569,6 +4671,11 @@
         }, 500);
       }
     }
+    if (batchStatus && !genTicker) tickTextBatch(batchStatus);
+  };
+  // The seconds left before the text detection is asked again, counted down
+  const tickTextBatch = (status) => {
+    if (textBatch && textBatch.waitUntil > Date.now()) genTicker = setInterval(() => { status.textContent = textBatch ? textBatchStatus(textBatch) : ""; }, 1000);
   };
   // On the page: where each generation of this page goes, until it lands
   const genAreas = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -4638,7 +4745,7 @@
     }
     // A selection made by Detect Text: Remove Text, which sends the art alone to Generative Fill
     if (textSelection()) {
-      taskBar.append(...removeTextButton(), separator(), deselect, separator(), hide);
+      taskBar.append(...removeTextButton(), separator(), genModelButton(), separator(), deselect, separator(), hide);
       return;
     }
     if (!gen.open) {
@@ -4692,50 +4799,7 @@
     go.className = "btn btn--main btn--small";
     go.textContent = T("Generate");
     go.addEventListener("click", runGenerative);
-    // The model, changed here as in Settings: a small button, its menu every service's models,
-    // grouped, the choice kept at once
-    const account = Gen.load();
-    const current = Gen.modelsOf(account).find(([id]) => id === Gen.modelOf(account));
-    const modelPick = document.createElement("button");
-    modelPick.type = "button";
-    modelPick.className = "ctxbar__model";
-    modelPick.innerHTML = ICON.sparkles + ICON.chevronDown;
-    modelPick.title = `${T("Model")}: ${current ? current[1] : Gen.modelOf(account)} (${serviceName(account.service)})`;
-    modelPick.setAttribute("aria-label", modelPick.title);
-    modelPick.setAttribute("aria-haspopup", "menu");
-    let menuWasOpen = false;
-    modelPick.addEventListener("pointerdown", () => { menuWasOpen = Boolean(contextMenu); });
-    modelPick.addEventListener("click", (event) => {
-      if (menuWasOpen || (event.detail === 0 && contextMenu)) {
-        menuWasOpen = false;
-        closeContextMenu();
-        return;
-      }
-      const choose = (name, id) => {
-        const now = Gen.load();
-        now.service = name;
-        now.models[name] = id;
-        if (!Gen.save(now)) toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
-        taskBarKey = "";
-        schedule(false);
-      };
-      const entries = [];
-      Object.keys(Gen.SERVICES).forEach((name) => {
-        if (entries.length) entries.push(null);
-        entries.push({ heading: serviceName(name) });
-        Gen.modelsOf(account, name).forEach(([id, text]) => {
-          entries.push({ label: text, check: () => account.service === name && Gen.modelOf(account) === id, action: () => choose(name, id) });
-        });
-      });
-      // Last, the way to Settings > Generative Fill: keys, models added by their slug, quality
-      entries.push(null, { label: "More…", check: () => false, action: () => generativeSettings() });
-      const box = modelPick.getBoundingClientRect();
-      openContextMenu(box.left, box.bottom + 4, entries);
-      if (event.detail === 0 && contextMenu) {
-        const row = contextMenu.querySelector(".menu__item");
-        if (row) row.focus();
-      }
-    });
+    const modelPick = genModelButton();
     const settingsButton = iconButton("settings", T("Generative Fill settings"), false, () => generativeSettings());
     taskBar.append(back, modelPick, input, go, settingsButton, separator(), deselect, separator(), hide);
     if (gen.focus) {
@@ -4804,6 +4868,575 @@
       schedule(false);
     });
   }
+
+  /* ----------------------- Remove Text on several pages ----------------------- */
+
+  // Detect Text then Remove Text, page after page, alongside the work. The text detection reads
+  // one page at a time and, told too many pages, waits and asks again; the art goes to
+  // Generative Fill, whose tray follows it all. Start Now removes the text of each page as soon
+  // as it's found. Review Page by Page brings the pages forward one at a time, their text
+  // selected, to correct the selection before Remove Text, Next Page hands it over.
+  const TEXT_BATCH_STORE = "typer.web.textBatch";
+  // How many times a page is asked again when the text detection is busy or out of reach
+  const TEXT_BATCH_TRIES = 8;
+  let textBatch = null;
+  const textBatchSaved = () => {
+    try {
+      return JSON.parse(window.localStorage.getItem(TEXT_BATCH_STORE)) || {};
+    } catch (error) {
+      return {};
+    }
+  };
+  // Every service's models, as "service|model", and the settings that one is drawn with
+  const modelChoices = (account) => {
+    const list = [];
+    Object.keys(Gen.SERVICES).forEach((name) => {
+      Gen.modelsOf(account, name).forEach(([id, text]) => list.push([`${name}|${id}`, `${text} · ${serviceName(name)}`]));
+    });
+    return list;
+  };
+  const accountFor = (choice) => {
+    const account = Gen.load();
+    const at = String(choice).indexOf("|");
+    const service = at > 0 ? choice.slice(0, at) : "";
+    if (!Gen.SERVICES[service]) return account;
+    account.service = service;
+    account.models = Object.assign({}, account.models, { [service]: choice.slice(at + 1) });
+    return account;
+  };
+  const removalPrice = (account) => {
+    if (Gen.isLocal(account.service)) return fill(T("{model} runs on this device: nothing to pay."), { model: modelName(account) });
+    if (!Gen.ready(account)) return fill(T("{service} needs its key: Generative Fill's settings open before it starts."), { service: serviceName(account.service) });
+    const price = Gen.priceOf(account, account.service, Gen.modelOf(account));
+    return price && !price.free && price.usd > 0 ? fill(T("About {price} for each text over the art, billed by {service}."), { price: money(price.usd), service: serviceName(account.service) }) : "";
+  };
+  // The pages, what to remove and with which model; resolves with the choice, or null
+  const askTextBatch = () => new Promise((resolve) => {
+    const saved = textBatchSaved();
+    const account = Gen ? Gen.load() : null;
+    const body = document.createElement("div");
+    body.className = "tbatch";
+    const intro = document.createElement("p");
+    intro.textContent = T("The text of each page is found, then removed: plain backgrounds are filled at once, the art is redrawn by Generative Fill. You can keep working meanwhile.");
+    const head = document.createElement("label");
+    head.className = "tbatch__all";
+    const all = document.createElement("input");
+    all.type = "checkbox";
+    all.checked = true;
+    const allText = document.createElement("span");
+    head.append(all, allText);
+    const list = document.createElement("div");
+    list.className = "tbatch__pages";
+    const pages = app.docs.map((doc) => {
+      const row = document.createElement("label");
+      row.className = "tbatch__page";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = true;
+      const name = document.createElement("span");
+      name.textContent = doc.name;
+      name.title = doc.name;
+      row.append(box, name);
+      list.appendChild(row);
+      return { doc, box };
+    });
+    body.append(intro, head, list);
+    let inputs = null;
+    let buttons = [];
+    const sync = () => {
+      const count = pages.filter(({ box }) => box.checked).length;
+      allText.textContent = fill(T("Open pages ({count} of {total})"), { count, total: pages.length });
+      all.checked = count === pages.length;
+      all.indeterminate = count > 0 && count < pages.length;
+      buttons.forEach((button) => { button.disabled = !count; });
+      if (inputs && inputs.model) inputs.model.disabled = inputs.which.value === "plain";
+    };
+    all.addEventListener("change", () => {
+      pages.forEach(({ box }) => { box.checked = all.checked; });
+      sync();
+    });
+    list.addEventListener("change", sync);
+    const choices = Gen ? modelChoices(account) : [];
+    const current = Gen ? `${account.service}|${Gen.modelOf(account)}` : "";
+    const fields = [{ id: "which", label: T("Text to remove"), value: Gen ? (["all", "art", "plain"].includes(saved.which) ? saved.which : "all") : "plain", options: Gen ? [["all", T("All the text")], ["art", T("Only Over the Art (Generative Fill)")], ["plain", T("Only on Plain Backgrounds")]] : [["plain", T("Only on Plain Backgrounds")]] }];
+    if (Gen) fields.push({ id: "model", label: T("Generative Fill"), value: choices.some(([id]) => id === saved.model) ? saved.model : current, options: choices, hint: (value) => removalPrice(accountFor(value)) });
+    const answer = (values, review) => {
+      const docs = pages.filter(({ box, doc }) => box.checked && app.docs.includes(doc)).map(({ doc }) => doc);
+      if (!values || !docs.length) {
+        resolve(null);
+        return;
+      }
+      const which = inputs.which.value;
+      const model = inputs.model ? inputs.model.value : "";
+      try {
+        window.localStorage.setItem(TEXT_BATCH_STORE, JSON.stringify({ which, model }));
+      } catch (error) {
+        // Asked again next time
+      }
+      resolve({ docs, which, model, review });
+    };
+    dialog({
+      title: T("Remove Text on Several Pages"),
+      body,
+      fields,
+      ok: T("Start Now"),
+      also: T("Review Page by Page"),
+      ready: (found) => {
+        inputs = found;
+        inputs.which.addEventListener("change", sync);
+      },
+    }).then((values) => answer(values, Boolean(values && values.also)));
+    ui.modal.classList.add("modal--tbatch");
+    buttons = Array.from(ui.modal.querySelectorAll(".modal__foot .btn:not(:first-child)"));
+    sync();
+  });
+  const startTextBatch = async () => {
+    if (!TextMask || !Mask || pixelsOnly()) return;
+    if (textBatch) {
+      if (textBatch.review) backToReview();
+      else toast(T("Remove Text on several pages is already under way."));
+      return;
+    }
+    if (!app.docs.length) return;
+    if (!TextMask.available()) {
+      toast(T("Detect Text isn't available for the moment. Try again later."));
+      return;
+    }
+    const choice = await askTextBatch();
+    if (!choice || textBatch) return;
+    let account = null;
+    if (Gen && choice.which !== "plain") {
+      account = accountFor(choice.model);
+      if (!Gen.ready(account)) {
+        await generativeSettings();
+        // The keys as they're now, the model as chosen
+        account = accountFor(choice.model);
+        if (!Gen.ready(account)) return;
+      }
+      if (!(await agreeToDownload(account))) return;
+    }
+    const docs = choice.docs.filter((doc) => app.docs.includes(doc));
+    if (textBatch || !docs.length) return;
+    const batch = {
+      pages: docs.map((doc) => ({ doc, state: "waiting", tries: 0, mask: null, message: "" })),
+      review: choice.review,
+      which: choice.which,
+      account,
+      at: 0,
+      waitUntil: 0,
+      waitKind: "",
+      controller: new AbortController(),
+      // While reviewing, a drawn selection adds to the text found rather than replacing it
+      mode: app.selectionMode,
+    };
+    textBatch = batch;
+    if (batch.review) {
+      app.selectionMode = "add";
+      if (app.doc !== docs[0]) switchDoc(docs[0]);
+      renderOptions();
+    }
+    genTrayOpen = true;
+    renderGenTray();
+    schedule(false);
+    findBatchText(batch);
+  };
+  const batchSleep = (ms, signal) => new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
+  // The text detection, one page after the other, in their order: the page being reviewed
+  // first, the next ones ready by the time they come
+  const findBatchText = async (batch) => {
+    for (;;) {
+      if (textBatch !== batch) return;
+      const page = batch.pages.find((one) => one.state === "waiting");
+      if (!page) break;
+      if (!app.docs.includes(page.doc)) {
+        page.state = "skipped";
+        continue;
+      }
+      page.state = "finding";
+      renderGenTray();
+      schedule(false);
+      try {
+        const pixels = ops.reshapePage(null, page.doc);
+        const found = await TextMask.detect(pixels, { confidence: TextMask.load().confidence, signal: batch.controller.signal });
+        if (textBatch !== batch) return;
+        // Skipped meanwhile, or closed
+        if (page.state !== "finding") continue;
+        page.mask = TextMask.dilate(found.mask, pixels.width, pixels.height, textGrow(page.doc));
+        page.state = "found";
+        if (!batch.review) await removeFoundText(batch, page);
+      } catch (error) {
+        if (textBatch !== batch || (error && error.name === "AbortError")) return;
+        if (page.state !== "finding") continue;
+        const kind = error && error.kind;
+        if ((kind === "quota" || kind === "network") && page.tries < TEXT_BATCH_TRIES) {
+          page.tries += 1;
+          page.state = "waiting";
+          const wait = Math.min(300, error.retry || 20 * 2 ** (page.tries - 1));
+          batch.waitUntil = Date.now() + wait * 1000;
+          batch.waitKind = kind;
+          renderGenTray();
+          schedule(false);
+          await batchSleep(wait * 1000, batch.controller.signal);
+          batch.waitUntil = 0;
+          continue;
+        }
+        console.warn("TypeR web: Detect Text failed on a page", error);
+        page.state = "failed";
+        page.message = textMaskMessage(error);
+      }
+      renderGenTray();
+      schedule(false);
+    }
+    if (!batch.review) finishTextBatch(batch);
+  };
+  // What a page's text becomes: plain backgrounds filled, the art handed to Generative Fill
+  const removeBatchAreas = (batch, page, areas) => {
+    const plain = batch.which === "art" ? [] : areas.filter((area) => area.plain);
+    const art = batch.which === "plain" || !batch.account ? [] : areas.filter((area) => !area.plain);
+    handOutRemoval(page.doc, plain, art, batch.account, true);
+    page.state = "done";
+  };
+  // Start Now: the text found is removed at once, once nothing is under way on that page
+  const removeFoundText = async (batch, page) => {
+    const doc = page.doc;
+    await pageFree(doc);
+    if (textBatch !== batch) return;
+    const mask = page.mask;
+    page.mask = null;
+    if (!app.docs.includes(doc)) {
+      page.state = "skipped";
+      return;
+    }
+    if (mask.length !== doc.width * doc.height) {
+      page.state = "failed";
+      page.message = T("The page changed size meanwhile.");
+      return;
+    }
+    removeBatchAreas(batch, page, selectionAreas(doc, mask, ops.reshapePage(null, doc)));
+  };
+  const finishTextBatch = (batch, stopped) => {
+    if (textBatch !== batch) return;
+    textBatch = null;
+    batch.controller.abort();
+    if (batch.review) {
+      app.selectionMode = batch.mode;
+      renderOptions();
+    }
+    if (!stopped) {
+      const done = batch.pages.filter((page) => page.state === "done").length;
+      const failed = batch.pages.filter((page) => page.state === "failed");
+      const drawing = genJobs.some((job) => job.patient && job.state !== "done" && job.state !== "failed");
+      toast([
+        fill(T("Remove Text went through {done} of {count} pages."), { done, count: batch.pages.length }),
+        failed.length ? fill(T("{count} couldn't be read: {reason}"), { count: failed.length, reason: failed[0].message }) : "",
+        drawing ? T("Generative Fill is finishing the art.") : "",
+      ].filter(Boolean).join(" "), true);
+    }
+    reviewBarKey = "";
+    renderGenTray();
+    schedule(false);
+  };
+  // The tray's row: how far it got, what it's doing, and Stop
+  const textBatchStatus = (batch) => {
+    const left = Math.ceil((batch.waitUntil - Date.now()) / 1000);
+    if (left > 0) return fill(T(batch.waitKind === "network" ? "The text detection couldn't be reached: trying again in {seconds} s" : "Too many pages sent to the text detection: trying again in {seconds} s"), { seconds: left });
+    if (batch.review) {
+      const page = batch.pages[batch.at];
+      return page && app.doc !== page.doc ? fill(T("Page {number} of {count} waits for your review"), { number: batch.at + 1, count: batch.pages.length }) : fill(T("Reviewing page {number} of {count}"), { number: batch.at + 1, count: batch.pages.length });
+    }
+    const finding = batch.pages.find((page) => page.state === "finding" || page.state === "found");
+    return finding ? onPage(T("Finding the text…"), finding.doc) : T("Waiting…");
+  };
+  const textBatchRow = () => {
+    const batch = textBatch;
+    const handled = batch.pages.filter((page) => page.state === "done" || page.state === "skipped" || page.state === "failed").length;
+    const row = document.createElement("div");
+    row.className = "gentray__batch";
+    const text = document.createElement("div");
+    text.className = "gentray__text";
+    const what = document.createElement("b");
+    what.textContent = `${T("Remove Text")} · ${handled}/${batch.pages.length}`;
+    const status = document.createElement("span");
+    status.textContent = textBatchStatus(batch);
+    status.title = status.textContent;
+    const bar = document.createElement("div");
+    bar.className = "gentray__bar";
+    const filled = document.createElement("i");
+    filled.style.width = `${Math.round((handled / batch.pages.length) * 100)}%`;
+    bar.appendChild(filled);
+    text.append(what, status, bar);
+    const actions = document.createElement("span");
+    actions.className = "gentray__actions";
+    const page = batch.review && batch.pages[batch.at];
+    if (page && app.doc !== page.doc) actions.appendChild(iconButton("forward", T("Back to the Review"), false, backToReview));
+    actions.appendChild(iconButton("close", T("Stop"), false, () => finishTextBatch(batch, true)));
+    row.append(text, actions);
+    genTray.appendChild(row);
+    return status;
+  };
+
+  /* ---- Review Page by Page ---- */
+
+  // The page under review, when it's the one shown
+  const reviewShown = () => {
+    const batch = textBatch;
+    const page = batch && batch.review ? batch.pages[batch.at] : null;
+    return page && app.doc === page.doc ? page : null;
+  };
+  const backToReview = () => {
+    const batch = textBatch;
+    const page = batch && batch.review ? batch.pages[batch.at] : null;
+    if (!page) return;
+    if (app.docs.includes(page.doc)) {
+      if (app.doc !== page.doc) switchDoc(page.doc);
+    } else nextReviewPage(batch, true);
+    renderGenTray();
+    schedule(false);
+  };
+  // Remove Text, Next Page (or Skip Page): the selection on this page is handed to Remove Text,
+  // then the next page comes forward
+  const nextReviewPage = (batch, skip) => {
+    if (textBatch !== batch) return;
+    const page = batch.pages[batch.at];
+    if (page && page.state === "review" && app.doc === page.doc && !pageBusy()) {
+      const doc = page.doc;
+      const selection = doc.state.quickMask ? null : doc.state.selection;
+      if (!skip && selection) {
+        removeBatchAreas(batch, page, selectionAreas(doc, ops.selectionFullMask(selection), ops.reshapePage()));
+        ops.deselect();
+      } else {
+        page.state = "skipped";
+        if (selection && selection.source === "text") ops.deselect();
+      }
+    } else if (page && page.state === "review") return;
+    else if (page && page.state !== "done" && page.state !== "failed") page.state = "skipped";
+    if (page) page.mask = null;
+    batch.at += 1;
+    while (batch.at < batch.pages.length && !app.docs.includes(batch.pages[batch.at].doc)) {
+      batch.pages[batch.at].state = "skipped";
+      batch.at += 1;
+    }
+    if (batch.at >= batch.pages.length) {
+      finishTextBatch(batch);
+      return;
+    }
+    switchDoc(batch.pages[batch.at].doc);
+    renderGenTray();
+    schedule(false);
+  };
+  // Each paint: the page under review gets its text selected once found, and a page closed
+  // meanwhile is passed by; both after the paint, never in it
+  let reviewSyncing = false;
+  const syncReview = () => {
+    const batch = textBatch;
+    if (!batch || !batch.review || reviewSyncing) return;
+    const page = batch.pages[batch.at];
+    if (!page) return;
+    const closed = !app.docs.includes(page.doc);
+    const due = page.state === "found" && app.doc === page.doc && !page.doc.state.quickMask && !pageBusy();
+    if (!closed && !due) return;
+    reviewSyncing = true;
+    setTimeout(() => {
+      reviewSyncing = false;
+      if (textBatch !== batch || batch.pages[batch.at] !== page) return;
+      if (!app.docs.includes(page.doc)) {
+        page.state = "skipped";
+        nextReviewPage(batch, true);
+        return;
+      }
+      if (page.state !== "found" || app.doc !== page.doc || pageBusy()) return;
+      const doc = page.doc;
+      const mask = page.mask;
+      page.mask = null;
+      if (mask.length !== doc.width * doc.height) {
+        page.state = "failed";
+        page.message = T("The page changed size meanwhile.");
+        schedule(false);
+        return;
+      }
+      page.state = "review";
+      fitUnderReviewBar(doc);
+      if (mask.some((value) => value)) ops.quietSelection(ops.fullMaskSelection(mask, "text"), "Detect Text");
+      else toast(T("No text found on this page."));
+      renderGenTray();
+      schedule(false);
+    }, 0);
+  };
+
+  // A page shown whole is fitted below the review's bar, so no text hides under it
+  const fitUnderReviewBar = (doc) => {
+    if (!doc.view.fitted || app.doc !== doc) return;
+    const margin = Math.min(stageW, stageH) < 500 ? 8 : 28;
+    const top = 12 + (reviewBar.offsetHeight || 34) + 8;
+    const zoom = Math.max(0.02, Math.min((stageW - margin * 2) / doc.width, (stageH - top - margin) / doc.height));
+    doc.view.zoom = zoom;
+    doc.view.x = (stageW - doc.width * zoom) / 2;
+    doc.view.y = top + (stageH - top - margin - doc.height * zoom) / 2;
+    viewChanged();
+  };
+  // At the top of the page: where the review is, the tools to correct it, and the next page
+  const reviewBar = document.createElement("div");
+  reviewBar.className = "reviewbar";
+  reviewBar.hidden = true;
+  reviewBar.setAttribute("role", "toolbar");
+  reviewBar.setAttribute("aria-label", T("Remove Text on Several Pages"));
+  ui.stage.appendChild(reviewBar);
+  ["pointerdown", "dblclick", "wheel", "contextmenu"].forEach((type) => reviewBar.addEventListener(type, (event) => event.stopPropagation()));
+  let reviewBarKey = "";
+  let reviewTick = 0;
+  // Add and Subtract: the selection tools draw on the text found, the lasso when none is held
+  const reviewMode = (mode) => {
+    app.selectionMode = mode;
+    if (!SELECTION_TOOLS.has(app.tool)) setTool("lasso");
+    renderOptions();
+    reviewBarKey = "";
+    schedule(false);
+  };
+  const buildReviewBar = (batch, page, left) => {
+    reviewBar.textContent = "";
+    const separator = () => {
+      const line = document.createElement("span");
+      line.className = "ctxbar__sep";
+      return line;
+    };
+    const count = document.createElement("span");
+    count.className = "reviewbar__count";
+    count.textContent = fill(T("Page {number} of {count}"), { number: batch.at + 1, count: batch.pages.length });
+    count.title = page.doc.name;
+    reviewBar.append(count, separator());
+    if (page.state === "review") {
+      // How to correct it, said on hover: the bar stays short, over as little of the page as can be
+      const hint = T("Draw to add, Alt to take away, ✕ to leave a text");
+      const add = iconButton("modeAdd", `${T("Add to selection")} · ${hint}`, app.selectionMode !== "subtract", () => reviewMode("add"));
+      const take = iconButton("modeSub", `${T("Subtract from selection")} · ${hint}`, app.selectionMode === "subtract", () => reviewMode("subtract"));
+      reviewBar.append(add, take);
+    } else {
+      const state = document.createElement("span");
+      state.className = "reviewbar__hint";
+      state.textContent = left > 0 ? textBatchStatus(batch) : page.state === "failed" ? page.message : T("Finding the text…");
+      state.title = state.textContent;
+      reviewBar.append(state);
+    }
+    const last = batch.at === batch.pages.length - 1;
+    const skip = document.createElement("button");
+    skip.type = "button";
+    skip.className = "btn btn--small";
+    skip.textContent = T("Skip Page");
+    skip.addEventListener("click", () => nextReviewPage(batch, true));
+    const next = document.createElement("button");
+    next.type = "button";
+    next.className = "btn btn--main btn--small";
+    next.textContent = last ? T("Remove Text and Finish") : T("Remove Text, Next Page");
+    next.disabled = page.state !== "review";
+    next.addEventListener("click", () => nextReviewPage(batch, false));
+    const stop = iconButton("close", T("Stop"), false, () => finishTextBatch(batch, true));
+    reviewBar.append(separator(), skip, next, separator(), stop);
+  };
+  const placeReview = () => {
+    syncReview();
+    const page = reviewShown();
+    placeReviewMarks(page);
+    if (!page) {
+      reviewBar.hidden = true;
+      reviewBarKey = "";
+      return;
+    }
+    const batch = textBatch;
+    const left = Math.max(0, Math.ceil((batch.waitUntil - Date.now()) / 1000));
+    const key = JSON.stringify([batch.at, page.state, app.selectionMode, left, page.message]);
+    if (key !== reviewBarKey) {
+      reviewBarKey = key;
+      buildReviewBar(batch, page, left);
+    }
+    reviewBar.hidden = false;
+    // Its countdown, while the text detection makes it wait
+    if (left > 0 && !reviewTick) reviewTick = setTimeout(() => {
+      reviewTick = 0;
+      schedule(false);
+    }, 1000);
+  };
+
+  // On the page under review, a ✕ at the corner of each text selected: a click leaves that one
+  // out, and only that one
+  const reviewMarks = document.createElement("div");
+  reviewMarks.className = "review-marks";
+  reviewMarks.hidden = true;
+  ui.stage.appendChild(reviewMarks);
+  ["pointerdown", "dblclick", "contextmenu"].forEach((type) => reviewMarks.addEventListener(type, (event) => {
+    if (event.target.closest("button")) event.stopPropagation();
+  }));
+  let marks = { selection: null, full: null, areas: [], buttons: [], hover: null };
+  const markBox = document.createElement("div");
+  markBox.className = "review-marks__box";
+  const placeMarkBox = () => {
+    const area = marks.hover;
+    markBox.hidden = !area;
+    if (!area) return;
+    const [x0, y0] = toScreen(area.left, area.top);
+    const [x1, y1] = toScreen(area.left + area.width, area.top + area.height);
+    Object.assign(markBox.style, { left: `${Math.round(x0) - 3}px`, top: `${Math.round(y0) - 3}px`, width: `${Math.round(x1 - x0) + 6}px`, height: `${Math.round(y1 - y0) + 6}px` });
+  };
+  const leaveOut = (doc, selection, area) => {
+    if (app.doc !== doc || doc.state.selection !== selection || pageBusy()) return;
+    const full = marks.full.slice();
+    for (let y = 0; y < area.height; y++) {
+      const row = (area.top + y) * doc.width + area.left;
+      for (let x = 0; x < area.width; x++) if (area.data[y * area.width + x]) full[row + x] = 0;
+    }
+    if (full.some((value) => value)) ops.quietSelection(ops.fullMaskSelection(full, "text"), "Leave Out Text");
+    else ops.deselect();
+    schedule(false);
+  };
+  const placeReviewMarks = (page) => {
+    const doc = page && page.doc;
+    const selection = page && page.state === "review" && !doc.state.quickMask && !gesture && !polygon ? doc.state.selection : null;
+    if (!selection) {
+      reviewMarks.hidden = true;
+      if (!page) marks = { selection: null, full: null, areas: [], buttons: [], hover: null };
+      return;
+    }
+    if (marks.selection !== selection) {
+      const full = ops.selectionFullMask(selection);
+      const areas = Mask.split(full, doc.width, doc.height, textLink(doc));
+      reviewMarks.textContent = "";
+      const buttons = areas.map((area) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "review-marks__drop";
+        button.innerHTML = ICON.close;
+        button.title = T("Leave this text: it won't be removed");
+        button.setAttribute("aria-label", button.title);
+        button.addEventListener("click", () => leaveOut(doc, selection, area));
+        button.addEventListener("pointerenter", () => {
+          marks.hover = area;
+          placeMarkBox();
+        });
+        button.addEventListener("pointerleave", () => {
+          marks.hover = null;
+          placeMarkBox();
+        });
+        reviewMarks.appendChild(button);
+        return button;
+      });
+      reviewMarks.appendChild(markBox);
+      marks = { selection, full, areas, buttons, hover: null };
+    }
+    reviewMarks.hidden = false;
+    marks.areas.forEach((area, index) => {
+      const [x, y] = toScreen(area.left + area.width, area.top);
+      const button = marks.buttons[index];
+      button.hidden = x < -12 || y < -12 || x > stageW + 12 || y > stageH + 12;
+      button.style.left = `${Math.round(x)}px`;
+      button.style.top = `${Math.round(y)}px`;
+    });
+    placeMarkBox();
+  };
   // What the options bar shows for the Move and Type tools, as a cheap signature: the bar is
   // built again only when it changes (identities, the state never changing in place)
   const NO_STATE = {};
@@ -12536,6 +13169,7 @@
       { label: "Fill with Background Colour", keys: "Cmd+Backspace", enabled: () => hasSelection() || Boolean(maskPainting()), action: () => fillSelectionCheck(toRgb(app.bg)) },
       { label: "Content-Aware Fill…", keys: "Shift+Backspace", enabled: hasSelection, action: contentAwareFill },
       { label: "Generative Fill…", enabled: () => Boolean(Gen) && hasSelection(), action: openGenerative },
+      ...(TextMask ? [{ label: "Remove Text on Several Pages…", enabled: hasDoc, action: startTextBatch }] : []),
       { label: "Clear", keys: "Backspace", enabled: () => hasSelection() || hasLayer(), action: () => clearOrDelete() },
       null,
       // A browser tab keeps Ctrl+T for itself: Photoshop's shortcut only arrives in the installed app or full screen
@@ -14649,6 +15283,7 @@
     exportAllPages,
     canWriteWebp,
     batchSave,
+    startTextBatch,
     openInPhotoshop,
     closeDoc,
     switchDoc,

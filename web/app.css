@@ -373,6 +373,29 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .gen-area.is-waiting { fill: rgb(var(--blue-rgb) / 0.05); animation: none; }
 @keyframes gen-area { to { stroke-dashoffset: -20; } }
 @media (prefers-reduced-motion: reduce) { .gen-area { animation: none; } .gentray__bar i { transition: none; } }
+/* Remove Text on several pages: its row in the tray, the review's bar, and a ✕ on each text */
+.gentray__batch { display: flex; align-items: center; gap: 8px; padding: 7px 6px 7px 9px; border-bottom: 1px solid var(--line); }
+.reviewbar { position: absolute; top: 12px; left: 50%; z-index: 7; display: flex; align-items: center; gap: 6px; max-width: calc(100% - 24px); padding: 4px 5px; background: var(--ui); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); font-size: 12px; white-space: nowrap; transform: translateX(-50%); }
+.reviewbar[hidden] { display: none; }
+.reviewbar__count { padding: 0 4px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.reviewbar__hint { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.reviewbar .btn--small:disabled { opacity: 0.5; }
+.review-marks { position: absolute; inset: 0; z-index: 5; overflow: hidden; pointer-events: none; }
+.review-marks[hidden] { display: none; }
+.review-marks__drop { position: absolute; display: grid; place-items: center; width: 18px; height: 18px; margin: -9px 0 0 -9px; padding: 0; background: var(--blue); border: 1px solid rgba(255, 255, 255, 0.85); border-radius: 50%; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); color: #fff; cursor: pointer; pointer-events: auto; }
+.review-marks__drop[hidden] { display: none; }
+.review-marks__drop:hover, .review-marks__drop:focus-visible { background: #d9534f; }
+.review-marks__drop svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; }
+.review-marks__box { position: absolute; background: rgba(217, 83, 79, 0.16); border: 1.5px solid #d9534f; border-radius: 2px; pointer-events: none; }
+.review-marks__box[hidden] { display: none; }
+.modal--tbatch { width: min(480px, calc(100vw - 32px)); }
+.tbatch { display: grid; gap: 8px; margin-bottom: 4px; }
+.tbatch p { margin: 0; color: var(--muted); }
+.modal__body .tbatch__all, .modal__body .tbatch__page { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.modal__body .tbatch input[type="checkbox"] { flex: none; margin: 0; }
+.tbatch__all { font-weight: 600; }
+.tbatch__pages { display: grid; gap: 2px; max-height: 180px; padding: 6px 8px; overflow-y: auto; background: var(--ui-dark); border: 1px solid var(--line); border-radius: 4px; }
+.tbatch__page span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .ctxbar { animation: none; } }
 
 /* no document yet */

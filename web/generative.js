@@ -254,11 +254,15 @@
       return { label, value: w / h };
     });
 
+  // `rate`: only too many requests at once, which passes on its own (`retry`: the seconds the
+  // service asked to wait, 0 when it didn't say), not a quota or a balance used up
   class GenerativeError extends Error {
-    constructor(kind, detail) {
+    constructor(kind, detail, rate, retry) {
       super(detail || kind);
       this.kind = kind;
       this.detail = detail || "";
+      this.rate = Boolean(rate);
+      this.retry = retry || 0;
     }
   }
 
@@ -279,8 +283,10 @@
   const kindOfStatus = (status) => (status === 401 || status === 403 ? "key" : status === 429 ? "quota" : status === 402 ? "quota" : "other");
   const readError = async (response) => {
     let detail = "";
+    let raw = "";
     try {
       const text = await response.text();
+      raw = text;
       try {
         const json = JSON.parse(text);
         const error = json.error || json;
@@ -296,7 +302,11 @@
     let kind = kindOfStatus(response.status);
     if (/api key|API_KEY|unauthori[sz]ed|invalid key|credentials/i.test(detail)) kind = "key";
     else if (/quota|exhausted|balance|billing|rate limit|locked/i.test(detail)) kind = "quota";
-    throw new GenerativeError(kind, detail);
+    // Google says how long in its answer ("retryDelay": "34s"), others in Retry-After
+    const said = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(raw);
+    const retry = Math.ceil(Number(response.headers.get("retry-after")) || (said ? Number(said[1]) : 0));
+    const rate = response.status === 429 && !/balance|billing|locked|per day|daily/i.test(detail);
+    throw new GenerativeError(kind, detail, rate, retry);
   };
   const post = async (url, headers, body, signal) => {
     let response;

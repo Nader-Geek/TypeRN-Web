@@ -7300,11 +7300,18 @@
     /* ---- the Bubble Reshaper (reshape-tool.js) ---- */
     // The page as the Reshaper reads it: every pixel layer on white, never the text, and
     // without the bubble layer being shaped again
-    reshapePage(without) {
-      const doc = app.doc;
+    // `of`: another open page than the one shown (Remove Text on several pages)
+    reshapePage(without, of) {
+      const doc = of || app.doc;
       if (!doc) return null;
       const shown = without ? Object.assign({}, doc, { state: Object.assign({}, doc.state, { layers: doc.state.layers.filter((layer) => layer.id !== without) }) }) : doc;
-      return { data: sampleData(shown, true), width: doc.width, height: doc.height };
+      const data = sampleData(shown, true);
+      // A page in the background keeps no copy of its pixels: a chapter's worth would fill the memory
+      if (doc !== app.doc) {
+        doc.sampleCache = null;
+        doc.sampleKey = null;
+      }
+      return { data, width: doc.width, height: doc.height };
     },
     // The bubble layer under a point: the topmost one shown there that remembers its shape
     reshapedAt(x, y) {
@@ -7362,12 +7369,12 @@
     },
     // Detect Text and Remove Text (textmask.js): a selection as one byte a pixel over the whole
     // page (1 inside), and back; a selection made from a mask without putting it on the page
-    selectionFullMask(selection) {
-      const doc = app.doc;
+    selectionFullMask(selection, of) {
+      const doc = of || app.doc;
       return doc && selection ? fullMaskOf(doc, selection) : null;
     },
-    fullMaskSelection(full, source) {
-      const doc = app.doc;
+    fullMaskSelection(full, source, of) {
+      const doc = of || app.doc;
       return doc ? fromFullMask(doc, full, source) : null;
     },
     maskSelection(mask, width, height, left, top, source) {
