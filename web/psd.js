@@ -822,6 +822,32 @@
     return { width: small.width, height: small.height, url: small.toDataURL("image/jpeg", 1) };
   };
 
+  // Colour that a greyscale file would lose. A trace too faint to see (a grey mixed in Oklab
+  // that rounds apart, an almost clear edge) doesn't count.
+  const COLOUR_LEVELS = 3;
+  const colourOf = (color) => Boolean(color) && color.r !== undefined && Math.max(color.r, color.g, color.b) - Math.min(color.r, color.g, color.b) >= COLOUR_LEVELS;
+  const canvasHasColour = (canvas) => {
+    if (!canvas || !canvas.width || !canvas.height) return false;
+    const { data } = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < data.length; i += 4) {
+      const a = data[i + 3];
+      if (!a) continue;
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      if ((Math.max(r, g, b) - Math.min(r, g, b)) * a >= COLOUR_LEVELS * 255) return true;
+    }
+    return false;
+  };
+  // A layer's pixels as they go into the file, and the colours Photoshop draws itself: the
+  // text's, its stroke's. A layer taken back untouched from the file has only its greys.
+  const nodesHaveColour = (nodes) => nodes.some((node) => {
+    const strokes = (node.effects && node.effects.stroke) || [];
+    if (strokes.some((stroke) => stroke.enabled !== false && colourOf(stroke.color))) return true;
+    const text = node.text;
+    if (text && [text.style, ...(text.styleRuns || []).map((run) => run.style)].some((style) => style && (colourOf(style.fillColor) || colourOf(style.strokeColor)))) return true;
+    if (!node.typerRaw && canvasHasColour(node.canvas)) return true;
+    return Boolean(node.children) && nodesHaveColour(node.children);
+  });
+
   // A PSB when the file's name says so, or when the page is too large for a PSD
   const write = async (doc, target = doc.name) => {
     await nextFrame();
@@ -871,6 +897,13 @@
     else imageResources.xmpMetadata = xmp;
     const root = Object.assign({}, source, { width: doc.width, height: doc.height, bitsPerChannel: 8, canvas: composite, children, imageResources });
     if (!root.colorMode) root.colorMode = 3;
+    // A greyscale file given colour here (a Gradient, a coloured text, a pasted picture…) goes
+    // on in RGB, as Photoshop's Image > Mode > RGB Color would: in greyscale it would get only
+    // the greys. Its grey profile can't describe RGB: Photoshop takes its own instead.
+    if (root.colorMode === 1 && (nodesHaveColour(children) || canvasHasColour(composite))) {
+      root.colorMode = 3;
+      delete imageResources.iccProfile;
+    }
     // The file a smart object keeps inside the PSD goes only with a layer that still uses it:
     // Photoshop refuses to open a PSD with one left over, as when a folder of Generative Fill
     // layers was merged here
