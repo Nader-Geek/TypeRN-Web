@@ -86,8 +86,8 @@
     // A square whose diagonals fade from one corner to the other, on Lucide's grid
     gradient: SVG('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12 12 3"/><path d="M4 20 20 4" stroke-opacity="0.6"/><path d="M12 21 21 12" stroke-opacity="0.25"/>'),
     clean: SVG('<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.290a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/><path d="M12 7.500l.9 2.600 2.600.9-2.600.9L12 14.500l-.9-2.600L8.500 11l2.600-.9Z"/>'),
-    // A bubble widened: a speech bubble under a two-way arrow
-    reshape: SVG('<path d="M3 13.5c0-3 3.6-5.5 8-5.5s8 2.5 8 5.5-3.6 5.5-8 5.5c-1 0-2-.1-2.9-.4L4 20l1.200-3.100C3.800 15.900 3 14.800 3 13.500Z"/><path d="M7 4h8"/><path d="m13 2 2 2-2 2"/><path d="m9 2-2 2 2 2"/>'),
+    // A bubble taken by its outline: a speech bubble with a pointer on its edge
+    reshape: SVG('<path d="M7.04 15.84A7 7 0 1 0 3.66 12.46L2.2 17.3Z"/><path d="m15.4 14 6.4 2.5-2.8 1.1-1.1 2.8Z"/>'),
     eyedropper: SVG('<path d="m12 9-8.414 8.414A2 2 0 0 0 3 18.828v1.344a2 2 0 0 1-.586 1.414A2 2 0 0 1 3.828 21h1.344a2 2 0 0 0 1.414-.586L15 12"/> <path d="m18 9 .4.4a1 1 0 1 1-3 3l-3.8-3.8a1 1 0 1 1 3-3l.4.4 3.4-3.4a1 1 0 1 1 3 3z"/> <path d="m2 22 .414-.414"/>'),
     text: SVG('<path d="M12 4v16"/> <path d="M4 7V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2"/> <path d="M9 20h6"/>'),
     sfx: SVG('<g transform="rotate(-14 10 14)"><path d="M14.600 15H5.400M3 20 9.600 6.300a.450.450 0 0 1 .800 0L17 20"/></g><path d="M13.38 3.64L14.51 1.52M16.53 6.53L19.01 5.21M17.56 10.79L20.14 11.07"/>'),
