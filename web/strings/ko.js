@@ -895,6 +895,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "And {count} more.": "외 {count}개.",
     "Since you last opened TypeR Studio": "TypeR Studio를 마지막으로 연 이후",
     "Lately in TypeR Studio": "최근 TypeR Studio",
+    "More details": "자세히 보기",
+    "Play": "재생",
     "What's new can't be read right now.": "지금은 새로운 내용을 읽을 수 없습니다.",
     "Don't show me this again": "다시 표시하지 않음",
     "Send Feedback…": "피드백 보내기…",

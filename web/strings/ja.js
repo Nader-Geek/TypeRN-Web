@@ -895,6 +895,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "And {count} more.": "ほか {count} 件。",
     "Since you last opened TypeR Studio": "前回 TypeR Studio を開いてから",
     "Lately in TypeR Studio": "最近の TypeR Studio",
+    "More details": "詳細",
+    "Play": "再生",
     "What's new can't be read right now.": "新機能の一覧を今は読み込めません。",
     "Don't show me this again": "今後表示しない",
     "Send Feedback…": "フィードバックを送信…",

@@ -895,6 +895,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "And {count} more.": "І ще {count}.",
     "Since you last opened TypeR Studio": "Відтоді як ви востаннє відкривали TypeR Studio",
     "Lately in TypeR Studio": "Нещодавно в TypeR Studio",
+    "More details": "Докладніше",
+    "Play": "Відтворити",
     "What's new can't be read right now.": "Не вдається прочитати список змін.",
     "Don't show me this again": "Більше не показувати",
     "Send Feedback…": "Залишити відгук…",

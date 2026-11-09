@@ -895,6 +895,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "And {count} more.": "还有 {count} 项。",
     "Since you last opened TypeR Studio": "自你上次打开 TypeR Studio 以来",
     "Lately in TypeR Studio": "TypeR Studio 近期更新",
+    "More details": "更多详情",
+    "Play": "播放",
     "What's new can't be read right now.": "暂时无法读取更新内容。",
     "Don't show me this again": "不再显示",
     "Send Feedback…": "发送反馈…",
