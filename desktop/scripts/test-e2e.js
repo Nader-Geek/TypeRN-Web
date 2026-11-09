@@ -299,6 +299,26 @@ const main = async () => {
   step("only the changed files are downloaded", asked.filter((item) => !item.endsWith("desktop-update.json")).join() === "/web/app.css", asked.join(", "));
   step("the open page doesn't change under the user", !(await cssHasMark(run.page)));
   step("the same update isn't taken twice", (await checkNow(run.app)) === false);
+  // What's downloaded is offered right away: Restart, or Later
+  await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send("update-ready"));
+  await run.page.waitForSelector("#update-note", { timeout: 3000 }).catch(() => null);
+  const note = await run.page.evaluate(() => {
+    const shown = document.getElementById("update-note");
+    return shown && { buttons: shown.querySelectorAll("button").length, text: shown.textContent };
+  });
+  step("a downloaded update offers to restart", Boolean(note) && note.buttons === 2, JSON.stringify(note));
+  // Restart closes as any closing does: unsaved work is asked about, and Cancel stays
+  await run.app.evaluate(({ dialog }) => {
+    global.typerAsked = 0;
+    dialog.showMessageBoxSync = () => { global.typerAsked += 1; return 1; };
+  });
+  await run.page.evaluate(() => window.addEventListener("beforeunload", (event) => { event.preventDefault(); event.returnValue = ""; }));
+  await run.page.click("#update-note .btn--main");
+  await wait(800);
+  const kept = await run.app.evaluate(({ BrowserWindow }) => ({ asked: global.typerAsked, open: BrowserWindow.getAllWindows().length }));
+  step("Restart with unsaved work asks first, and Cancel keeps the window", kept.asked === 1 && kept.open === 1, JSON.stringify(kept));
+  await run.page.click("#update-note .btn:not(.btn--main)");
+  step("Later puts the note away", !(await run.page.$("#update-note")));
   await close(run);
 
   await new Promise((resolve) => server.close(resolve));

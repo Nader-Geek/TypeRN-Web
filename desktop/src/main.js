@@ -236,7 +236,7 @@ const createWindow = () => {
   }));
   win.on("close", (event) => {
     keepBounds();
-    if (!farewell || farewellDone || !pageReady) return;
+    if (!farewell || farewellDone || restarting || !pageReady) return;
     farewellDone = true;
     event.preventDefault();
     win.farewellShown = false;
@@ -271,6 +271,8 @@ const createWindow = () => {
       cancelId: 1,
     });
     if (answer === 0) event.preventDefault();
+    // Kept open: no restart then
+    else restarting = false;
   });
   page.on("context-menu", (event, params) => fieldMenu(params));
   page.on("render-process-gone", (event, details) => {
@@ -320,19 +322,35 @@ const setPermissions = () => {
 
 /* -------------------------------------- updates ------------------------------------- */
 
+// A new version of the page or of the app itself, downloaded: the page offers to restart now.
+// Otherwise it's there at the next launch.
+let shellUpdater = null;
+let shellReady = false;
+let updatePending = false;
+let restarting = false;
+const updateReady = () => {
+  updatePending = true;
+  if (win) win.webContents.send("update-ready");
+};
+
 const checkContent = async () => {
-  if (await content.check()) {
-    if (win) win.webContents.send("update-ready");
-  }
+  if (await content.check()) updateReady();
 };
 
 const checkShell = () => {
-  if (!app.isPackaged || isTest) return;
+  if (!app.isPackaged || isTest || shellReady) return;
   try {
     const { autoUpdater } = require("electron-updater");
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
-    autoUpdater.on("error", (error) => console.warn("App update:", error.message));
+    if (!shellUpdater) {
+      shellUpdater = autoUpdater;
+      autoUpdater.autoDownload = true;
+      autoUpdater.autoInstallOnAppQuit = true;
+      autoUpdater.on("error", (error) => console.warn("App update:", error.message));
+      autoUpdater.on("update-downloaded", () => {
+        shellReady = true;
+        updateReady();
+      });
+    }
     autoUpdater.checkForUpdates().catch((error) => console.warn("App update:", error.message));
   } catch (error) {
     console.warn("App update:", error.message);
@@ -415,6 +433,8 @@ ipcMain.on("page-ready", () => {
   pageReady = true;
   openPaths(waitingPaths.splice(0));
   if (process.env.TYPER_NO_UPDATE === "1") return;
+  // A page loaded again after the note came up: it comes back
+  if (updatePending) updateReady();
   setTimeout(() => {
     checkContent();
     checkShell();
@@ -675,10 +695,20 @@ ipcMain.handle("photoshop-open", async (event, id, paths) => {
   }
 });
 
-ipcMain.on("reload-for-update", () => {
-  farewellDone = true;
+// Restarting for an update closes the window as usual first, so that changes not kept by the
+// session still get their question. A new version of the app installs itself on the way.
+const restartNow = () => {
+  if (shellReady && shellUpdater) {
+    shellUpdater.quitAndInstall(true, true);
+    return;
+  }
   app.relaunch();
   app.quit();
+};
+ipcMain.on("reload-for-update", (event) => {
+  if (!fromPage(event)) return;
+  restarting = true;
+  win.close();
 });
 
 app.on("second-instance", (event, args) => {
@@ -694,7 +724,7 @@ app.on("open-file", (event, file) => {
   if (app.isReady() && !win) createWindow();
   openPaths([file]);
 });
-app.on("window-all-closed", () => app.quit());
+app.on("window-all-closed", () => (restarting ? restartNow() : app.quit()));
 
 app.whenReady().then(() => {
   content.choose();
