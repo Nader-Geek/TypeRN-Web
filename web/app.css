@@ -436,6 +436,9 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .status__grow { flex: 1; }
 /* the hint shows only while the pointer is on the bar */
 #status-hint { visibility: hidden; }
+.status__typer { min-width: 0; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.status__typer:hover { color: var(--text); }
+.status__typer b { font-weight: 600; color: var(--text); }
 .status:hover #status-hint { visibility: visible; }
 
 /* the docks */

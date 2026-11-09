@@ -83,6 +83,8 @@
       files[path] = String(data);
       if (window.parent.TypeRTouch) window.parent.TypeRTouch.panelChanged();
       if (kit.keeps(path)) remember(path, files[path]);
+      // The app follows what the panel keeps: its current line in the status bar, its shortcuts
+      if (kit.keeps(path)) window.parent.dispatchEvent(new Event("typer-storage"));
       // A file written outside TypeR's own folder is an export: it is downloaded. A font or a
       // .zip comes as Base64, and the file must hold its bytes, not that text
       else if (String(path).indexOf(ROOT + "/") !== 0) downloadFile(String(path).split(/[\\/]/).pop(), encoding === "Base64" ? fromBase64(files[path]) : files[path]);

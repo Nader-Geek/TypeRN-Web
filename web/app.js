@@ -9670,6 +9670,74 @@
   };
   ui.frame.addEventListener("load", () => setTimeout(watchPanelTheme, 0));
 
+  /* ---- the status bar: TypeR's current line ---- */
+
+  // Numbered as the panel numbers them: lines to skip (## by default), blank lines and page
+  // headings ("Page 12") have no number, and a page heading starts again from 1 unless TypeR's
+  // settings say otherwise
+  const pageOfHeading = (text) => {
+    const bare = (value) => value.replace(/^(?:\*+|_+|~~)\s*/, "").replace(/\s*(?:\*+|_+|~~)$/, "").trim();
+    let heading = bare(text.trim().replace(/^#{1,6}\s+/, "").replace(/\s+#+$/, "").trim());
+    if (heading[0] === "[" && heading[heading.length - 1] === "]") heading = bare(heading.slice(1, -1).trim());
+    const match = /^Page\s+([0-9]+)(?:\*+|_+|~~)?\s*(?:(?::|[-–—]).*|\.)?$/i.exec(heading);
+    const page = match ? Number(match[1]) : 0;
+    return Number.isSafeInteger(page) && page > 0 ? page : 0;
+  };
+  const typerLine = () => {
+    const storage = readPanelStorage();
+    if (!storage) return null;
+    const tabs = Array.isArray(storage.tabs) ? storage.tabs.filter((tab) => tab && typeof tab === "object") : [];
+    const tab = tabs.find((one) => one.id === storage.currentTabId) || tabs[0] || storage;
+    const text = typeof tab.text === "string" ? tab.text : "";
+    if (!text.trim()) return null;
+    const at = typeof tab.currentLineIndex === "number" ? tab.currentLineIndex : 0;
+    const skip = Array.isArray(storage.ignoreLinePrefixes) ? storage.ignoreLinePrefixes.filter(Boolean) : ["##"];
+    const tags = (Array.isArray(storage.ignoreTags) ? storage.ignoreTags : []).filter(Boolean);
+    const styles = Array.isArray(storage.styles) ? storage.styles : [];
+    const prefixes = styles.flatMap((style) => (style && !style.prefixesDisabled && Array.isArray(style.prefixes) ? style.prefixes : [])).filter(Boolean).sort((a, b) => b.length - a.length);
+    const restart = storage.resetLineCounterOnPage !== false;
+    let counter = 0;
+    let page = 0;
+    let found = null;
+    text.split("\n").some((raw, index) => {
+      const skipped = skip.find((prefix) => raw.startsWith(prefix)) || "";
+      const tag = raw.startsWith("//") ? (raw.startsWith("//:") ? "//:" : "//") : prefixes.find((prefix) => raw.startsWith(prefix)) || "";
+      let shown = raw.replace(skipped, "").replace(tag, "");
+      tags.forEach((one) => { shown = shown.split(one).join(""); });
+      shown = shown.trim();
+      const heading = pageOfHeading(raw);
+      if (heading) {
+        page = heading;
+        if (restart) counter = 0;
+      }
+      const number = skipped || !shown || heading ? 0 : ++counter;
+      if (index === at) found = { number, page, text: shown };
+      return index >= at;
+    });
+    if (!found || !found.number) return null;
+    const style = styles.find((one) => one && one.id === storage.currentStyleId);
+    return Object.assign(found, { style: style && style.name ? style.name : "" });
+  };
+  const statusTyper = $("status-typer");
+  const renderTyperLine = () => {
+    const line = panelBridge() ? typerLine() : null;
+    statusTyper.hidden = !line;
+    if (!line) return;
+    statusTyper.textContent = "";
+    const where = [line.page ? fill(T("Page {page}"), { page: line.page }) : "", fill(T("Line {line}"), { line: line.number }), line.style].filter(Boolean).join(" · ");
+    const place = document.createElement("b");
+    place.textContent = where;
+    statusTyper.append(place, ` — ${line.text}`);
+    statusTyper.title = `${T("TypeR's current line")}\n${line.text}`;
+  };
+  let typerLineTimer = 0;
+  window.addEventListener("typer-storage", () => {
+    clearTimeout(typerLineTimer);
+    typerLineTimer = setTimeout(renderTyperLine, 150);
+  });
+  ui.frame.addEventListener("load", () => setTimeout(renderTyperLine, 300));
+  statusTyper.addEventListener("click", showTypeR);
+
   // Settings > Appearance: the themes, each shown in its own colours
   const appearancePane = () => {
     let chosen = currentThemeId();
