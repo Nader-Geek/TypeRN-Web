@@ -295,6 +295,44 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .grad-preview { display: block; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); background: repeating-conic-gradient(#cdcdcd 0 25%, #fff 0 50%) 0 0 / 8px 8px; }
 .grad-swatch__mark { position: absolute; right: 4px; top: 3px; width: 12px; height: 12px; color: #fff; filter: drop-shadow(0 0 1px #000); pointer-events: none; }
 .grad-swatch__mark svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.grad-own { align-items: center; gap: 4px; }
+.grad-own .grad-end-color { width: 20px; height: 20px; }
+.grad-current { display: inline-flex; align-items: center; gap: 2px; padding: 2px 2px 2px 3px; border-radius: 3px; line-height: 0; }
+.grad-current:hover { background: var(--ui-3); }
+.grad-current.is-on { background: var(--blue-dark); }
+.grad-current[aria-expanded="true"] { outline: 1px solid var(--blue); outline-offset: -1px; }
+.grad-current__caret svg { width: 12px; height: 12px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* The Gradient Editor: its presets, its bar with a mark under it for each colour, the colour chosen */
+.grad-editor { position: fixed; z-index: 45; display: flex; flex-direction: column; gap: 8px; width: 356px; max-width: calc(100vw - 16px); box-sizing: border-box; padding: 8px 12px 10px; background: var(--ui); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); color: var(--text); }
+.grad-editor__head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; }
+.grad-editor__label { color: var(--muted); }
+.grad-editor__presets { display: flex; flex-wrap: wrap; gap: 2px; max-height: 92px; overflow-y: auto; }
+.grad-editor__preset { position: relative; display: inline-flex; }
+.grad-editor__remove { position: absolute; top: -3px; right: -3px; display: none; width: 14px; height: 14px; padding: 1px; border-radius: 50%; background: var(--ui-dark); border: 1px solid var(--line); line-height: 0; color: var(--text); }
+.grad-editor__remove svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
+.grad-editor__preset:hover .grad-editor__remove, .grad-editor__remove:focus-visible { display: block; }
+.grad-editor__remove:hover { background: var(--red, #c0392b); color: #fff; }
+.grad-editor__ramp { margin-top: 2px; line-height: 0; cursor: copy; }
+.grad-editor__ramp .grad-preview { width: 100%; height: 22px; }
+.grad-editor__track { position: relative; height: 16px; margin: -6px 0 0; cursor: copy; touch-action: none; }
+.grad-stop { position: absolute; top: 0; width: 12px; height: 16px; margin-left: -6px; padding: 0; border: 0; background: none; cursor: grab; }
+.grad-stop::before { content: ""; position: absolute; left: 2px; top: 0; width: 0; height: 0; border: 4px solid transparent; border-bottom-color: var(--text); border-top-width: 0; }
+.grad-stop::after { content: ""; position: absolute; left: 1px; top: 5px; width: 10px; height: 10px; box-sizing: border-box; border: 1px solid var(--text); border-radius: 2px; background: linear-gradient(var(--color), var(--color)), repeating-conic-gradient(#cdcdcd 0 25%, #fff 0 50%) 0 0 / 6px 6px; }
+.grad-stop.is-on::before { border-bottom-color: var(--blue); }
+.grad-stop.is-on::after { border: 2px solid var(--blue); }
+.grad-stop.is-removing { opacity: 0.35; }
+.grad-stop:focus-visible { outline: none; }
+.grad-stop:focus-visible::after { box-shadow: 0 0 0 2px rgb(var(--blue-rgb) / 0.5); }
+.grad-editor__fields { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-height: 24px; }
+.grad-editor__color { width: 30px; height: 22px; }
+.grad-editor__field { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.grad-editor__fields label { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+.grad-editor__fields input[type="number"] { width: 44px; }
+.grad-editor__fields .icon-btn { margin-left: auto; }
+.grad-editor__unit { color: var(--muted); }
+.grad-editor__save { display: flex; flex-wrap: wrap; gap: 6px; }
+.grad-editor__save input { flex: 1 1 120px; min-width: 0; height: 24px; }
+.grad-editor__hint { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.35; white-space: normal; }
 .brush-preview { position: absolute; z-index: 5; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .ants--b { animation: none; } }
 

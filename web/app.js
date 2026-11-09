@@ -5740,6 +5740,8 @@
   const pickAt = ([x, y], background) => {
     const color = ops.pickColor(x, y);
     if (!color) return;
+    // The Gradient tool's Alt + click, its Gradient Editor open: the colour chosen there takes it
+    if (!background && app.tool === "gradient" && window.TypeRRetouch && window.TypeRRetouch.sampled(color)) return;
     if (background) app.bg = color;
     else app.fg = color;
     showColors();

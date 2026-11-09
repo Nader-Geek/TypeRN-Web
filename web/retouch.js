@@ -39,7 +39,7 @@
 
   const STORE = "typer.web.retouch";
   const prefs = (() => {
-    const out = { healAll: true, colors: "fgbg", type: "linear", method: "perceptual", opacity: 100, reverse: false, dither: true };
+    const out = { healAll: true, colors: "fgbg", custom: null, type: "linear", method: "perceptual", opacity: 100, reverse: false, dither: true };
     try {
       Object.assign(out, JSON.parse(window.localStorage.getItem(STORE)) || {});
     } catch (error) {
@@ -160,12 +160,69 @@
   const stop = (at, c, a = 1) => ({ at, r: c.r, g: c.g, b: c.b, a });
   const BLACK = { r: 0, g: 0, b: 0 };
   const WHITE = { r: 255, g: 255, b: 255 };
+
+  // Its own colours ("custom"), apart from the foreground and background colours: its two ends
+  // changed in the options bar, or any number of colours, each with its opacity, in the
+  // Gradient Editor. They can be kept as presets.
+  const STORE_PRESETS = "typer.web.gradients";
+  const MAX_PRESETS = 40;
+  const unit = (value) => Math.max(0, Math.min(1, Number(value) || 0));
+  const byte = (value) => Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+  // A copy of `stops`, each one checked: what was kept may come from an older version
+  const cleanStops = (stops) => (Array.isArray(stops) ? stops : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({ at: unit(item.at), r: byte(item.r), g: byte(item.g), b: byte(item.b), a: item.a === undefined ? 1 : unit(item.a) }));
+  const sorted = (stops) => stops.slice().sort((a, b) => a.at - b.at);
+  const sameStops = (a, b) => {
+    if (a.length !== b.length) return false;
+    const x = sorted(a);
+    const y = sorted(b);
+    return x.every((item, i) => ["r", "g", "b"].every((key) => item[key] === y[i][key]) && Math.abs(item.at - y[i].at) < 1e-3 && Math.abs(item.a - y[i].a) < 1e-3);
+  };
+  const toHex = (c) => `#${[c.r, c.g, c.b].map((value) => byte(value).toString(16).padStart(2, "0")).join("")}`;
+  const fromHex = (hex) => {
+    const n = parseInt(String(hex).slice(1, 7), 16) || 0;
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  };
+  // The colour between two of them, for a colour added there
+  const colorAt = (stops, at) => {
+    const list = sorted(stops);
+    let i = 0;
+    while (i < list.length - 1 && list[i + 1].at < at) i++;
+    const a = list[i];
+    const b = list[Math.min(i + 1, list.length - 1)];
+    const f = b.at > a.at ? Math.max(0, Math.min(1, (at - a.at) / (b.at - a.at))) : 0;
+    const mix = (key) => a[key] + (b[key] - a[key]) * f;
+    return { at, r: byte(mix("r")), g: byte(mix("g")), b: byte(mix("b")), a: unit(mix("a")) };
+  };
+  const customStops = () => {
+    const stops = cleanStops(prefs.custom);
+    return stops.length >= 2 ? stops : [stop(0, BLACK), stop(1, WHITE)];
+  };
+  const readPresets = () => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(STORE_PRESETS));
+      return (Array.isArray(saved) ? saved : [])
+        .filter((item) => item && typeof item.name === "string" && cleanStops(item.stops).length >= 2)
+        .map((item) => ({ name: item.name, stops: sorted(cleanStops(item.stops)) }));
+    } catch (error) {
+      return [];
+    }
+  };
+  const keepPresets = (list) => {
+    try {
+      window.localStorage.setItem(STORE_PRESETS, JSON.stringify(list.slice(0, MAX_PRESETS)));
+    } catch (error) {
+      App().toast(T("The preset couldn't be saved."), true);
+    }
+  };
   // The page's pixels before this gradient, read once: a gradient over the page must not be
   // matched to itself while its ends move
   let pageData = null;
   const stopsFor = (colors, start, end, page) => {
     if (colors === "fgClear") return [stop(0, app.fg), stop(1, app.fg, 0)];
     if (colors === "bw") return [stop(0, BLACK), stop(1, WHITE)];
+    if (colors === "custom") return customStops();
     if (colors === "page") {
       const spec = { type: prefs.type, start, end };
       const along = ops.pageStops(spec, 10, page);
@@ -333,15 +390,26 @@
     live = { edit: gesture.edit, start: gesture.start, end: gesture.end, page: gesture.page };
     App().renderOptions();
   };
-  // The live gradient again, with the options as they are now
-  const redrawLive = () => {
+  // The live gradient again, with the options as they are now. `quick`: smaller, while a
+  // colour of the Gradient Editor is dragged.
+  let liveFrame = 0;
+  const redrawLive = (quick = false) => {
+    if (liveFrame) cancelAnimationFrame(liveFrame);
+    liveFrame = 0;
     const current = liveNow();
     if (!current) return;
     if (prefs.colors === "page" && !current.page) current.page = ops.pageData(current.edit);
     const gesture = { start: current.start, end: current.end, where: current.edit.where, edit: current.edit, token: current.edit.token, page: current.page };
-    draw(gesture, false);
+    draw(gesture, quick);
     if (gesture.lost) endLive();
     else current.edit = gesture.edit;
+  };
+  const redrawLiveSoon = () => {
+    if (liveFrame) return;
+    liveFrame = requestAnimationFrame(() => {
+      liveFrame = 0;
+      redrawLive(true);
+    });
   };
 
   // Its line and its ends, on the screen
@@ -382,12 +450,13 @@
     el.addEventListener("click", action);
     return el;
   };
-  // A small picture of a gradient, drawn by the engine that draws the real one
-  const preview = (width, height, type, stops) => {
+  // A small picture of a gradient, drawn by the engine that draws the real one. `plain`: as
+  // its colours are placed, not reversed (the Gradient Editor's bar).
+  const preview = (width, height, type, stops, plain = false) => {
     const centred = type !== "linear";
     const start = centred ? [width / 2, height / 2] : [1, height / 2];
     const end = centred ? [width - 1, height / 2] : [width - 1, height / 2];
-    const { canvas } = PS.renderGradient({ type, start, end, stops, method: prefs.method, reverse: prefs.reverse, opacity: 1, dither: false }, { left: 0, top: 0, width, height });
+    const { canvas } = PS.renderGradient({ type, start, end, stops, method: prefs.method, reverse: !plain && prefs.reverse, opacity: 1, dither: false }, { left: 0, top: 0, width, height });
     canvas.className = "grad-preview";
     return canvas;
   };
@@ -396,6 +465,7 @@
     keepPrefs();
     App().renderOptions();
     redrawLive();
+    if (editor) syncEditor();
   };
   const select = (label, options, value, onChange) => {
     const el = document.createElement("select");
@@ -422,6 +492,426 @@
     el.textContent = text;
     return el;
   };
+  const make = (tag, className, parent, text) => {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = text;
+    if (parent) parent.appendChild(el);
+    return el;
+  };
+
+  /* --------------------------- the gradient's own colours --------------------------- */
+
+  // The colours the ends and the Gradient Editor change, as the gradient has them now: the
+  // foreground and background colours, or those of the page along the gradient just drawn
+  const currentStops = () => {
+    if (prefs.colors === "page") {
+      const current = liveNow();
+      if (!current) return [stop(0, BLACK), stop(1, WHITE)];
+      if (!current.page) current.page = ops.pageData(current.edit);
+      return sorted(cleanStops(stopsFor("page", current.start, current.end, current.page)));
+    }
+    return sorted(cleanStops(stopsFor(prefs.colors, [0, 0], [1, 0], null)));
+  };
+  // The gradient takes these colours as its own. `quick`: a colour being dragged, the
+  // gradient on the page drawn smaller until it is let go.
+  const useStops = (stops, { quick = false, fromEditor = false } = {}) => {
+    prefs.colors = "custom";
+    prefs.custom = sorted(cleanStops(stops));
+    if (!quick) keepPrefs();
+    showCurrent();
+    if (quick) redrawLiveSoon();
+    else redrawLive();
+    if (editor && !fromEditor) syncEditor();
+  };
+  const choosePreset = (preset) => {
+    useStops(preset.stops);
+    App().renderOptions();
+  };
+  // A colour field, tried out as the picker moves. Brought back to its first colour (the
+  // picker's Cancel), the gradient has the colours it had before.
+  const colorField = (title, value, onPick, onBack) => {
+    const input = document.createElement("input");
+    input.type = "color";
+    input.title = title;
+    input.setAttribute("aria-label", title);
+    input.value = value;
+    let before = null;
+    input.addEventListener("input", () => {
+      if (!before) before = { value, colors: prefs.colors, custom: prefs.custom ? cleanStops(prefs.custom) : null };
+      if (input.value === before.value) {
+        prefs.colors = before.colors;
+        prefs.custom = before.custom;
+        before = null;
+        keepPrefs();
+        onBack();
+        return;
+      }
+      onPick(fromHex(input.value));
+    });
+    input.addEventListener("change", () => {
+      before = null;
+      value = input.value;
+      App().renderOptions();
+    });
+    return input;
+  };
+  // In the options bar: the gradient's first and last colours, each a click from the picker
+  const endField = (last) => {
+    const pick = (stops) => (last ? stops[stops.length - 1] : stops[0]);
+    let base = null;
+    const input = colorField(T(last ? "End Color" : "Start Color"), toHex(pick(currentStops())), (color) => {
+      if (!base) base = currentStops();
+      const stops = cleanStops(base);
+      Object.assign(pick(stops), color);
+      useStops(stops);
+    }, () => {
+      base = null;
+      showCurrent();
+      redrawLive();
+      if (editor) syncEditor();
+    });
+    input.classList.add("grad-end-color");
+    input.addEventListener("change", () => {
+      base = null;
+    });
+    return input;
+  };
+  // The options bar's picture of the gradient, and its ends, as its colours change
+  const NEUTRAL = [stop(0, { r: 92, g: 136, b: 184 }), stop(1, { r: 236, g: 214, b: 236 })];
+  const currentPicture = () => {
+    const stops = prefs.colors === "page" && !liveNow() ? NEUTRAL : currentStops();
+    return preview(46, 16, "linear", stops);
+  };
+  const showCurrent = () => {
+    const shown = document.querySelector(".grad-current");
+    if (shown) {
+      const old = shown.querySelector(".grad-preview");
+      if (old) old.replaceWith(currentPicture());
+    }
+    const stops = currentStops();
+    document.querySelectorAll(".grad-end-color").forEach((input) => {
+      if (input.closest(".grad-own")) input.value = toHex(input.dataset.end === "last" ? stops[stops.length - 1] : stops[0]);
+    });
+  };
+
+  /* ------------------------------ the Gradient Editor ------------------------------ */
+
+  // Beside the page, not over it: a gradient can be drawn while it is open, and it changes as
+  // its colours do. Alt + click on the page gives the colour chosen the page's colour there.
+  let editor = null;
+  const closeEditor = () => {
+    if (!editor) return;
+    const was = editor;
+    editor = null;
+    was.el.remove();
+    document.removeEventListener("pointerdown", was.outside, true);
+    window.removeEventListener("resize", was.away);
+    window.removeEventListener("keydown", was.escape);
+    const anchor = document.querySelector(".grad-current");
+    if (anchor) anchor.setAttribute("aria-expanded", "false");
+  };
+  // Its colours again from the gradient's, changed from elsewhere
+  const syncEditor = () => {
+    if (!editor) return;
+    editor.stops = currentStops();
+    editor.chosen = Math.min(editor.chosen, editor.stops.length - 1);
+    editor.render();
+  };
+  const openEditor = (anchor) => {
+    closeEditor();
+    const el = make("div", "grad-editor");
+    el.setAttribute("role", "dialog");
+    el.setAttribute("aria-label", T("Gradient Editor"));
+    const state = { el, stops: currentStops(), chosen: 0, removing: null };
+    editor = state;
+    const effective = () => state.stops.filter((item) => item !== state.removing);
+    // The fields stay as they are, their values changed in place: one being scrubbed must stay
+    const edited = (quick) => {
+      useStops(effective(), { quick, fromEditor: true });
+      showRamp();
+      showPresets();
+      refreshFields();
+    };
+
+    const head = make("div", "grad-editor__head", el);
+    make("span", "", head, T("Gradient Editor"));
+    const shut = make("button", "icon-btn", head);
+    shut.type = "button";
+    shut.title = T("Close");
+    shut.setAttribute("aria-label", shut.title);
+    shut.innerHTML = App().ICON.close;
+    shut.addEventListener("click", closeEditor);
+
+    make("div", "grad-editor__label", el, T("Presets"));
+    const presets = make("div", "grad-editor__presets", el);
+
+    const ramp = make("div", "grad-editor__ramp", el);
+    const track = make("div", "grad-editor__track", el);
+    track.title = T("Click to add a color. Drag a color down to remove it.");
+
+    const fields = make("div", "grad-editor__fields", el);
+    const saveRow = make("div", "grad-editor__save", el);
+    const name = make("input", "", saveRow);
+    name.type = "text";
+    name.maxLength = 60;
+    name.setAttribute("aria-label", T("Name"));
+    const save = make("button", "btn", saveRow, T("Save as Preset"));
+    save.type = "button";
+    make("p", "grad-editor__hint", el, T("Click under the bar to add a color, drag one down off it to remove it. Alt + click on the page gives the selected color the page's color."));
+
+    const defaultName = () => {
+      const taken = new Set(readPresets().map((item) => item.name));
+      let n = readPresets().length + 1;
+      while (taken.has(`${T("Gradient")} ${n}`)) n++;
+      return `${T("Gradient")} ${n}`;
+    };
+    const keep = () => {
+      const label = name.value.trim() || defaultName();
+      const list = readPresets().filter((item) => item.name !== label);
+      list.push({ name: label, stops: sorted(cleanStops(effective())) });
+      keepPresets(list);
+      name.value = "";
+      name.placeholder = defaultName();
+      showPresets();
+      App().renderOptions();
+    };
+    save.addEventListener("click", keep);
+    name.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.isComposing) {
+        event.preventDefault();
+        keep();
+      }
+    });
+
+    const showPresets = () => {
+      presets.textContent = "";
+      COLORS.filter(([id]) => id !== "page").forEach(([id, label]) => {
+        const el = button("grad-swatch", T(label), prefs.colors === id, () => {
+          prefs.colors = id;
+          keepPrefs();
+          syncEditor();
+          redrawLive();
+          App().renderOptions();
+        });
+        el.appendChild(preview(34, 16, "linear", stopsFor(id, [0, 0], [1, 0], null), true));
+        presets.appendChild(el);
+      });
+      const own = prefs.colors === "custom" ? customStops() : null;
+      readPresets().forEach((preset) => {
+        const item = make("span", "grad-editor__preset", presets);
+        const el = button("grad-swatch", preset.name, Boolean(own && sameStops(own, preset.stops)), () => {
+          choosePreset(preset);
+          syncEditor();
+        });
+        el.appendChild(preview(34, 16, "linear", preset.stops, true));
+        item.appendChild(el);
+        const remove = make("button", "grad-editor__remove", item);
+        remove.type = "button";
+        remove.title = `${T("Delete Preset")} (${preset.name})`;
+        remove.setAttribute("aria-label", remove.title);
+        remove.innerHTML = App().ICON.close;
+        remove.addEventListener("click", () => {
+          keepPresets(readPresets().filter((other) => other.name !== preset.name));
+          showPresets();
+          App().renderOptions();
+        });
+      });
+    };
+
+    let shownFor = null;
+    let inputs = null;
+    const refreshFields = () => {
+      const chosen = state.stops[state.chosen];
+      if (!inputs || chosen !== shownFor) {
+        showFields();
+        return;
+      }
+      const set = (input, value) => {
+        if (document.activeElement !== input) input.value = value;
+      };
+      set(inputs.color, toHex(chosen));
+      set(inputs.opacity, Math.round(chosen.a * 100));
+      set(inputs.place, Math.round(chosen.at * 100));
+      inputs.remove.disabled = state.stops.length <= 2;
+    };
+    const showFields = () => {
+      fields.textContent = "";
+      const chosen = state.stops[state.chosen];
+      shownFor = chosen || null;
+      inputs = null;
+      if (!chosen) return;
+      const color = colorField(T("Color"), toHex(chosen), (picked) => {
+        Object.assign(chosen, picked);
+        edited(false);
+      }, () => {
+        syncEditor();
+        showCurrent();
+        redrawLive();
+        App().renderOptions();
+      });
+      color.classList.add("grad-editor__color");
+      fields.appendChild(color);
+      const opacity = App().numberInput(Math.round(chosen.a * 100), 0, 100, (value) => {
+        chosen.a = unit(value / 100);
+        edited(false);
+      });
+      const withUnit = (label) => {
+        const field = make("span", "grad-editor__field", fields);
+        field.appendChild(label);
+        make("span", "grad-editor__unit", field, "%");
+      };
+      withUnit(App().scrubbed(T("Opacity"), opacity));
+      const place = App().numberInput(Math.round(chosen.at * 100), 0, 100, (value) => {
+        chosen.at = unit(value / 100);
+        edited(false);
+      });
+      withUnit(App().scrubbed(T("Location"), place));
+      const remove = make("button", "icon-btn", fields);
+      remove.type = "button";
+      remove.title = T("Delete");
+      remove.setAttribute("aria-label", remove.title);
+      remove.innerHTML = App().ICON.trash;
+      remove.disabled = state.stops.length <= 2;
+      remove.addEventListener("click", () => removeChosen());
+      inputs = { color, opacity, place, remove };
+    };
+    const removeChosen = () => {
+      if (state.stops.length <= 2) return;
+      state.stops.splice(state.chosen, 1);
+      state.chosen = Math.min(state.chosen, state.stops.length - 1);
+      edited(false);
+      App().renderOptions();
+    };
+    const focusChosen = () => {
+      const mark = track.querySelector(".grad-stop.is-on");
+      if (mark) mark.focus({ preventScroll: true });
+    };
+
+    const showRamp = () => {
+      ramp.textContent = "";
+      ramp.appendChild(preview(332, 22, "linear", effective(), true));
+      track.textContent = "";
+      state.stops.forEach((item, i) => {
+        const mark = make("button", "grad-stop" + (i === state.chosen ? " is-on" : "") + (item === state.removing ? " is-removing" : ""), track);
+        mark.type = "button";
+        mark.dataset.i = String(i);
+        mark.style.left = `${item.at * 100}%`;
+        mark.style.setProperty("--color", `rgba(${item.r}, ${item.g}, ${item.b}, ${item.a})`);
+        mark.title = `${toHex(item)} · ${Math.round(item.a * 100)}% · ${Math.round(item.at * 100)}%`;
+        mark.setAttribute("aria-label", `${T("Color")} ${i + 1}: ${mark.title}`);
+        mark.setAttribute("aria-pressed", String(i === state.chosen));
+      });
+    };
+    state.render = () => {
+      showRamp();
+      showFields();
+      showPresets();
+    };
+
+    // A colour chosen, dragged along the bar, or down off it to remove it. Under the bar or on
+    // it, a new colour, the gradient's own there.
+    const grab = (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      const box = track.getBoundingClientRect();
+      const along = (e) => unit((e.clientX - box.left) / box.width);
+      const mark = event.target.closest(".grad-stop");
+      let item;
+      let moved = false;
+      if (mark) {
+        item = state.stops[Number(mark.dataset.i)];
+        if (!item) return;
+      } else {
+        item = colorAt(state.stops, along(event));
+        state.stops.push(item);
+        moved = true;
+      }
+      state.chosen = state.stops.indexOf(item);
+      if (moved) edited(true);
+      else {
+        showRamp();
+        refreshFields();
+      }
+      focusChosen();
+      const x0 = event.clientX;
+      const holder = event.currentTarget;
+      holder.setPointerCapture(event.pointerId);
+      const move = (e) => {
+        if (!moved && Math.abs(e.clientX - x0) < 3 && e.clientY - box.bottom < 24) return;
+        moved = true;
+        item.at = along(e);
+        state.removing = state.stops.length > 2 && e.clientY - box.bottom > 24 ? item : null;
+        edited(true);
+      };
+      const end = () => {
+        holder.removeEventListener("pointermove", move);
+        holder.removeEventListener("pointerup", end);
+        holder.removeEventListener("pointercancel", end);
+        if (!moved) return;
+        if (state.removing) {
+          state.stops = state.stops.filter((other) => other !== state.removing);
+          state.removing = null;
+          state.chosen = Math.min(state.chosen, state.stops.length - 1);
+        } else state.chosen = state.stops.indexOf(item);
+        edited(false);
+        focusChosen();
+        App().renderOptions();
+      };
+      holder.addEventListener("pointermove", move);
+      holder.addEventListener("pointerup", end);
+      holder.addEventListener("pointercancel", end);
+    };
+    track.addEventListener("pointerdown", grab);
+    ramp.addEventListener("pointerdown", grab);
+
+    // Its keys are its own: Delete removes the colour chosen, not the layer
+    el.addEventListener("keydown", (event) => {
+      if (event.metaKey || event.ctrlKey) return;
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeEditor();
+      } else if ((event.key === "Delete" || event.key === "Backspace") && event.target.closest(".grad-stop")) {
+        event.preventDefault();
+        removeChosen();
+        focusChosen();
+      } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && event.target.closest(".grad-stop")) {
+        event.preventDefault();
+        const item = state.stops[state.chosen];
+        item.at = unit(item.at + (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 0.1 : 0.01));
+        edited(false);
+        focusChosen();
+      }
+    });
+
+    // Away from it, it closes, but not on the page or the options bar, nor in the colour
+    // picker it opened
+    state.outside = (event) => {
+      if (el.contains(event.target) || (event.target.closest && event.target.closest("#options, dialog, #stage"))) return;
+      closeEditor();
+    };
+    state.away = () => closeEditor();
+    // Esc from a field of the options bar too, but not from the colour picker, which it cancels
+    state.escape = (event) => {
+      if (event.key === "Escape" && !event.defaultPrevented && !document.querySelector("dialog[open]")) closeEditor();
+    };
+    name.placeholder = defaultName();
+    state.render();
+    document.body.appendChild(el);
+    const box = anchor.getBoundingClientRect();
+    const width = el.offsetWidth;
+    el.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, box.left))}px`;
+    if (window.innerHeight - box.bottom >= el.offsetHeight + 12 || box.top < el.offsetHeight + 12) el.style.top = `${box.bottom + 4}px`;
+    else el.style.bottom = `${window.innerHeight - box.top + 4}px`;
+    anchor.setAttribute("aria-expanded", "true");
+    document.addEventListener("pointerdown", state.outside, true);
+    window.addEventListener("keydown", state.escape);
+    // On a touch screen the keyboard resizes the window
+    if (!touch()) window.addEventListener("resize", state.away);
+  };
+
+  /* ------------------------------ the options bar ------------------------------ */
 
   const options = (bar) => {
     const tool = app.tool;
@@ -435,9 +925,8 @@
     if (tool !== "gradient") return;
     const colours = document.createElement("span");
     colours.className = "obar__group grad-swatches";
-    const neutral = [stop(0, { r: 92, g: 136, b: 184 }), stop(1, { r: 236, g: 214, b: 236 })];
     COLORS.forEach(([id, name]) => {
-      const stops = id === "page" ? neutral : stopsFor(id, [0, 0], [1, 0], null);
+      const stops = id === "page" ? NEUTRAL : stopsFor(id, [0, 0], [1, 0], null);
       const el = button("grad-swatch", T(name), prefs.colors === id, () => changed("colors", id));
       el.appendChild(preview(34, 16, "linear", stops));
       if (id === "page") {
@@ -448,6 +937,46 @@
       }
       colours.appendChild(el);
     });
+    bar.appendChild(colours);
+    // The presets kept, a click away
+    const saved = readPresets();
+    if (saved.length) {
+      const kept = document.createElement("span");
+      kept.className = "obar__group grad-swatches grad-presets";
+      const own = prefs.colors === "custom" ? customStops() : null;
+      saved.forEach((preset) => {
+        const el = button("grad-swatch", preset.name, Boolean(own && sameStops(own, preset.stops)), () => choosePreset(preset));
+        el.appendChild(preview(34, 16, "linear", preset.stops));
+        kept.appendChild(el);
+      });
+      bar.appendChild(kept);
+    }
+    // Its own colours: its ends, and the Gradient Editor for the rest
+    const own = document.createElement("span");
+    own.className = "obar__group grad-own";
+    const withEnds = prefs.colors !== "page" || Boolean(liveNow());
+    const first = withEnds ? endField(false) : null;
+    const last = withEnds ? endField(true) : null;
+    if (first) first.dataset.end = "first";
+    if (last) last.dataset.end = "last";
+    const edit = button("grad-current", T("Gradient Editor"), prefs.colors === "custom", () => {
+      if (editor) closeEditor();
+      else openEditor(edit);
+    });
+    edit.setAttribute("aria-haspopup", "dialog");
+    edit.setAttribute("aria-expanded", String(Boolean(editor)));
+    edit.appendChild(currentPicture());
+    const caret = document.createElement("span");
+    caret.className = "grad-current__caret";
+    caret.innerHTML = App().ICON.chevronDown;
+    edit.appendChild(caret);
+    // Reversed, the ends are shown the way the gradient goes
+    const ends = prefs.reverse ? [last, first] : [first, last];
+    if (ends[0]) own.appendChild(ends[0]);
+    own.appendChild(edit);
+    if (ends[1]) own.appendChild(ends[1]);
+    bar.appendChild(own);
+
     const kinds = document.createElement("span");
     kinds.className = "obar__group";
     const shown = prefs.colors === "page" ? [stop(0, BLACK), stop(1, WHITE)] : stopsFor(prefs.colors === "fgClear" ? "fgbg" : prefs.colors, [0, 0], [1, 0], null);
@@ -457,7 +986,7 @@
       kinds.appendChild(el);
     });
     const opacity = App().numberInput(prefs.opacity, 0, 100, (value) => changed("opacity", Math.max(0, Math.min(100, Math.round(value)))));
-    bar.append(colours, kinds, App().scrubbed(T("Opacity"), opacity));
+    bar.append(kinds, App().scrubbed(T("Opacity"), opacity));
     bar.appendChild(select(T("Method"), METHODS, prefs.method, (value) => changed("method", value)));
     bar.appendChild(App().checkbox(T("Reverse"), prefs.reverse, (on) => changed("reverse", on)));
     bar.appendChild(App().checkbox(T("Dither"), prefs.dither, (on) => changed("dither", on)));
@@ -497,10 +1026,25 @@
     },
     options,
     toolChosen(tool) {
-      if (tool !== "gradient") endLive();
+      if (tool !== "gradient") {
+        closeEditor();
+        endLive();
+      }
     },
-    // Enter or Esc: the gradient's ends go, the gradient stays
+    // Alt + click on the page with the Gradient Editor open: the colour chosen there takes it
+    sampled(color) {
+      if (!editor || app.tool !== "gradient" || !editor.stops[editor.chosen]) return false;
+      Object.assign(editor.stops[editor.chosen], { r: byte(color.r), g: byte(color.g), b: byte(color.b) });
+      useStops(editor.stops, { fromEditor: true });
+      editor.render();
+      return true;
+    },
+    // Esc closes the Gradient Editor first. Enter or Esc: the gradient's ends go, the gradient stays.
     key(event) {
+      if (event.key === "Escape" && editor) {
+        closeEditor();
+        return true;
+      }
       if ((event.key === "Enter" || event.key === "Escape") && app.tool === "gradient" && liveNow()) {
         endLive();
         return true;
