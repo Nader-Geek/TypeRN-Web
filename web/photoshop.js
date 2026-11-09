@@ -8944,8 +8944,56 @@
       if (!doc) return JSON.stringify({ error: "document" });
       return JSON.stringify({ entries: doc.state.layers.filter((layer) => layer.kind === "text" && layer.visible !== false).map((layer) => ({ layerId: layer.id, text: layer.params.layerText.textKey || "" })) });
     },
-    scanTextShapeRTraining() {
-      return JSON.stringify({ error: "open" });
+    // TextShapeR learns from the line breaks of finished pages: each text layer as it shows,
+    // a paragraph's lines as its box sets them (Photoshop turns it into point text for this).
+    // No path means the current page; an open file is read as it is now, unsaved work included.
+    async scanTextShapeRTraining(path) {
+      const raw = String(path || "");
+      try {
+        let resolution;
+        let layers;
+        const fromDoc = (doc) => {
+          const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
+          const pathOf = (layer) => {
+            const names = [layer.name || ""];
+            for (let id = layer.group; id && byId.get(id); id = byId.get(id).group) names.unshift(byId.get(id).name || "");
+            return names.join(" / ");
+          };
+          resolution = doc.resolution;
+          layers = doc.state.layers.filter((layer) => layer.kind === "text").map((layer) => ({
+            layerId: layer.id, name: layer.name || "", path: pathOf(layer), visible: chainOf(layer, byId).visible, params: layer.params,
+          }));
+        };
+        if (!raw) {
+          if (!app.doc) return JSON.stringify({ error: "document" });
+          fromDoc(app.doc);
+        } else {
+          if (!/\.ps[db]$/i.test(raw)) return JSON.stringify({ error: "badPath" });
+          const file = app.files.get(raw);
+          if (!file) return JSON.stringify({ error: "notFound" });
+          const open = app.docs.find((doc) => doc.path === raw && doc.stamp === fileStamp(file));
+          if (open) fromDoc(open);
+          else ({ resolution, layers } = await window.TypeRPSD.readText(await file.arrayBuffer()));
+        }
+        // A paragraph's lines depend on its fonts' widths
+        await Fonts.ready(layers.flatMap(({ params }) => params.layerText.textStyleRange.map((range) => range.textStyle.fontPostScriptName)));
+        const shownText = (lt) => {
+          if (!boxShape(lt)) return lt.textKey || "";
+          return relativeLayout(lt, resolution).wrapped.map((runs) => runs.map((run) => run.text).join("").replace(/\s+$/, "")).join("\r");
+        };
+        const entries = layers.map((layer, index) => {
+          const entry = { layerId: layer.layerId || index + 1, name: layer.name, layerPath: layer.path, visible: layer.visible !== false, text: "" };
+          try {
+            entry.text = shownText(layer.params.layerText);
+          } catch (readError) {
+            entry.error = "readFailed";
+          }
+          return entry;
+        });
+        return JSON.stringify({ entries });
+      } catch (scanError) {
+        return JSON.stringify({ error: "scanFailed" });
+      }
     },
     getCurrentSelectionShape(data) {
       const doc = app.doc;

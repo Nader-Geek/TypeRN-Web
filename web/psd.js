@@ -547,11 +547,15 @@
     const info = psd.imageResources && psd.imageResources.resolutionInfo;
     const doc = { width: psd.width, height: psd.height, resolution: (info && info.horizontalResolution) || 72 };
     const layers = [];
-    const walk = (children) => (children || []).forEach((node) => {
-      if (node.children) walk(node.children);
-      else if (node.text) layers.push({ name: node.name || "", params: paramsFromPsd(node.text, doc), stroke: strokeFromEffects(node.effects) });
+    // Where each one sits, and whether it shows, groups included: TextShapeR's training needs both
+    const walk = (children, parentPath, parentVisible) => (children || []).forEach((node) => {
+      const name = node.name || "";
+      const path = parentPath ? parentPath + " / " + name : name;
+      const visible = parentVisible && !node.hidden;
+      if (node.children) walk(node.children, path, visible);
+      else if (node.text) layers.push({ name, path, visible, params: paramsFromPsd(node.text, doc), stroke: strokeFromEffects(node.effects) });
     });
-    walk(psd.children);
+    walk(psd.children, "", true);
     return { resolution: doc.resolution, layers };
   };
 
