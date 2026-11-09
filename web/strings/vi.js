@@ -123,6 +123,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Each format goes in its own folder: {folders}": "Mỗi định dạng vào thư mục riêng: {folders}",
     "Formats": "Định dạng",
     "Quality": "Chất lượng",
+    "Match the page's tones": "Khớp với tông màu của trang",
+    "Brings what the model draws to the brightness of the page around it, so the filled areas don't show up lighter or darker.": "Đưa phần mô hình vẽ về độ sáng của trang xung quanh, để vùng được tô không bị sáng hơn hay tối hơn.",
     "Resize to fit": "Thu vừa kích thước",
     "Width": "Chiều rộng",
     "Height": "Chiều cao",

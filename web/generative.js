@@ -83,10 +83,12 @@
   })();
 
   const load = () => {
-    const out = { service: "google", keys: {}, models: {}, custom: {}, quality: {} };
+    const out = { service: "google", keys: {}, models: {}, custom: {}, quality: {}, matchTones: true };
     try {
       const saved = JSON.parse(window.localStorage.getItem(STORE)) || {};
       if (SERVICES[saved.service]) out.service = saved.service;
+      // The inside brought to the page's brightness: on unless turned off
+      if (saved.matchTones === false) out.matchTones = false;
       Object.keys(SERVICES).forEach((name) => {
         if (saved.keys && typeof saved.keys[name] === "string") out.keys[name] = saved.keys[name];
         if (saved.models && typeof saved.models[name] === "string" && saved.models[name]) out.models[name] = saved.models[name];

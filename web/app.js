@@ -3777,6 +3777,24 @@
     const used = card();
     used.append(field(T("Service"), serviceSelect), field(T("Model"), modelSelect), price, qualityField, total);
     pane.append(hint(T("Generative Fill sends the selection, with what surrounds it, to an image model. Use your own key: it stays on this device and goes only to the service it belongs to, which bills you.")), used);
+    // What comes back brought to the brightness of the page around it
+    const tonesSwitch = document.createElement("input");
+    tonesSwitch.type = "checkbox";
+    tonesSwitch.className = "set__switch";
+    tonesSwitch.checked = saved.matchTones !== false;
+    const tonesRow = document.createElement("label");
+    tonesRow.className = "set__row";
+    const tonesText = document.createElement("span");
+    tonesText.className = "set__text";
+    const tonesName = document.createElement("span");
+    tonesName.className = "set__label";
+    tonesName.textContent = T("Match the page's tones");
+    tonesText.append(tonesName, hint(T("Brings what the model draws to the brightness of the page around it, so the filled areas don't show up lighter or darker.")));
+    tonesRow.append(tonesText, tonesSwitch);
+    const tonesCard = document.createElement("div");
+    tonesCard.className = "set__card";
+    tonesCard.appendChild(tonesRow);
+    pane.appendChild(tonesCard);
     // The keys, one per service
     const keysCard = card();
     pane.append(heading(T("API keys")), keysCard);
@@ -3891,7 +3909,7 @@
       save: () => {
         Object.keys(keyInputs).forEach((name) => { keys[name] = keyInputs[name].value.trim(); });
         models[service] = modelSelect.value;
-        if (!Gen.save({ service, keys, models, custom, quality })) toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
+        if (!Gen.save({ service, keys, models, custom, quality, matchTones: tonesSwitch.checked })) toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
       },
     };
   };
@@ -3987,6 +4005,7 @@
         ratios: Gen.ratiosFor(model),
         fixed: Gen.fixedSize(job.account),
         inPlace: Gen.drawsInPlace(job.account),
+        matchTones: job.account.matchTones !== false,
         longest: Gen.longestFor(job.account),
         folder: job.folder,
         settle: settleFor(job),

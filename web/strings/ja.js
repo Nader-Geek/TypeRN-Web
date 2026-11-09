@@ -123,6 +123,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Each format goes in its own folder: {folders}": "形式ごとに専用のフォルダーに保存されます：{folders}",
     "Formats": "形式",
     "Quality": "画質",
+    "Match the page's tones": "ページのトーンに合わせる",
+    "Brings what the model draws to the brightness of the page around it, so the filled areas don't show up lighter or darker.": "モデルが描いた部分を周囲のページの明るさに合わせ、塗りつぶした部分が明るすぎたり暗すぎたりして目立たないようにします。",
     "Resize to fit": "サイズに合わせる",
     "Width": "幅",
     "Height": "高さ",

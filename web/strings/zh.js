@@ -123,6 +123,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Each format goes in its own folder: {folders}": "每种格式保存在各自的文件夹中：{folders}",
     "Formats": "格式",
     "Quality": "品质",
+    "Match the page's tones": "匹配页面色调",
+    "Brings what the model draws to the brightness of the page around it, so the filled areas don't show up lighter or darker.": "将模型绘制的内容调整到周围页面的亮度，使填充区域不会显得更亮或更暗。",
     "Resize to fit": "调整大小以适合",
     "Width": "宽度",
     "Height": "高度",
