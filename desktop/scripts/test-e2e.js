@@ -191,6 +191,34 @@ const main = async () => {
   step("the panel's Open in Photoshop button opens the app's dialog", panelHasButton && panelAsks);
   if (panelAsks) await page.click("#modal[open] .modal__foot .btn:not(.btn--main)");
   step("Import the script sends the panel's script with the pages", sentScript && sentScript.name === "Chapter 12" && sentScript.text === "Hello\nWorld" && sentScript.files.length === 1, JSON.stringify(sentScript));
+  // A page from a folder opened whole holds the folder's permission, not its own: its PSD still opens
+  const folderPages = path.join(WORK, "folder chapter");
+  fs.mkdirSync(folderPages);
+  fs.copyFileSync(psd, path.join(folderPages, "01.psd"));
+  // Dropped on the window as from the Finder, not opened by the system, which takes files only
+  await page.evaluate(() => Object.defineProperty(window, "TypeRDesktopOpening", { configurable: true, get: () => false, set: () => {} }));
+  await run.app.evaluate((_, folder) => global.typerTest.openPaths([folder]), folderPages);
+  await waitDocs(page, 3);
+  await page.evaluate(() => {
+    window.typerPickedFolder = false;
+    window.showDirectoryPicker = async () => {
+      window.typerPickedFolder = true;
+      throw new DOMException("refused by the test", "AbortError");
+    };
+  });
+  const sendingFolder = page.evaluate(() => window.TypeRApp.openInPhotoshop());
+  await page.waitForSelector("#modal[open] select", { timeout: 5000 });
+  await page.selectOption("#modal[open] select >> nth=0", "one");
+  await page.click("#modal[open] .modal__foot .btn--main");
+  await sendingFolder;
+  const sentFolder = await run.app.evaluate(() => (global.typerPhotoshopOpened || []).slice(-1)[0] || null);
+  const pickedFolder = await page.evaluate(async () => {
+    delete window.TypeRDesktopOpening;
+    await window.TypeRApp.closeDoc();
+    return window.typerPickedFolder;
+  });
+  await waitDocs(page, 2);
+  step("a PSD of a folder opened whole opens in Photoshop, with no folder to choose", !pickedFolder && sentFolder && sentFolder.files.length === 1 && fs.realpathSync(sentFolder.files[0]) === fs.realpathSync(path.join(folderPages, "01.psd")), JSON.stringify({ pickedFolder, sentFolder }));
 
   // The other process that the system starts when the app is already open
   const clean = { ...process.env };

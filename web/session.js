@@ -345,7 +345,7 @@
 
   // The active document first, so there's something to work on at once. The others join
   // their tabs as they come.
-  const restore = async ({ progress, failed, elsewhere }) => {
+  const restoreAll = async ({ progress, failed, elsewhere }) => {
     let records = [];
     try {
       records = await inStore("documents", "readonly", (store) => store.getAll());
@@ -400,5 +400,13 @@
     await cleanLeftovers().catch((error) => console.warn("TypeR web: could not clean the kept documents", error));
   };
 
-  window.TypeRSession = { restore, flush, isKept };
+  // The panel starts while they come back: a page it asks for meanwhile waits for them
+  // (openFile in photoshop.js)
+  let restoring = null;
+  const restore = (callbacks) => {
+    restoring = restoreAll(callbacks).finally(() => { restoring = null; });
+    return restoring;
+  };
+
+  window.TypeRSession = { restore, restoring: () => restoring, flush, isKept };
 })();

@@ -5378,6 +5378,158 @@
       for (let i = 0; i < picture.length; i += 4) picture[i + c] = smooth[picture[i + c]];
     }
   };
+  // Inside `hole`, `picture` brought to the brightness of the page that borders it. A model can
+  // draw the inside lighter or darker than its own surroundings (FLUX smooths a screentone into
+  // a paler grey), which no levels matched around the hole can see. Along the hole's edge, the
+  // page's average just outside is set against the picture's just inside; each piece of the hole
+  // gets the correction those differences agree on, a level and a slope (a gradient goes on
+  // across it). The edge points that disagree (a balloon's outline, a line of the art next to
+  // the hole) weigh nothing, so they don't stain it.
+  const matchTones = (picture, page, hole, width, height) => {
+    const n = width * height;
+    const inside = new Uint8Array(n);
+    for (let p = 0; p < n; p++) if (hole[p * 4 + 3]) inside[p] = 1;
+    // Averages over a square around each point: of the page outside the hole, of the picture in it
+    const r = Math.max(4, Math.min(16, Math.round(Math.sqrt(n) * 0.012)));
+    const W1 = width + 1;
+    const sums = (fromPicture) => {
+      const table = new Float64Array(W1 * (height + 1) * 4);
+      for (let y = 0; y < height; y++) {
+        const row = [0, 0, 0, 0];
+        for (let x = 0; x < width; x++) {
+          const p = y * width + x;
+          const take = fromPicture ? inside[p] : !inside[p];
+          if (take) {
+            const source = fromPicture ? picture : page;
+            row[0] += source[p * 4];
+            row[1] += source[p * 4 + 1];
+            row[2] += source[p * 4 + 2];
+            row[3]++;
+          }
+          const at = ((y + 1) * W1 + x + 1) * 4;
+          const above = (y * W1 + x + 1) * 4;
+          for (let k = 0; k < 4; k++) table[at + k] = table[above + k] + row[k];
+        }
+      }
+      return table;
+    };
+    const outer = sums(false);
+    const inner = sums(true);
+    const box = (table, x, y, k) => {
+      const a = Math.max(0, x - r);
+      const b = Math.max(0, y - r);
+      const c = Math.min(width, x + r + 1);
+      const d = Math.min(height, y + r + 1);
+      return table[(d * W1 + c) * 4 + k] - table[(b * W1 + c) * 4 + k] - table[(d * W1 + a) * 4 + k] + table[(b * W1 + a) * 4 + k];
+    };
+    const enough = (r * 2 + 1) * (r * 2 + 1) * 0.2;
+    // Each piece of the hole on its own, with its edge points: where it is, and how far the
+    // page's average stands from the picture's there
+    const piece = new Int32Array(n).fill(-1);
+    const pieces = [];
+    const stack = [];
+    for (let start = 0; start < n; start++) {
+      if (!inside[start] || piece[start] >= 0) continue;
+      const id = pieces.length;
+      const one = { pixels: [], samples: [] };
+      pieces.push(one);
+      piece[start] = id;
+      stack.push(start);
+      while (stack.length) {
+        const p = stack.pop();
+        one.pixels.push(p);
+        const x = p % width;
+        const y = (p - x) / width;
+        let edge = false;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const q = ny * width + nx;
+          if (!inside[q]) edge = true;
+          else if (piece[q] < 0) {
+            piece[q] = id;
+            stack.push(q);
+          }
+        }
+        if (!edge) continue;
+        const outCount = box(outer, x, y, 3);
+        const inCount = box(inner, x, y, 3);
+        if (outCount < enough || inCount < enough) continue;
+        const gap = [0, 1, 2].map((k) => box(outer, x, y, k) / outCount - box(inner, x, y, k) / inCount);
+        one.samples.push({ x, y, gap });
+      }
+    }
+    pieces.forEach((one) => {
+      const { pixels, samples } = one;
+      if (samples.length < 8) return;
+      let cx = 0;
+      let cy = 0;
+      samples.forEach((s) => { cx += s.x; cy += s.y; });
+      cx /= samples.length;
+      cy /= samples.length;
+      let spread = 0;
+      samples.forEach((s) => { spread = Math.max(spread, Math.abs(s.x - cx), Math.abs(s.y - cy)); });
+      // A slope only where the piece is wide enough to show one
+      const sloped = spread > r * 3 && samples.length >= 40;
+      const scale = spread || 1;
+      const offsets = [0, 1, 2].map((k) => {
+        // Least squares, again and again, each point weighed by how well it agrees (Tukey):
+        // a level, and in a wide piece a slope along x and y
+        let fit = [0, 0, 0];
+        const values = samples.map((s) => s.gap[k]).sort((a, b) => a - b);
+        fit[0] = values[values.length >> 1];
+        let cut = 24;
+        for (let round = 0; round < 12; round++) {
+          const m = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+          const v = [0, 0, 0];
+          const residuals = [];
+          samples.forEach((s) => {
+            const u = (s.x - cx) / scale;
+            const w = (s.y - cy) / scale;
+            const e = s.gap[k] - (fit[0] + fit[1] * u + fit[2] * w);
+            residuals.push(Math.abs(e));
+            const t = e / cut;
+            const weight = Math.abs(t) < 1 ? (1 - t * t) * (1 - t * t) : 0;
+            if (!weight) return;
+            const f = [1, u, w];
+            for (let i = 0; i < 3; i++) {
+              v[i] += weight * f[i] * s.gap[k];
+              for (let j = 0; j < 3; j++) m[i * 3 + j] += weight * f[i] * f[j];
+            }
+          });
+          if (m[0] < 4) break;
+          if (sloped) {
+            // A little held back, so that a few points can't tip it
+            m[4] += m[0] * 0.02;
+            m[8] += m[0] * 0.02;
+            const det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
+            if (Math.abs(det) < 1e-9) break;
+            const solve = (col) => {
+              const a = m.slice();
+              for (let i = 0; i < 3; i++) a[i * 3 + col] = v[i];
+              return (a[0] * (a[4] * a[8] - a[5] * a[7]) - a[1] * (a[3] * a[8] - a[5] * a[6]) + a[2] * (a[3] * a[7] - a[4] * a[6])) / det;
+            };
+            fit = [solve(0), solve(1), solve(2)];
+          } else fit = [v[0] / m[0], 0, 0];
+          // The cut follows how far the points stray: wide at first, then around the agreeing ones
+          residuals.sort((a, b) => a - b);
+          cut = Math.max(6, Math.min(48, residuals[residuals.length >> 1] * 4.7));
+        }
+        return fit;
+      });
+      pixels.forEach((p) => {
+        const x = p % width;
+        const u = (x - cx) / scale;
+        const w = ((p - x) / width - cy) / scale;
+        for (let k = 0; k < 3; k++) {
+          const [a, b, c] = offsets[k];
+          const shift = Math.max(-96, Math.min(96, a + b * u + c * w));
+          picture[p * 4 + k] = picture[p * 4 + k] + shift;
+        }
+      });
+    });
+  };
 
   /* -------------------------- Content-Aware Fill -------------------------- */
 
@@ -7656,7 +7808,8 @@
     // (FLUX on this computer, which redraws only the selection); `longest`: its largest side.
     // `folder`: { name, id }, for Remove Text: the layer goes in that folder, made under the
     // texts the first time (its id kept in `folder.id`) and made again if it was deleted.
-    async generativeFill({ draw, ratios, name, settle, doc: wanted, selection: chosen, activeIds, hide, fixed, inPlace: drawnInPlace, longest, folder }, progress = () => {}) {
+    // `matchTones`: the inside then brought to the brightness of the page that borders it.
+    async generativeFill({ draw, ratios, name, settle, doc: wanted, selection: chosen, activeIds, hide, fixed, inPlace: drawnInPlace, longest, folder, matchTones: tones }, progress = () => {}) {
       const inPlace = Boolean(fixed || drawnInPlace);
       const doc = wanted || app.doc;
       if (!doc || !app.docs.includes(doc)) return { outcome: "gone" };
@@ -7820,9 +7973,13 @@
       // Models shift the tones (a cream paper, a grain, greys a little off): around the selection,
       // the picture's levels are matched to the page's, and the same levels go inside. FLUX shifts
       // them too, even drawing in place: only LaMa's pixels keep the page's own.
-      if (!fixed) {
+      // Then, unless turned off, the inside brought to the brightness of the page at its edge:
+      // LaMa's too, whose inside is its own guess.
+      if (!fixed || tones) {
         const laidData = lctx.getImageData(0, 0, width, height);
-        matchLevels(laidData.data, actx.getImageData(0, 0, width, height).data, holeData);
+        const pageData = actx.getImageData(0, 0, width, height).data;
+        if (!fixed) matchLevels(laidData.data, pageData, holeData);
+        if (tones) matchTones(laidData.data, pageData, holeData, width, height);
         lctx.putImageData(laidData, 0, 0);
       }
       progress(0.95);
@@ -9064,6 +9221,9 @@
       if (raw.indexOf("/typer/app/assets/") === 0) {
         return ops.loadImage((window.TypeRPhotoshop.panelBase || "panel/") + "assets/" + raw.split("/").pop(), name, raw).then(done, fail);
       }
+      // At startup, the page may be among the documents still coming back from last time
+      const restoring = window.TypeRSession && window.TypeRSession.restoring();
+      if (restoring) return restoring.catch(() => null).then(() => host.openFile(raw));
       return fail("Open this file first: it is not in the browser yet.");
     },
     // A document already open is read as it is now, unsaved work included, as in Photoshop

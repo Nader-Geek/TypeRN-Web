@@ -3777,6 +3777,24 @@
     const used = card();
     used.append(field(T("Service"), serviceSelect), field(T("Model"), modelSelect), price, qualityField, total);
     pane.append(hint(T("Generative Fill sends the selection, with what surrounds it, to an image model. Use your own key: it stays on this device and goes only to the service it belongs to, which bills you.")), used);
+    // What comes back brought to the brightness of the page around it
+    const tonesSwitch = document.createElement("input");
+    tonesSwitch.type = "checkbox";
+    tonesSwitch.className = "set__switch";
+    tonesSwitch.checked = saved.matchTones !== false;
+    const tonesRow = document.createElement("label");
+    tonesRow.className = "set__row";
+    const tonesText = document.createElement("span");
+    tonesText.className = "set__text";
+    const tonesName = document.createElement("span");
+    tonesName.className = "set__label";
+    tonesName.textContent = T("Match the page's tones");
+    tonesText.append(tonesName, hint(T("Brings what the model draws to the brightness of the page around it, so the filled areas don't show up lighter or darker.")));
+    tonesRow.append(tonesText, tonesSwitch);
+    const tonesCard = document.createElement("div");
+    tonesCard.className = "set__card";
+    tonesCard.appendChild(tonesRow);
+    pane.appendChild(tonesCard);
     // The keys, one per service
     const keysCard = card();
     pane.append(heading(T("API keys")), keysCard);
@@ -3891,7 +3909,7 @@
       save: () => {
         Object.keys(keyInputs).forEach((name) => { keys[name] = keyInputs[name].value.trim(); });
         models[service] = modelSelect.value;
-        if (!Gen.save({ service, keys, models, custom, quality })) toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
+        if (!Gen.save({ service, keys, models, custom, quality, matchTones: tonesSwitch.checked })) toast(T("The key couldn't be kept on this device: it works until the page is closed."), true);
       },
     };
   };
@@ -3987,6 +4005,7 @@
         ratios: Gen.ratiosFor(model),
         fixed: Gen.fixedSize(job.account),
         inPlace: Gen.drawsInPlace(job.account),
+        matchTones: job.account.matchTones !== false,
         longest: Gen.longestFor(job.account),
         folder: job.folder,
         settle: settleFor(job),
@@ -13359,6 +13378,270 @@
     }
   });
 
+  /* Font FindeR in the missing fonts dialog: each font is looked up at once and, when found,
+     installed in one click. A font it doesn't find gets a search of its own. */
+  const FontFinder = window.TypeRFontFinder;
+
+  // After an install, the text that still asks for a name the family doesn't have (another
+  // build, or a similar font) takes the family's closest face
+  const useFontFinderFaces = async (names, added) => {
+    const faces = {};
+    for (const name of names) {
+      if (!Fonts.isMissing(name)) continue;
+      const face = FontFinder.faceFor(name, added);
+      if (!face) continue;
+      await Fonts.ensure(face.postScriptName);
+      faces[name] = { fontPostScriptName: face.postScriptName, fontName: face.family, fontStyleName: face.style };
+    }
+    if (!Object.keys(faces).length) return;
+    ops.replaceFonts(faces);
+    characterKey = "";
+    layersKey = "";
+    renderAfterState();
+  };
+
+  // One install at a time: every row of the same family follows it
+  const fontFinderInstalls = new Map();
+  const installFromFontFinder = (family) => {
+    if (!fontFinderInstalls.has(family.id)) {
+      const job = FontFinder.install(family);
+      fontFinderInstalls.set(family.id, job);
+      job.catch(() => {
+        fontFinderInstalls.delete(family.id);
+        toast(fill(T("{family} couldn't be installed from Font FindeR."), { family: family.family }), true);
+      });
+    }
+    return fontFinderInstalls.get(family.id);
+  };
+
+  const ffButton = (label, className, onClick) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `ff-btn ${className || ""}`.trim();
+    button.textContent = label;
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      onClick(button);
+    });
+    return button;
+  };
+
+  // A family's name in its own letters, once its file is there
+  const ffPreview = (family, element) => {
+    const font = (family.fonts || []).find((item) => item.id === family.default_font_id) || (family.fonts || [])[0];
+    if (!font || !font.preview_url) return;
+    const css = `ff-preview-${family.id}`;
+    new FontFace(css, `url(${font.preview_url})`).load().then((face) => {
+      document.fonts.add(face);
+      element.style.fontFamily = `"${css}", sans-serif`;
+    }, () => {});
+  };
+
+  // The search a font gets when Font FindeR didn't find it on its own
+  const fontFinderSearch = (names, row) => {
+    const box = document.createElement("div");
+    box.className = "ff-search";
+    const input = document.createElement("input");
+    input.type = "search";
+    input.placeholder = T("Search Font FindeR");
+    input.setAttribute("aria-label", T("Search Font FindeR"));
+    input.value = FontFinder.searchText(names[0]);
+    const results = document.createElement("div");
+    results.className = "ff-results";
+    box.append(input, results);
+    let asked = 0;
+    const run = async () => {
+      const query = input.value.trim();
+      const ticket = ++asked;
+      results.textContent = "";
+      if (query.length < 2) return;
+      const note = document.createElement("p");
+      note.className = "ff-note";
+      note.textContent = T("Searching…");
+      results.appendChild(note);
+      let families;
+      try {
+        families = await FontFinder.search(query, 8);
+      } catch (error) {
+        families = null;
+      }
+      if (ticket !== asked) return;
+      results.textContent = "";
+      if (!families || !families.length) {
+        note.textContent = families ? T("No font found.") : T("Font FindeR can't be reached right now.");
+        results.appendChild(note);
+        return;
+      }
+      families.slice(0, 8).forEach((family) => {
+        const line = document.createElement("div");
+        line.className = "ff-result";
+        const name = document.createElement("span");
+        name.className = "ff-result__name";
+        name.textContent = family.family;
+        name.title = (family.fonts || []).map((font) => font.name).join(", ");
+        ffPreview(family, name);
+        const count = document.createElement("span");
+        count.className = "ff-result__count";
+        count.textContent = fill(T("{count} style(s)"), { count: (family.fonts || []).length });
+        const install = ffButton(T("Install"), "ff-btn--main", async (button) => {
+          button.disabled = true;
+          button.textContent = T("Installing…");
+          try {
+            const added = await installFromFontFinder(family);
+            await useFontFinderFaces(names, added);
+            row.done(family);
+          } catch (error) {
+            button.disabled = false;
+            button.textContent = T("Install");
+          }
+        });
+        line.append(name, count, install);
+        results.appendChild(line);
+      });
+    };
+    let timer = 0;
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(run, 350);
+    });
+    input.addEventListener("keydown", (event) => {
+      // Enter searches now, and doesn't close the dialog
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      event.stopPropagation();
+      clearTimeout(timer);
+      run();
+    });
+    run();
+    setTimeout(() => input.focus(), 0);
+    return box;
+  };
+
+  // The missing fonts as a list, each with what Font FindeR has for it
+  const missingFontList = (missing) => {
+    const wrap = document.createElement("div");
+    wrap.className = "ff-list";
+    const banner = document.createElement("div");
+    banner.className = "ff-banner";
+    banner.hidden = true;
+    const list = document.createElement("ul");
+    wrap.append(banner, list);
+    const rows = [];
+    missing.slice(0, 30).forEach((name) => {
+      const item = document.createElement("li");
+      item.className = "ff-row";
+      const line = document.createElement("div");
+      line.className = "ff-row__line";
+      const label = document.createElement("span");
+      label.className = "ff-row__name";
+      label.textContent = name;
+      const side = document.createElement("span");
+      side.className = "ff-row__side";
+      line.append(label, side);
+      item.appendChild(line);
+      list.appendChild(item);
+      const row = { name, match: null, side, item };
+      row.set = (...nodes) => { side.textContent = ""; side.append(...nodes); };
+      row.done = (family) => {
+        row.match = null;
+        row.installed = true;
+        const ok = document.createElement("span");
+        ok.className = "ff-chip ff-chip--done";
+        ok.textContent = `✓ ${family.family}`;
+        ok.title = fill(T("{family} was installed from Font FindeR."), { family: family.family });
+        row.set(ok);
+        const search = item.querySelector(".ff-search");
+        if (search) search.remove();
+        updateBanner();
+      };
+      row.notFound = (reason) => {
+        const searchButton = ffButton(T("Search on Font FindeR"), "", () => {
+          searchButton.remove();
+          // A family found here also serves the other styles of the same font (LEMONMILK-Bold, -Medium…)
+          const kin = rows.filter((other) => !other.installed && !other.match && FontFinder.searchText(other.name) === FontFinder.searchText(name));
+          item.appendChild(fontFinderSearch(kin.map((other) => other.name), { done: (family) => kin.forEach((other) => other.done(family)) }));
+        });
+        if (reason) searchButton.title = reason;
+        row.set(searchButton);
+      };
+      row.install = async () => {
+        const family = row.match.family;
+        const same = rows.filter((other) => other.match && other.match.family.id === family.id);
+        same.forEach((other) => {
+          const busy = document.createElement("span");
+          busy.className = "ff-chip ff-chip--busy";
+          busy.textContent = T("Installing…");
+          other.set(busy);
+        });
+        updateBanner();
+        try {
+          const added = await installFromFontFinder(family);
+          await useFontFinderFaces(same.map((other) => other.name), added);
+          same.forEach((other) => other.done(family));
+        } catch (error) {
+          same.forEach((other) => other.found(other.match));
+          updateBanner();
+        }
+      };
+      row.found = (match) => {
+        row.match = match;
+        const button = ffButton(match.exact ? fill(T("Install {family}"), { family: match.family.family }) : fill(T("Similar: {family}"), { family: match.family.family }), match.exact ? "ff-btn--main" : "ff-btn--similar", () => row.install());
+        button.title = match.exact
+          ? fill(T("On Font FindeR: installs {family} and all its styles."), { family: match.family.family })
+          : fill(T("Closest match on Font FindeR: {family}. It may not be the exact same font: check the text after installing it."), { family: match.family.family });
+        row.set(button);
+      };
+      const searching = document.createElement("span");
+      searching.className = "ff-chip ff-chip--busy";
+      searching.textContent = T("Searching Font FindeR…");
+      row.set(searching);
+      rows.push(row);
+    });
+    if (missing.length > 30) {
+      const more = document.createElement("li");
+      more.textContent = `… +${missing.length - 30}`;
+      list.appendChild(more);
+    }
+    // "N fonts found on Font FindeR" with one button for them all
+    const updateBanner = () => {
+      const families = new Map();
+      rows.forEach((row) => { if (row.match && row.match.exact) families.set(row.match.family.id, row); });
+      banner.textContent = "";
+      banner.hidden = families.size < 2;
+      if (banner.hidden) return;
+      const text = document.createElement("span");
+      text.textContent = fill(T("{count} of these fonts are on Font FindeR."), { count: families.size });
+      banner.append(text, ffButton(T("Install All"), "ff-btn--main", () => {
+        banner.hidden = true;
+        families.forEach((row) => row.install());
+      }));
+    };
+    FontFinder.available().then((open) => {
+      if (!open) {
+        rows.forEach((row) => row.set());
+        return;
+      }
+      // Two searches at a time, as the panel does
+      const queue = rows.slice();
+      const next = async () => {
+        while (queue.length) {
+          const row = queue.shift();
+          try {
+            const match = await FontFinder.find({ postScriptName: row.name });
+            if (match) row.found(match);
+            else row.notFound();
+          } catch (error) {
+            row.notFound(T("Font FindeR can't be reached right now."));
+          }
+          updateBanner();
+        }
+      };
+      next();
+      next();
+    });
+    return wrap;
+  };
+
   // A chapter opened at once says what it has to say once, at the end, with every font
   const showOpenNotices = () => {
     if (openingFiles) return;
@@ -13374,13 +13657,7 @@
       const body = document.createElement("div");
       const intro = document.createElement("p");
       intro.textContent = T("These fonts aren't on this computer. Their text keeps Photoshop's pixels until you edit it. Load the files to edit it with the right font.");
-      const list = document.createElement("ul");
-      missing.slice(0, 30).concat(missing.length > 30 ? [`… +${missing.length - 30}`] : []).forEach((name) => {
-        const item = document.createElement("li");
-        item.textContent = name;
-        list.appendChild(item);
-      });
-      body.append(intro, list);
+      body.append(intro, missingFontList(missing));
       parts.forEach((part) => {
         const p = document.createElement("p");
         p.textContent = part;

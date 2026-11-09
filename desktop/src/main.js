@@ -631,13 +631,21 @@ ipcMain.handle("install-fonts", async (event, fonts) => {
 // Where a file the page holds is: a handle doesn't say, but asking about its permission makes
 // Chromium check it here, with its path. The page asks about one handle at a time, between
 // where-start and where-end; a path is only taken when its name and kind are the handle's.
-// Photoshop is only given the paths found this way.
+// A file taken from a folder the page opened answers with that folder, as it shares its
+// permission: the file is the one of that name in it. Photoshop is only given the paths found
+// this way, and only once they are there on the disk.
 let whereAsked = null;
 let whereCount = 0;
 const knownPaths = new Set();
+const plainName = (name) => name !== "" && name !== "." && name !== ".." && path.basename(name) === name;
 const noteWhere = (details) => {
   if (!whereAsked || !details || !details.filePath) return;
-  if (path.basename(details.filePath) !== whereAsked.name || Boolean(details.isDirectory) !== whereAsked.directory) return;
+  const { name, directory } = whereAsked;
+  if (details.isDirectory && !directory) {
+    if (plainName(name)) whereAsked.paths.add(path.join(details.filePath, name));
+    return;
+  }
+  if (path.basename(details.filePath) !== name || Boolean(details.isDirectory) !== directory) return;
   whereAsked.paths.add(details.filePath);
 };
 ipcMain.handle("where-start", (event, name, directory) => {
@@ -645,12 +653,14 @@ ipcMain.handle("where-start", (event, name, directory) => {
   whereAsked = { token: ++whereCount, name: String(name), directory: Boolean(directory), paths: new Set() };
   return whereAsked.token;
 });
-ipcMain.handle("where-end", (event, token) => {
+ipcMain.handle("where-end", async (event, token) => {
   const asked = whereAsked;
   if (!fromPage(event) || !asked || asked.token !== token) return null;
   whereAsked = null;
   if (asked.paths.size !== 1) return null;
   const [found] = asked.paths;
+  const stat = await fs.promises.stat(found).catch(() => null);
+  if (!stat || stat.isDirectory() !== asked.directory) return null;
   knownPaths.add(found);
   return found;
 });
