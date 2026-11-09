@@ -6132,10 +6132,45 @@
     if (!layer) return false;
     const ok = ops.beginStroke(layer.id, strokeFields(app.tool));
     if (!ok) return false;
-    ops.extendStroke(current.start[0], current.start[1]);
+    strokeTo(current, current.start);
     schedule(true);
     current.kind = "stroke";
     return true;
+  };
+
+  // Straight strokes, as in Photoshop. Shift + click: a line from where the last stroke ended,
+  // in the same document. Shift held while painting: straight across or straight down from
+  // where Shift was pressed, whichever way the pointer goes first.
+  let lastStrokeEnd = null;
+  const strokeTo = (current, point) => {
+    ops.extendStroke(point[0], point[1]);
+    current.drawn = point;
+  };
+  const beginStrokeAt = (current, point, shift) => {
+    const from = shift && lastStrokeEnd && lastStrokeEnd.doc === app.doc ? lastStrokeEnd.point : null;
+    if (from) strokeTo(current, from);
+    strokeTo(current, point);
+    if (shift) current.axis = { from: point, along: null };
+  };
+  const straightStroke = (current, point, shift) => {
+    if (!shift) {
+      current.axis = null;
+      return point;
+    }
+    if (!current.axis) current.axis = { from: current.drawn || point, along: null };
+    const axis = current.axis;
+    const dx = point[0] - axis.from[0];
+    const dy = point[1] - axis.from[1];
+    // Decided once the pointer has gone a few pixels on the screen
+    if (!axis.along) {
+      if (Math.hypot(dx, dy) * view().zoom < 4) return axis.from;
+      axis.along = Math.abs(dx) >= Math.abs(dy) ? "x" : "y";
+    }
+    return axis.along === "x" ? [point[0], axis.from[1]] : [axis.from[0], point[1]];
+  };
+  const endStrokeOf = (current) => {
+    if (current && current.drawn) lastStrokeEnd = { doc: app.doc, point: current.drawn };
+    ops.endStroke();
   };
 
   // The polygonal lasso outlives a gesture: each click is a corner, and the outline closes on
@@ -6527,9 +6562,9 @@
       if (!layer) return;
       const ok = ops.beginStroke(layer.id, strokeFields(tool));
       if (!ok) return;
-      ops.extendStroke(point[0], point[1]);
-      schedule(true);
       gesture = Object.assign(base, { kind: "stroke" });
+      beginStrokeAt(gesture, point, event.shiftKey);
+      schedule(true);
       ui.stage.setPointerCapture(event.pointerId);
       return;
     }
@@ -6823,10 +6858,7 @@
       hud(`${Math.round(x1 - x0)} × ${Math.round(y1 - y0)} px`, event);
     } else if (current.kind === "stroke") {
       const events = event.getCoalescedEvents ? event.getCoalescedEvents() : [event];
-      (events.length ? events : [event]).forEach((item) => {
-        const p = toDoc(item);
-        ops.extendStroke(p[0], p[1]);
-      });
+      (events.length ? events : [event]).forEach((item) => strokeTo(current, straightStroke(current, toDoc(item), event.shiftKey)));
     } else if (current.kind === "moveSelection") {
       const dx = point[0] - current.start[0];
       const dy = point[1] - current.start[1];
@@ -6931,10 +6963,10 @@
         if (current.moved || cancelled) placeEditor();
         else endEdit();
       }
-    } else if (kind === "stroke") ops.endStroke();
+    } else if (kind === "stroke") endStrokeOf(current);
     else if (cancelled) return;
     else if (kind === "pendingStroke") {
-      if (startStroke(current)) ops.endStroke();
+      if (startStroke(current)) endStrokeOf(current);
     } else if (kind === "zoom") {
       if (!current.moved) zoomStep(current.altAtStart || event.altKey ? -1 : 1, current.cx, current.cy);
     } else if (kind === "pan") {
