@@ -359,6 +359,19 @@
     scan();
   };
 
+  // Help's illustrations are optional (the panel hides one that doesn't load) and none ship
+  // yet: rather than asking for each and getting a 404, the image fails at once
+  const HELP_MEDIA = /\/icons\/help\/[^/]+\.gif$/;
+  const setAttribute = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function (name, value) {
+    if (this.tagName === "IMG" && name === "src" && HELP_MEDIA.test(String(value))) {
+      const image = this;
+      setTimeout(() => image.dispatchEvent(new Event("error")), 0);
+      return;
+    }
+    return setAttribute.call(this, name, value);
+  };
+
   // In Photoshop the panel is its own window. Here a scrollIntoView would also
   // scroll the page around the iframe: keep it inside the panel.
   Element.prototype.scrollIntoView = function (options) {
