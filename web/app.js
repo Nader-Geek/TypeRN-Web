@@ -5514,9 +5514,12 @@
     else ops.deselect();
     schedule(false);
   };
+  // Outside the review too: the texts Detect Text selected each get their ✕, until the selection
+  // is changed by hand
   const placeReviewMarks = (page) => {
-    const doc = page && page.doc;
-    const selection = page && page.state === "review" && !doc.state.quickMask && !gesture && !polygon ? doc.state.selection : null;
+    const doc = page ? page.doc : app.doc;
+    const shown = page ? page.state === "review" : textSelection() && !transformOf() && !cropOf() && !warpedLayer();
+    const selection = shown && !doc.state.quickMask && !gesture && !polygon ? doc.state.selection : null;
     if (!selection) {
       reviewMarks.hidden = true;
       if (!page) marks = { selection: null, full: null, areas: [], buttons: [], hover: null };
