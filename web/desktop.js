@@ -282,6 +282,26 @@
     return Boolean(active) && (/^(INPUT|TEXTAREA)$/.test(active.tagName) || active.isContentEditable);
   };
 
+  /* ------------------------------- Discord's Rich Presence ------------------------------ */
+
+  // What the page is on goes to the app when it changes (Settings > Discord activity). The app
+  // spaces the changes out as Discord asks, and shows nothing while Discord isn't running.
+  const PRESENCE_EVERY = 5000;
+  const watchPresence = () => {
+    const App = window.TypeRApp;
+    if (!Desktop.discord || !App.presence) return;
+    let said = "";
+    const tell = () => {
+      const now = App.presence();
+      const key = JSON.stringify(now);
+      if (key === said) return;
+      said = key;
+      Desktop.discord.set(now);
+    };
+    tell();
+    setInterval(tell, PRESENCE_EVERY);
+  };
+
   // The page's scripts have run; bringing the last session back still takes its time
   const whenLoaded = () => {
     const App = window.TypeRApp;
@@ -292,6 +312,7 @@
       discard: App.T("Don't save"),
       cancel: App.T("Cancel"),
     });
+    watchPresence();
     if (Desktop.platform === "mac") {
       syncMenu();
       ["pointerup", "keyup", "focusin"].forEach((name) => window.addEventListener(name, syncSoon, true));

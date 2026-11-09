@@ -6,6 +6,7 @@ const path = require("path");
 const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, screen, session, shell } = require("electron");
 const content = require("./content");
 const localAI = require("./local-ai");
+const discord = require("./discord");
 
 const SCHEME = "typer";
 const HOST = "app";
@@ -695,6 +696,14 @@ ipcMain.handle("photoshop-open", async (event, id, paths) => {
   }
 });
 
+// Discord's Rich Presence (discord.js): only what the page is on, the rest is set there
+// A test doesn't show anything in the Discord of the computer it runs on
+const discordOn = !isTest || process.env.TYPER_TEST_DISCORD === "1";
+ipcMain.handle("discord-available", (event) => fromPage(event) && discord.available && discordOn);
+ipcMain.on("discord-activity", (event, activity) => {
+  if (fromPage(event) && discordOn) discord.set(activity);
+});
+
 // Restarting for an update closes the window as usual first, so that changes not kept by the
 // session still get their question. A new version of the app installs itself on the way.
 const restartNow = () => {
@@ -725,6 +734,7 @@ app.on("open-file", (event, file) => {
   openPaths([file]);
 });
 app.on("window-all-closed", () => (restarting ? restartNow() : app.quit()));
+app.on("will-quit", () => discord.stop());
 
 app.whenReady().then(() => {
   content.choose();

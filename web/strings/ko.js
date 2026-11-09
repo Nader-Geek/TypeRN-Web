@@ -968,5 +968,12 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Import Photoshop Toolbar (.tbr)…": "Photoshop 도구 모음 가져오기 (.tbr)…",
     "Toolbar imported from {name}.": "{name}에서 도구 모음을 가져왔습니다.",
     "{name} has none of TypeR's tools.": "{name}에는 TypeR 도구가 없습니다.",
+    "Discord activity": "Discord 활동",
+    "With the page's name": "페이지 이름 표시",
+    "Without the page's name": "페이지 이름 숨김",
+    "Off": "끔",
+    "What your Discord friends see while you work. Discord must be open on this computer.": "작업하는 동안 Discord 친구에게 보이는 내용입니다. 이 컴퓨터에서 Discord가 열려 있어야 합니다.",
+    "Typesetting": "식자",
+    "Cleaning": "클리닝",
   },
 });

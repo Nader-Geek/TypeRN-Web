@@ -38,6 +38,12 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
     whereStart: (name, directory) => ipcRenderer.invoke("where-start", name, directory),
     whereEnd: (token) => ipcRenderer.invoke("where-end", token),
   },
+  // What Discord friends see while TypeR Studio is open (Settings > Discord activity): the
+  // page says which page it is on, or null for nothing
+  discord: {
+    available: () => ipcRenderer.invoke("discord-available"),
+    set: (activity) => ipcRenderer.send("discord-activity", activity),
+  },
   // Generative Fill with FLUX on this computer: nothing is downloaded until a model is installed
   localAI: {
     status: () => ipcRenderer.invoke("local-ai-status"),

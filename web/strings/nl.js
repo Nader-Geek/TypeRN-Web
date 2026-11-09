@@ -968,5 +968,12 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Import Photoshop Toolbar (.tbr)…": "Photoshop-gereedschapsbalk importeren (.tbr)…",
     "Toolbar imported from {name}.": "Gereedschapsbalk geïmporteerd uit {name}.",
     "{name} has none of TypeR's tools.": "{name} bevat geen enkel gereedschap van TypeR.",
+    "Discord activity": "Discord-activiteit",
+    "With the page's name": "Met de naam van de pagina",
+    "Without the page's name": "Zonder de naam van de pagina",
+    "Off": "Uit",
+    "What your Discord friends see while you work. Discord must be open on this computer.": "Wat je Discord-vrienden zien terwijl je werkt. Discord moet open zijn op deze computer.",
+    "Typesetting": "Typesetting",
+    "Cleaning": "Cleaning",
   },
 });

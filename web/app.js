@@ -3123,7 +3123,7 @@
   const STORE_SETTINGS = "typer.web.settings";
   // How far the pointer goes, dragged sideways with Ctrl + Space or the Zoom tool, to zoom twice as close
   const ZOOM_SPEEDS = { normal: 150, fast: 90, veryFast: 55 };
-  const settings = { wheel: "pan", zoomSpeed: "normal", smartGuides: true, snapText: false, transformControls: true, spellcheck: true, taskBar: true, hiddenChars: false };
+  const settings = { wheel: "pan", zoomSpeed: "normal", smartGuides: true, snapText: false, transformControls: true, spellcheck: true, taskBar: true, hiddenChars: false, discord: "page" };
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORE_SETTINGS)) || {};
     // On a Mac a mouse can't be told from a trackpad, so "auto" isn't offered there
@@ -3141,6 +3141,7 @@
     if (saved.taskBar === false) settings.taskBar = false;
     if (ZOOM_SPEEDS[saved.zoomSpeed]) settings.zoomSpeed = saved.zoomSpeed;
     if (saved.hiddenChars === true) settings.hiddenChars = true;
+    if (saved.discord === "app" || saved.discord === "off") settings.discord = saved.discord;
   } catch (error) {
     console.warn("TypeR web: could not read the settings", error);
   }
@@ -3148,7 +3149,7 @@
     const d = app.textDefaults;
     try {
       // A language nobody chose keeps following the interface
-      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, zoomSpeed: settings.zoomSpeed === "normal" ? undefined : settings.zoomSpeed, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, taskBar: settings.taskBar ? undefined : false, hiddenChars: settings.hiddenChars || undefined, ligature: d.ligature, hyphenate: d.hyphenate || undefined, autoKern: d.autoKern === "manual" ? "manual" : undefined, textOnTop: d.textOnTop || undefined, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
+      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, zoomSpeed: settings.zoomSpeed === "normal" ? undefined : settings.zoomSpeed, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, taskBar: settings.taskBar ? undefined : false, hiddenChars: settings.hiddenChars || undefined, discord: settings.discord === "page" ? undefined : settings.discord, ligature: d.ligature, hyphenate: d.hyphenate || undefined, autoKern: d.autoKern === "manual" ? "manual" : undefined, textOnTop: d.textOnTop || undefined, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
     } catch (error) {
       console.warn("TypeR web: could not keep the settings", error);
     }
@@ -3166,6 +3167,9 @@
     const d = app.textDefaults;
     const shortcuts = Shell.touch ? null : shortcutEditor();
     const generative = Gen ? generativePane() : null;
+    // Discord activity: in the desktop app only, a browser can't reach Discord
+    const Discord = window.TypeRDesktop && window.TypeRDesktop.discord;
+    const discord = Boolean(Discord) && (await Discord.available().catch(() => false));
     const answer = await dialog({
       title: T("Settings"),
       keepOpen: () => Boolean(shortcuts) && shortcuts.stopRecording(),
@@ -3204,7 +3208,7 @@
         };
         const general = document.createElement("div");
         general.className = "settings__pane";
-        general.append(heading(T("General")), card("lang", "wheel", "zoomSpeed"), card("language", "ligature", "hyphenate", "textOnTop"));
+        general.append(heading(T("General")), card("lang", "wheel", "zoomSpeed", ...(discord ? ["discord"] : [])), card("language", "ligature", "hyphenate", "textOnTop"));
         middle.textContent = "";
         const panes = { general };
         if (generative) panes.generative = generative.pane;
@@ -3249,6 +3253,7 @@
         { id: "lang", label: T("Interface language"), value: lang, options: Object.keys(LANGUAGES).map((code) => [code, LANGUAGES[code]]) },
         { id: "wheel", label: T("Mouse wheel"), value: settings.wheel, options: [["pan", T("Like Photoshop")], ["zoom", T("The wheel zooms")], ...(IS_MAC ? [] : [["auto", T("Mouse zooms, trackpad scrolls")]])], hint: (value) => (value === "zoom" ? T("The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.") : T(value === "auto" ? "A mouse's wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers scroll and a pinch zooms." : "The wheel scrolls up and down. Alt + wheel zooms, Ctrl or Cmd + wheel scrolls sideways. On a trackpad, two fingers scroll and a pinch zooms.")) },
         { id: "zoomSpeed", label: T("Zoom speed"), value: settings.zoomSpeed, options: [["normal", T("Normal")], ["fast", T("Fast")], ["veryFast", T("Very fast")]], hint: () => T("When dragging sideways with Ctrl + Space or the Zoom tool.") },
+        ...(discord ? [{ id: "discord", label: T("Discord activity"), value: settings.discord, options: [["page", T("With the page's name")], ["app", T("Without the page's name")], ["off", T("Off")]], hint: () => T("What your Discord friends see while you work. Discord must be open on this computer.") }] : []),
         { id: "language", label: T("Language of new text"), value: d.language, options: PS.TEXT_LANGUAGES.map(([name, , own]) => [name, own]) },
         { id: "ligature", label: T("Standard ligatures in new text"), type: "checkbox", checked: d.ligature },
         { id: "hyphenate", label: T("Hyphenate new paragraph text"), type: "checkbox", checked: Boolean(d.hyphenate) },
@@ -3258,6 +3263,7 @@
     if (!answer) return;
     settings.wheel = answer.wheel;
     settings.zoomSpeed = answer.zoomSpeed;
+    if (discord) settings.discord = answer.discord;
     d.language = answer.language;
     d.ligature = answer.ligature;
     d.hyphenate = answer.hyphenate;
@@ -13529,6 +13535,25 @@
     const one = SHORTCUTS.find(({ item }) => item.label === label);
     return (one && one.item.keys) || "";
   };
+  // What Discord friends see while TypeR Studio is open (desktop.js sends it): the page's name
+  // unless the user would rather not, what is being done on it, where it is in the chapter.
+  // Null: nothing shown. Moving around or zooming doesn't change what was being done.
+  const TYPESETTING = new Set(["text", "sfx", "wand"]);
+  const CLEANING = new Set(["brush", "eraser", "magicEraser", "stamp", "clean", "heal", "reshape"]);
+  let presenceWork = "";
+  const presence = () => {
+    if (settings.discord === "off") return null;
+    const doc = app.doc;
+    if (!doc) return {};
+    if (TYPESETTING.has(app.tool) || !ui.editor.hidden) presenceWork = "Typesetting";
+    else if (CLEANING.has(app.tool)) presenceWork = "Cleaning";
+    const at = pageOf(doc);
+    const where = at >= 0 ? fill(T("Page {at} of {count}"), { at: at + 1, count: chapter.pages.length }) : "";
+    const work = presenceWork ? T(presenceWork) : "";
+    if (settings.discord === "page") return { details: doc.name, state: [work, where].filter(Boolean).join(" · ") };
+    return { details: work, state: where };
+  };
+
   window.TypeRApp = {
     // For the setup assistant (onboarding.js), and the tutorial (guide.js)
     setup: {
@@ -13567,6 +13592,7 @@
       },
     },
     handleKey,
+    presence,
     generate: generateIn,
     showSampling,
     watchChoices,

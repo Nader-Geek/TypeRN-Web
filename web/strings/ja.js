@@ -968,5 +968,12 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Import Photoshop Toolbar (.tbr)…": "Photoshop のツールバーを読み込む (.tbr)…",
     "Toolbar imported from {name}.": "{name} からツールバーを読み込みました。",
     "{name} has none of TypeR's tools.": "{name} には TypeR のツールが含まれていません。",
+    "Discord activity": "Discord のアクティビティ",
+    "With the page's name": "ページ名を表示",
+    "Without the page's name": "ページ名を表示しない",
+    "Off": "オフ",
+    "What your Discord friends see while you work. Discord must be open on this computer.": "作業中に Discord のフレンドに表示される内容です。このコンピューターで Discord を開いておく必要があります。",
+    "Typesetting": "写植",
+    "Cleaning": "クリーニング",
   },
 });

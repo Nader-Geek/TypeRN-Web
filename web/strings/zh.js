@@ -968,5 +968,12 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Import Photoshop Toolbar (.tbr)…": "导入 Photoshop 工具栏 (.tbr)…",
     "Toolbar imported from {name}.": "已从 {name} 导入工具栏。",
     "{name} has none of TypeR's tools.": "{name} 中没有 TypeR 的工具。",
+    "Discord activity": "Discord 动态",
+    "With the page's name": "显示页面名称",
+    "Without the page's name": "不显示页面名称",
+    "Off": "关闭",
+    "What your Discord friends see while you work. Discord must be open on this computer.": "你工作时 Discord 好友看到的内容。这台电脑上需要打开 Discord。",
+    "Typesetting": "嵌字",
+    "Cleaning": "清理",
   },
 });

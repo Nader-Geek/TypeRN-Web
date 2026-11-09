@@ -385,6 +385,79 @@ const main = async () => {
   step("and it's offered only once", (await modalText(run.page)) === null);
   await close(run);
 
+  /* -------------------------------- Discord's Rich Presence --------------------------- */
+
+  // A Discord of its own, on its own socket: the computer's Discord, on Windows's fixed pipe
+  // names, can't be kept out of it there
+  if (process.platform !== "win32") {
+    const ipc = fs.mkdtempSync("/tmp/typer-discord-");
+    const heard = [];
+    let gone = false;
+    const frame = (op, data) => {
+      const body = Buffer.from(JSON.stringify(data));
+      const head = Buffer.alloc(8);
+      head.writeInt32LE(op, 0);
+      head.writeInt32LE(body.length, 4);
+      return Buffer.concat([head, body]);
+    };
+    const fakeDiscord = require("net").createServer((client) => {
+      let pending = Buffer.alloc(0);
+      client.on("data", (chunk) => {
+        pending = Buffer.concat([pending, chunk]);
+        while (pending.length >= 8 && pending.length >= 8 + pending.readInt32LE(4)) {
+          const op = pending.readInt32LE(0);
+          const message = JSON.parse(pending.subarray(8, 8 + pending.readInt32LE(4)));
+          pending = pending.subarray(8 + pending.readInt32LE(4));
+          heard.push({ op, message });
+          // Ready, in two pieces, as a socket may give it
+          if (op === 0) {
+            const ready = frame(1, { cmd: "DISPATCH", evt: "READY", data: {} });
+            client.write(ready.subarray(0, 5));
+            setTimeout(() => client.write(ready.subarray(5)), 50);
+          }
+        }
+      });
+      client.on("close", () => { gone = true; });
+    }).listen(path.join(ipc, "discord-ipc-0"));
+    const shown = () => heard.filter((one) => one.op === 1).map((one) => one.message.args.activity || null);
+    const until = async (check) => {
+      for (let tries = 0; tries < 60 && !check(); tries += 1) await wait(250);
+      return check();
+    };
+    run = await launch(path.join(WORK, "profile-discord"), { TYPER_TEST_DISCORD: "1", TYPER_DISCORD_ID: "123", TMPDIR: ipc });
+    await until(() => heard.length > 0);
+    step("the app says who it is to Discord", heard.length > 0 && heard[0].op === 0 && heard[0].message.client_id === "123", JSON.stringify(heard[0]));
+    await run.page.evaluate(async () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 200;
+      canvas.height = 300;
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      window.TypeRApp.openFiles([{ file: new File([blob], "page_07.png", { type: "image/png" }), handle: null }]);
+    });
+    await waitDocs(run.page, 1);
+    await run.page.evaluate(() => window.TypeRApp.setTool("text"));
+    await until(() => shown().some((one) => one && one.details === "page_07.png"));
+    const last = shown().pop();
+    step("Discord shows the page and what is done on it", Boolean(last) && last.details === "page_07.png" && last.state === "Typesetting" && last.assets.large_image.startsWith("https://"), JSON.stringify(last));
+    const asked = await run.page.evaluate(async () => {
+      for (const [, items] of window.TypeRApp.MENUS) for (const item of items) if (item && item.label === "Settings…") item.action();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const row = Array.from(document.querySelectorAll("#modal .set__row")).find((one) => one.textContent.includes("Discord"));
+      if (!row) return false;
+      const select = row.querySelector("select");
+      select.value = "off";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      const buttons = Array.from(document.querySelectorAll("#modal button")).filter((button) => button.textContent.trim() === "OK");
+      buttons[buttons.length - 1].click();
+      return true;
+    });
+    await until(() => gone);
+    step("Settings > Discord activity turns it off, and Discord is let go", asked && gone, `${shown().length} activities`);
+    await close(run);
+    fakeDiscord.close();
+    fs.rmSync(ipc, { recursive: true, force: true });
+  }
+
   const failed = results.filter((item) => !item.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   fs.rmSync(WORK, { recursive: true, force: true });
