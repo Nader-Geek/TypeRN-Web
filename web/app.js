@@ -9568,6 +9568,55 @@
   const OPENABLE = /\.(psd|psb|idml|indd|indt|png|jpe?g|webp)$/i;
   // What Batch Save reads: pictures, one page each
   const PAGE_FILES = /\.(psd|psb|png|jpe?g|webp)$/i;
+
+  // The tab that already holds this file on disk, or null. Its handle tells, not its name: every
+  // chapter has its 01.psd
+  const tabOfFile = async (handle) => {
+    if (!handle || handle.kind !== "file" || typeof handle.isSameEntry !== "function") return null;
+    for (const doc of app.docs) {
+      if (doc.idml || !doc.handle || doc.handle.kind !== "file") continue;
+      if (await doc.handle.isSameEntry(handle).catch(() => false)) return doc;
+    }
+    return null;
+  };
+
+  // A file opened again after it changed on disk, saved in Photoshop say, comes back in its own
+  // tab as it is now, rather than in a second tab. Changes not saved here are asked about first.
+  const reopenInTab = async (doc, file, handle) => {
+    if (savingDocs.has(doc)) await savingDocs.get(doc).catch(() => false);
+    if (!app.docs.includes(doc)) return null;
+    if (doc.stamp && ops.fileStamp(file) === doc.stamp) {
+      switchDoc(doc);
+      return doc;
+    }
+    if (PS.isDirty(doc)) {
+      working(null);
+      switchDoc(doc);
+      const answer = await dialog({
+        title: doc.name,
+        body: T("This file changed on disk since it was opened here. Open it as it is now? Your unsaved changes here will be lost."),
+        ok: T("Open the New Version"),
+        cancel: T("Keep Mine"),
+      });
+      if (!answer || !app.docs.includes(doc)) return doc;
+      working(fill(T("Opening {name}…"), { name: file.name }));
+      await nextPaint();
+    }
+    const before = new Set(app.docs);
+    const fresh = await ops.openBlob(file, file.name, undefined, handle);
+    if (before.has(fresh)) return fresh;
+    // In the old tab's place, at the same zoom when the page kept its size
+    app.docs.splice(app.docs.indexOf(fresh), 1);
+    app.docs.splice(app.docs.indexOf(doc), 0, fresh);
+    if (fresh.width === doc.width && fresh.height === doc.height) {
+      const { zoom, x, y, fitted } = doc.view;
+      Object.assign(fresh.view, { zoom, x, y, fitted });
+    }
+    ops.closeDoc(doc);
+    PS.setActiveDoc(fresh);
+    return fresh;
+  };
+
   const openFiles = async (entries) => {
     if (!settleTransform()) return;
     const inOrder = Array.from(entries).sort((a, b) => NATURAL_ORDER.compare((a.file || a).name, (b.file || b).name));
@@ -9584,7 +9633,11 @@
       working(fill(T("Opening {name}…"), { name: file.name }));
       try {
         await nextPaint();
-        if (InDesign.isInDesignName(file.name)) opened.push(...(await openInDesign(file, handle)));
+        const tab = InDesign.isInDesignName(file.name) ? null : await tabOfFile(handle);
+        if (tab) {
+          const doc = await reopenInTab(tab, file, handle);
+          if (doc) opened.push(doc);
+        } else if (InDesign.isInDesignName(file.name)) opened.push(...(await openInDesign(file, handle)));
         else opened.push(await ops.openBlob(file, file.name, undefined, handle));
       } catch (error) {
         console.error(error);

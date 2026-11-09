@@ -144,6 +144,40 @@ const main = async () => {
   });
   step("the saved page is clean", !reread.dirty && reread.size === after.size);
 
+  // Changed in Photoshop, then opened here again: its own tab takes the file as it is now
+  const changedOnDisk = async (layerName) => {
+    const data = await page.evaluate(async (name) => {
+      const { ops, app } = window.TypeRPhotoshop;
+      const doc = app.doc;
+      const at = doc.historyIndex;
+      ops.newLayer(name);
+      const bytes = new Uint8Array(await window.TypeRPSD.write(doc, doc.name));
+      ops.rollbackHistory(at);
+      let text = "";
+      for (let i = 0; i < bytes.length; i += 32768) text += String.fromCharCode(...bytes.subarray(i, i + 32768));
+      return btoa(text);
+    }, layerName);
+    fs.writeFileSync(psd, Buffer.from(data, "base64"));
+  };
+  const tabState = () => page.evaluate(() => {
+    const { app, isDirty } = window.TypeRPhotoshop;
+    return { count: app.docs.length, at: app.docs.indexOf(app.doc), name: app.doc.name, layers: app.doc.state.layers.map((layer) => layer.name), dirty: isDirty(app.doc) };
+  });
+  const tabBefore = await tabState();
+  await changedOnDisk("From Photoshop");
+  await run.app.evaluate((_, file) => global.typerTest.openPaths([file]), psd);
+  await page.waitForFunction(() => window.TypeRPhotoshop.app.doc.state.layers.some((layer) => layer.name === "From Photoshop"), null, { timeout: 15000 }).catch(() => {});
+  const tabAfter = await tabState();
+  step("a PSD changed elsewhere and opened again comes back in its own tab, as it is now", tabAfter.count === tabBefore.count && tabAfter.at === tabBefore.at && tabAfter.name === "page 2.psd" && tabAfter.layers.includes("From Photoshop") && !tabAfter.dirty, JSON.stringify({ tabBefore, tabAfter }));
+  await changedOnDisk("From Photoshop again");
+  await page.evaluate(() => window.TypeRPhotoshop.ops.newLayer("Not saved here"));
+  await run.app.evaluate((_, file) => global.typerTest.openPaths([file]), psd);
+  const askedReload = await page.waitForSelector("#modal[open] .modal__foot .btn--main", { timeout: 10000 }).then(() => true, () => false);
+  if (askedReload) await page.click("#modal[open] .modal__foot .btn--main");
+  await page.waitForFunction(() => window.TypeRPhotoshop.app.doc.state.layers.some((layer) => layer.name === "From Photoshop again"), null, { timeout: 15000 }).catch(() => {});
+  const tabReloaded = await tabState();
+  step("with changes not saved here, it asks first, then the tab takes the new version", askedReload && tabReloaded.count === tabBefore.count && tabReloaded.at === tabBefore.at && tabReloaded.layers.includes("From Photoshop again") && !tabReloaded.layers.includes("Not saved here") && !tabReloaded.dirty, JSON.stringify(tabReloaded));
+
   /* ---------------------------------- Open in Photoshop -------------------------------- */
   const listed2 = await page.evaluate(() => window.TypeRDesktop.photoshop.list());
   step("the Photoshops installed are found, the newest first", listed2.map((one) => one.name).join() === "Adobe Photoshop 2026,Adobe Photoshop 2025", JSON.stringify(listed2));
