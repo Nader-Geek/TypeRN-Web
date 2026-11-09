@@ -6,7 +6,7 @@
   {"id":"b4101c9e36c8","at":"2026-11-09T06:38:25+01:00","kind":"feat","text":"When an update is ready, TypeR Studio offers to restart now or later","lang":{"fr":"Quand une mise à jour est prête, TypeR Studio propose de redémarrer tout de suite ou plus tard"}},
   {"id":"a6a0e8ca0a1a","at":"2026-11-09T06:37:36+01:00","kind":"feat","text":"On a tablet, go through a chapter page by page, with the text size always at hand","lang":{"fr":"Sur tablette, parcourez un chapitre page par page, avec la taille du texte toujours à portée"}},
   {"id":"eb3512ba1568","at":"2026-11-09T06:37:20+01:00","kind":"fix","text":"On a tablet, a tap outside a bubble no longer pastes the line there","lang":{"fr":"Sur tablette, toucher en dehors d’une bulle n’y colle plus la ligne"}},
-  {"id":"1c25a535a374","at":"2026-11-09T06:37:08+01:00","kind":"feat","text":"Give TypeR Studio its own icon","lang":{"fr":"TypeR Studio a sa propre icône"}},
+  {"id":"1c25a535a374","at":"2026-11-09T06:37:08+01:00","kind":"feat","text":"TypeR Studio has its own icon","lang":{"fr":"TypeR Studio a sa propre icône"}},
   {"id":"ba0c383584dd","at":"2026-11-09T02:21:31+01:00","kind":"feat","text":"Add About TypeR Studio to the Help menu, with thanks to Miller","lang":{"fr":"À propos de TypeR Studio dans le menu Aide, avec nos remerciements à Miller"}},
   {"id":"c058e4eb4fff","at":"2026-11-07T19:58:24+01:00","kind":"feat","text":"Rate TypeR Studio and say what's missing (Help → Send Feedback…)","lang":{"fr":"Notez TypeR Studio et dites ce qui manque (Aide → Envoyer un avis…)"}},
   {"id":"8387efcb13b7","at":"2026-11-07T18:38:57+01:00","kind":"feat","text":"Pick the Generative Fill model right from its bar","lang":{"fr":"Choisir le modèle du Remplissage génératif directement depuis sa barre"}},
