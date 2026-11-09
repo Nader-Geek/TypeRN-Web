@@ -2673,7 +2673,11 @@
   };
   // The wheel over a number changes it, one per notch. A panel that scrolls keeps the wheel
   // until the field has the focus: scrolling past a number must not change it.
-  const wheelChanges = (target, input) => {
+  const addSteps = (input) => (steps, shift) => {
+    input.value = Math.round(withinLimits(input, (Number(input.value) || 0) + steps * (shift ? 10 : 1)) * 100) / 100;
+    input.dispatchEvent(new Event("change"));
+  };
+  const wheelChanges = (target, input, step = addSteps(input)) => {
     target.addEventListener("wheel", (event) => {
       if (event.ctrlKey || event.metaKey) return;
       const panel = target.closest(".character");
@@ -2692,9 +2696,7 @@
         steps = Math.trunc(wheelRest);
         wheelRest -= steps;
       }
-      if (!steps) return;
-      input.value = Math.round(withinLimits(input, (Number(input.value) || 0) + steps * (event.shiftKey ? 10 : 1)) * 100) / 100;
-      input.dispatchEvent(new Event("change"));
+      if (steps) step(steps, event.shiftKey);
     }, { passive: false });
   };
   const scrubbed = (text, input, control = input) => {
@@ -9132,19 +9134,22 @@
       if (value === null) input.value = last;
       else if (input.value !== last) apply(value);
     });
+    // Up or down by steps, from the arrows or the wheel
+    const step = (steps, shift) => {
+      const value = read();
+      if (value === null || !steps) return;
+      if (value === "auto") {
+        const auto = autoValue();
+        apply(Math.max(1, steps > 0 ? Math.ceil(auto - 0.005) : Math.floor(auto + 0.005)));
+        return;
+      }
+      apply(Math.max(0.1, Math.min(5000, Math.round((value + steps * (shift ? 10 : 1)) * 100) / 100)));
+    };
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") input.blur();
       if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
       event.preventDefault();
-      const up = event.key === "ArrowUp";
-      const value = read();
-      if (value === null) return;
-      if (value === "auto") {
-        const auto = autoValue();
-        apply(Math.max(1, up ? Math.ceil(auto - 0.005) : Math.floor(auto + 0.005)));
-        return;
-      }
-      apply(Math.max(0.1, Math.round((value + (up ? 1 : -1) * (event.shiftKey ? 10 : 1)) * 100) / 100));
+      step(event.key === "ArrowUp" ? 1 : -1, event.shiftKey);
     });
     const list = document.createElement("select");
     list.title = T("Leading");
@@ -9163,7 +9168,7 @@
     else list.selectedIndex = -1;
     list.addEventListener("change", () => apply(list.value === "auto" ? "auto" : Number(list.value)));
     box.append(input, list);
-    return box;
+    return { box, input, step };
   };
 
   let characterKey = "";
@@ -9208,7 +9213,10 @@
       }
     }
     host.append(scrubbed(T("Size"), c.size, withSteps(c.size)));
-    host.append(labelled(T("Leading"), leadingField(layer, style)));
+    const leading = leadingField(layer, style);
+    const leadingRow = labelled(T("Leading"), leading.box);
+    wheelChanges(leadingRow, leading.input, leading.step);
+    host.append(leadingRow);
     const aaRow = labelled("aa", c.antiAlias);
     aaRow.classList.add("wide");
     host.append(aaRow);
