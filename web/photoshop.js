@@ -9221,6 +9221,9 @@
       if (raw.indexOf("/typer/app/assets/") === 0) {
         return ops.loadImage((window.TypeRPhotoshop.panelBase || "panel/") + "assets/" + raw.split("/").pop(), name, raw).then(done, fail);
       }
+      // At startup, the page may be among the documents still coming back from last time
+      const restoring = window.TypeRSession && window.TypeRSession.restoring();
+      if (restoring) return restoring.catch(() => null).then(() => host.openFile(raw));
       return fail("Open this file first: it is not in the browser yet.");
     },
     // A document already open is read as it is now, unsaved work included, as in Photoshop
