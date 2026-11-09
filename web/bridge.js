@@ -575,6 +575,8 @@
     importPages: pagesFromApp.importPages,
     unlinkPages: pagesFromApp.unlinkPages,
     getFile: (path) => files[path],
+    // The panel's words in its language, for what the app shows of it (its menu, its modes)
+    text: (key) => (typeof bundle[key] === "string" ? bundle[key] : ""),
     setFile: (path, value) => { files[path] = value; },
   };
   // The panel's button to the other app (TypeR's openInStudio.js): here, the app's own Open in

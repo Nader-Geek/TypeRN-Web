@@ -9226,6 +9226,237 @@
       return null;
     }
   };
+
+  /* ---- TypeR's panel, reached from the app: its menu, its modes, its shortcuts ---- */
+
+  // The panel is TypeR for Photoshop, as it is. The app presses the panel's own buttons, found by
+  // the names its tutorial gives them: every door leads to the same TypeR, and its settings stay its own
+  const panelDoc = () => {
+    if (!panelBridge()) return null;
+    try {
+      return ui.frame.contentDocument;
+    } catch (error) {
+      return null;
+    }
+  };
+  // The panel's words, in its language, for what the app shows of it
+  const panelText = (key, english) => {
+    const bridge = panelBridge();
+    return (bridge && bridge.text && bridge.text(key)) || english;
+  };
+  const panelButton = (selector) => {
+    const doc = panelDoc();
+    return doc ? doc.querySelector(selector) : null;
+  };
+  const tourButton = (name) => panelButton(`[data-tour="${name}"]`);
+  const pressable = (button) => Boolean(button) && !button.disabled && button.getAttribute("aria-disabled") !== "true";
+  const press = (button) => {
+    if (!pressable(button)) return false;
+    button.click();
+    return true;
+  };
+  const showTypeR = () => {
+    if (!Shell.touch && !Workspace().isVisible("typer")) Workspace().toggle("typer");
+  };
+  // The previous line's arrow has no name of its own: it's the one just before the next line's
+  const previousLineButton = () => {
+    const next = tourButton("next-line");
+    const previous = next && next.previousElementSibling;
+    return previous && previous.tagName === "BUTTON" ? previous : null;
+  };
+  // Help is the only button of the panel's foot without a name
+  const panelHelpButton = () => panelButton(".footer-actions .footer-icon-button:not([data-tour])");
+  // The panel's settings, at one of their tabs, then one of that tab's buttons. The dialog
+  // loads its code the first time it opens: its tabs come a moment later.
+  const openTypeRSettings = (tab, then) => {
+    showTypeR();
+    if (!(tab && tourButton(`settings-${tab}`)) && !press(tourButton("settings"))) {
+      toast(T("TypeR isn't ready yet. Try again in a moment."), true);
+      return;
+    }
+    // A tab can wait for the panel to know it's there (Font FindeR asks its service): if it
+    // stays off, the panel's reason is said
+    const waitFor = (name, found) => {
+      let tries = 0;
+      const look = () => {
+        const button = tourButton(name);
+        if (pressable(button)) found(button);
+        else if (++tries < 80) setTimeout(look, 50);
+        else if (button && button.title) toast(button.title, true);
+      };
+      look();
+    };
+    if (tab) {
+      waitFor(`settings-${tab}`, (button) => {
+        button.click();
+        if (then) waitFor(then, (next) => next.click());
+      });
+    }
+  };
+
+  // The modes of the panel's foot. A mode the panel hides (Settings > Appearance) keeps its state,
+  // and isn't offered here either.
+  const TYPER_MODES = [
+    { id: "pasteOnClick", text: "footerPasteOnClick", english: "Click paste", shortcut: "togglePasteOnClick", selecting: true },
+    { id: "multiBubble", text: "multiBubbleModeToggle", english: "Multi-bubble mode", shortcut: "toggleMultiBubble", selecting: true },
+    { id: "autoClean", text: "footerAutoClean", english: "Auto clean" },
+    { id: "textShapeR", text: "textShapeRTitle", english: "TextShapeR", shortcut: "toggleTextShapeR" },
+  ];
+  const modeButton = (id) => tourButton(`mode-${id}`);
+  const modeOn = (id) => {
+    const button = modeButton(id);
+    return Boolean(button) && button.getAttribute("aria-pressed") === "true";
+  };
+  // The panel's name for the mode (its foot says "Multi-bubble" in every language: its full name is translated)
+  const modeLabel = (mode) => {
+    const button = modeButton(mode.id);
+    return panelText(mode.text, "") || (button && button.getAttribute("aria-label")) || mode.english;
+  };
+
+  // TypeR's own shortcuts, as its settings keep them. The panel reads the keys a few times a
+  // second, wherever they're pressed: the app lets those keys go to it, so one key never does two
+  // things (Ctrl+Enter goes to the next line, it doesn't also edit the text just pasted).
+  const TYPER_SHORTCUTS = [
+    ["add", ["WIN", "CTRL"]], ["apply", ["WIN", "SHIFT"]], ["keepTextSize", ["ALT"]], ["center", ["WIN", "ALT"]], ["centerDouble", []], ["applyStyle", []],
+    ["previous", ["CTRL", "SHIFT", "ENTER"]], ["next", ["CTRL", "ENTER"]], ["previousPage", []], ["nextPage", ["CTRL", "ALT", "ENTER"]],
+    ["previousStyle", []], ["nextStyle", []], ["nextTextSizePreset", []], ["increase", ["CTRL", "ALT", "U"]], ["decrease", ["CTRL", "ALT", "D"]],
+    ["toggleCleaningLayers", ["CTRL", "H"]], ["insertText", ["CTRL", "ALT", "L"]], ["applyMultiple", []], ["toggleMultiBubble", ["CTRL", "ALT", "M"]],
+    ["cycleAutoCenter", []], ["removeLastSelection", []], ["clearSelections", []], ["togglePasteOnClick", []], ["toggleStyleStroke", []],
+    ["toggleTextShapeR", []], ["previousTab", []], ["nextTab", []],
+  ];
+  const TYPER_MODIFIERS = ["CTRL", "ALT", "SHIFT", "WIN"];
+  let typerShortcutsRead = { raw: undefined, list: [] };
+  const typerShortcuts = () => {
+    if (!panelBridge()) return [];
+    const raw = Kit.read(Kit.activeStoragePath());
+    if (raw === typerShortcutsRead.raw) return typerShortcutsRead.list;
+    let stored = {};
+    try {
+      const data = JSON.parse(raw || "null");
+      if (data && data.shortcut && typeof data.shortcut === "object") stored = data.shortcut;
+    } catch (error) {
+      stored = {};
+    }
+    const list = TYPER_SHORTCUTS.map(([id, keys]) => ({ id, keys: (Array.isArray(stored[id]) ? stored[id] : keys).map(String) }));
+    typerShortcutsRead = { raw, list };
+    return list;
+  };
+  const typerKeysOf = (id) => {
+    const one = typerShortcuts().find((entry) => entry.id === id);
+    return one ? one.keys : [];
+  };
+  // The modifiers first, as the app writes them
+  const typerOrdered = (keys) => [...TYPER_MODIFIERS.filter((part) => keys.includes(part)), ...keys.filter((part) => !TYPER_MODIFIERS.includes(part))];
+  const TYPER_CAPS = { WIN: IS_MAC ? "⌘" : "Win", CTRL: IS_MAC ? "⌃" : "Ctrl", ALT: IS_MAC ? "⌥" : "Alt", SHIFT: IS_MAC ? "⇧" : "Shift", ENTER: "Enter", ESCAPE: "Esc", BACKSPACE: IS_MAC ? "⌫" : "Backspace", DELETE: "Del", TAB: "Tab", PLUS: "+", MINUS: "-", EQUAL: "=", DIVIDE: "/", MULTIPLY: "*", ARROWUP: "↑", ARROWDOWN: "↓", ARROWLEFT: "←", ARROWRIGHT: "→", PAGEUP: "Pg↑", PAGEDOWN: "Pg↓" };
+  const typerCaps = (keys) => typerOrdered(keys).map((part) => (part === "SPACE" ? T("Space") : TYPER_CAPS[part] || part));
+  const typerKeyLabel = (keys) => (keys.length ? typerCaps(keys).join(IS_MAC ? "" : "+") : "");
+  // The same keys as the app writes them, to see when the two ask for the same ones
+  const TYPER_AS_APP = { ENTER: "Enter", ESCAPE: "Escape", BACKSPACE: "Backspace", DELETE: "Backspace", TAB: "Tab", SPACE: " ", PLUS: "=", EQUAL: "=", MINUS: "-", DIVIDE: "/", MULTIPLY: "*", ARROWUP: "ArrowUp", ARROWDOWN: "ArrowDown", ARROWLEFT: "ArrowLeft", ARROWRIGHT: "ArrowRight", PAGEUP: "PageUp", PAGEDOWN: "PageDown", HOME: "Home", END: "End" };
+  const typerAsApp = (keys) => {
+    const main = keys.filter((part) => !TYPER_MODIFIERS.includes(part));
+    if (main.length !== 1) return "";
+    // The app's Cmd is ⌘ on a Mac and Ctrl elsewhere; the other key only stands in for it, so
+    // TypeR's ⌃ on a Mac (or Win on Windows) leaves the app's shortcut its own key
+    if (keys.includes(IS_MAC ? "CTRL" : "WIN") && !keys.includes(IS_MAC ? "WIN" : "CTRL")) return "";
+    const key = TYPER_AS_APP[main[0]] || (main[0].length === 1 ? main[0] : main[0][0] + main[0].slice(1).toLowerCase());
+    return [keys.includes("ALT") && "Alt", keys.includes("SHIFT") && "Shift", (keys.includes("WIN") || keys.includes("CTRL")) && "Cmd", key].filter(Boolean).join("+");
+  };
+  // For the Mac's menu bar, which only shows them: the panel acts on the keys itself
+  const TYPER_ACCELERATOR = { WIN: "Command", CTRL: "Control", ALT: "Alt", SHIFT: "Shift", ENTER: "Enter", ESCAPE: "Escape", BACKSPACE: "Backspace", DELETE: "Delete", TAB: "Tab", SPACE: "Space", PLUS: "Plus", MINUS: "-", EQUAL: "=", ARROWUP: "Up", ARROWDOWN: "Down", ARROWLEFT: "Left", ARROWRIGHT: "Right", PAGEUP: "PageUp", PAGEDOWN: "PageDown" };
+  const typerAccelerator = (keys) => {
+    const main = keys.filter((part) => !TYPER_MODIFIERS.includes(part));
+    if (main.length !== 1 || !(TYPER_ACCELERATOR[main[0]] || /^([A-Z0-9]|F\d{1,2})$/.test(main[0]))) return undefined;
+    return typerOrdered(keys).map((part) => TYPER_ACCELERATOR[part] || part).join("+");
+  };
+  const typerShortcutName = (id) => panelText(`shortcut_${id}`, id);
+  // The TypeR shortcut these keys make, if any: a key with its modifiers, exactly. Modifiers
+  // alone (Insert's Cmd+Ctrl, the size kept with Alt) never stand in the app's way.
+  const typerShortcutFor = (event) => {
+    const keys = typerShortcuts();
+    if (!keys.length) return null;
+    const name = PS.keyName(event);
+    if (!name) return null;
+    return keys.find((one) => {
+      const main = one.keys.filter((part) => !TYPER_MODIFIERS.includes(part));
+      return main.length === 1 && main[0] === name && event.metaKey === one.keys.includes("WIN") && event.ctrlKey === one.keys.includes("CTRL") && event.altKey === one.keys.includes("ALT") && event.shiftKey === one.keys.includes("SHIFT");
+    }) || null;
+  };
+  // The TypeR shortcuts that ask for the same keys as one of the app's
+  const typerShortcutsOn = (appKeys) => (appKeys ? typerShortcuts().filter((one) => typerAsApp(one.keys) === appKeys) : []);
+
+  // The panel's modes, followed in the options bar while a selection tool is on
+  let typerModesShown = "";
+  const typerModesSignature = (all) => TYPER_MODES.filter((mode) => all || mode.selecting).map((mode) => `${mode.id}:${modeButton(mode.id) ? (modeOn(mode.id) ? 1 : 0) : "-"}`).join(",");
+  const watchPanel = () => {
+    const doc = panelDoc();
+    if (!doc || !doc.body || doc.body.dataset.studioWatched) return;
+    doc.body.dataset.studioWatched = "1";
+    let seen = "";
+    new MutationObserver(() => {
+      const now = typerModesSignature(true);
+      if (now === seen) return;
+      seen = now;
+      // The Mac's menu bar shows them too (desktop.js)
+      window.dispatchEvent(new Event("typer-modes"));
+      if (SELECTION_TOOLS.has(app.tool) && typerModesSignature() !== typerModesShown) renderOptions();
+    }).observe(doc.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-pressed", "aria-disabled"] });
+  };
+  ui.frame.addEventListener("load", () => setTimeout(watchPanel, 0));
+  const typerModeOptions = (bar) => {
+    typerModesShown = typerModesSignature();
+    const shown = TYPER_MODES.filter((mode) => mode.selecting && modeButton(mode.id));
+    if (!shown.length) return;
+    const group = document.createElement("span");
+    group.className = "obar__group obar__typer";
+    shown.forEach((mode) => {
+      const box = checkbox(modeLabel(mode), modeOn(mode.id), (on) => {
+        if (on !== modeOn(mode.id)) press(modeButton(mode.id));
+        setTimeout(renderOptions, 0);
+      });
+      const keys = typerKeyLabel(typerKeysOf(mode.shortcut));
+      const hint = modeButton(mode.id).getAttribute("title") || "";
+      box.title = keys ? `${hint} (${keys})` : hint;
+      group.appendChild(box);
+    });
+    bar.appendChild(group);
+  };
+
+  // The TypeR menu: the panel's commands, their keys as TypeR's settings give them
+  const typerCommand = (label, text, english, shortcut, button) => ({
+    label,
+    title: () => panelText(text, english),
+    shownKeys: () => typerKeyLabel(typerKeysOf(shortcut)),
+    shownAccelerator: () => typerAccelerator(typerKeysOf(shortcut)),
+    enabled: () => pressable(button()),
+    action: () => press(button()),
+  });
+  const TYPER_MENU = [
+    typerCommand("TypeR: Paste", "createLayer", "Paste", "add", () => tourButton("paste")),
+    typerCommand("TypeR: Align", "alignLayer", "Align", "center", () => tourButton("align")),
+    null,
+    typerCommand("TypeR: Previous Line", "prevLine", "Previous line", "previous", previousLineButton),
+    typerCommand("TypeR: Next Line", "nextLine", "Next line", "next", () => tourButton("next-line")),
+    null,
+    ...TYPER_MODES.map((mode) => ({
+      label: `TypeR: ${mode.english}`,
+      title: () => modeLabel(mode),
+      shownKeys: () => (mode.shortcut ? typerKeyLabel(typerKeysOf(mode.shortcut)) : ""),
+      shownAccelerator: () => (mode.shortcut ? typerAccelerator(typerKeysOf(mode.shortcut)) : undefined),
+      check: () => modeOn(mode.id),
+      enabled: () => pressable(modeButton(mode.id)),
+      action: () => press(modeButton(mode.id)),
+    })),
+    null,
+    { label: "TypeR: FontScanR", title: () => `${panelText("fontScanTitle", "FontScanR")}…`, enabled: () => Boolean(tourButton("settings")), action: () => openTypeRSettings("data", "font-scan-open") },
+    { label: "TypeR: Font FindeR", title: () => `${panelText("settingsTabFontViewer", "Font FindeR")}…`, enabled: () => Boolean(tourButton("settings")), action: () => openTypeRSettings("fontViewer") },
+    { label: "TypeR: Export", title: () => `${panelText("settingsExport", "Export styles or settings")}…`, enabled: () => Boolean(tourButton("settings")), action: () => openTypeRSettings("data", "export-settings") },
+    null,
+    { label: "TypeR Settings…", title: () => `${T("TypeR Settings")}…`, enabled: () => Boolean(tourButton("settings")), action: () => openTypeRSettings("insertion") },
+    { label: "TypeR: Help", title: () => panelText("helpTitle", "Help"), enabled: () => pressable(panelHelpButton()), action: () => { showTypeR(); press(panelHelpButton()); } },
+  ];
+  // The tabs of TypeR's settings, offered beside the app's own
+  const TYPER_SETTINGS_TABS = [["insertion", "settingsTabInsertion", "Insertion", "paste"], ["script", "settingsTabScript", "Script", "script"], ["styles", "settingsTabStyles", "Styles", "styles"], ["shortcuts", "settingsTabShortcuts", "Shortcuts", "keyboard"], ["appearance", "settingsTabAppearance", "Appearance", "eye"], ["data", "settingsTabData", "Data", "folder"]];
+
   const setPages = (entries, fromPanel) => {
     const pages = Array.from(entries || [])
       .map((entry) => ({ file: entry.file || entry, handle: entry.handle || null }))
@@ -12930,6 +13161,11 @@
     const key = event.key.toLowerCase();
     // TypeR's cleaning layers shortcut: Windows browsers would open their history
     if (key === "h" && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) event.preventDefault();
+    // Keys set in TypeR's settings are TypeR's: the panel acts on them, the app doesn't too
+    if (typerShortcutFor(event)) {
+      event.preventDefault();
+      return;
+    }
     if (polygon && !fromPanel && !openMenu && !isField(event.target)) {
       if (event.key === "Enter" || event.key === "Escape") {
         event.preventDefault();
