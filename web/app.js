@@ -4952,6 +4952,8 @@
       actual.addEventListener("click", () => zoomTo(1));
       bar.append(fit, actual);
     }
+    // What a selection does once it's made: TypeR's Click paste and Multi-bubble
+    if (SELECTION_TOOLS.has(tool) && !Shell.touch) typerModeOptions(bar);
     bar.appendChild(barEnd);
   };
 
