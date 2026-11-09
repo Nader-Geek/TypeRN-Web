@@ -4226,6 +4226,8 @@
         id: ++genJobCount,
         doc,
         selection: target,
+        // The selection it was asked from: its bar steps aside until it's over
+        from: selection,
         activeIds,
         size: [doc.width, doc.height],
         prompt,
@@ -4819,7 +4821,10 @@
       placeTextBar(doc);
       return;
     }
-    if (!selection || doc.state.quickMask || gesture || polygon || transformOf() || cropOf() || warpedLayer()) {
+    // A selection being generated has nothing left to ask: the bar leaves the tray in view, and
+    // comes back once it's over, or with the next selection
+    const generating = selection && genJobs.some((job) => job.from === selection && job.state !== "done" && job.state !== "failed");
+    if (!selection || generating || doc.state.quickMask || gesture || polygon || transformOf() || cropOf() || warpedLayer()) {
       taskBar.hidden = true;
       return;
     }
