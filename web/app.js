@@ -5492,7 +5492,7 @@
   ["pointerdown", "dblclick", "contextmenu"].forEach((type) => reviewMarks.addEventListener(type, (event) => {
     if (event.target.closest("button")) event.stopPropagation();
   }));
-  let marks = { selection: null, full: null, areas: [], buttons: [], hover: null };
+  let marks = { selection: null, areas: [], buttons: [], hover: null, review: false };
   const markBox = document.createElement("div");
   markBox.className = "review-marks__box";
   const placeMarkBox = () => {
@@ -5505,7 +5505,7 @@
   };
   const leaveOut = (doc, selection, area) => {
     if (app.doc !== doc || doc.state.selection !== selection || pageBusy()) return;
-    const full = marks.full.slice();
+    const full = ops.selectionFullMask(selection).slice();
     for (let y = 0; y < area.height; y++) {
       const row = (area.top + y) * doc.width + area.left;
       for (let x = 0; x < area.width; x++) if (area.data[y * area.width + x]) full[row + x] = 0;
@@ -5514,22 +5514,38 @@
     else ops.deselect();
     schedule(false);
   };
-  // Outside the review too: the texts Detect Text selected each get their ✕, until the selection
-  // is changed by hand
+  // The text under the pointer in a selection made by Detect Text: a click there with a selection
+  // tool leaves out that one alone, where it would drop the whole selection
+  const textAreaAt = (point) => {
+    const doc = app.doc;
+    if (!doc || !marks.selection || doc.state.selection !== marks.selection) return null;
+    const x = Math.floor(point[0]);
+    const y = Math.floor(point[1]);
+    return marks.areas.find((area) => x >= area.left && y >= area.top && x < area.left + area.width && y < area.top + area.height && area.data[(y - area.top) * area.width + x - area.left]) || null;
+  };
+  const hoverTextArea = (point) => {
+    const area = point ? textAreaAt(point) : null;
+    if (area === marks.hover) return;
+    marks.hover = area;
+    placeMarkBox();
+  };
+  // Outside the review too, the areas of a selection made by Detect Text are kept, until it's
+  // changed by hand; only the review gives each a ✕
   const placeReviewMarks = (page) => {
     const doc = page ? page.doc : app.doc;
     const shown = page ? page.state === "review" : textSelection() && !transformOf() && !cropOf() && !warpedLayer();
     const selection = shown && !doc.state.quickMask && !gesture && !polygon ? doc.state.selection : null;
     if (!selection) {
       reviewMarks.hidden = true;
-      if (!page) marks = { selection: null, full: null, areas: [], buttons: [], hover: null };
+      // Hidden during a gesture, the same selection keeps its areas
+      if (!page && !(doc && doc.state.selection === marks.selection)) marks = { selection: null, areas: [], buttons: [], hover: null, review: false };
       return;
     }
-    if (marks.selection !== selection) {
+    if (marks.selection !== selection || marks.review !== Boolean(page)) {
       const full = ops.selectionFullMask(selection);
       const areas = Mask.split(full, doc.width, doc.height, textLink(doc));
       reviewMarks.textContent = "";
-      const buttons = areas.map((area) => {
+      const buttons = !page ? [] : areas.map((area) => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "review-marks__drop";
@@ -5549,12 +5565,12 @@
         return button;
       });
       reviewMarks.appendChild(markBox);
-      marks = { selection, full, areas, buttons, hover: null };
+      marks = { selection, areas, buttons, hover: null, review: Boolean(page) };
     }
     reviewMarks.hidden = false;
-    marks.areas.forEach((area, index) => {
+    marks.buttons.forEach((button, index) => {
+      const area = marks.areas[index];
       const [x, y] = toScreen(area.left + area.width, area.top);
-      const button = marks.buttons[index];
       button.hidden = x < -12 || y < -12 || x > stageW + 12 || y > stageH + 12;
       button.style.left = `${Math.round(x)}px`;
       button.style.top = `${Math.round(y)}px`;
@@ -6528,7 +6544,8 @@
     const mode = selectionMode(event);
     const plain = !event.shiftKey && !event.altKey && mode === "new";
     if (plain && doc.state.selection && ops.selectionContains(point[0], point[1])) {
-      gesture = Object.assign(base, { kind: "moveSelection", mode, tool });
+      // On a text found by Detect Text, a click leaves out that text alone
+      gesture = Object.assign(base, { kind: "moveSelection", mode, tool, leaves: SELECTION_TOOLS.has(tool) ? textAreaAt(point) : null });
       ui.stage.setPointerCapture(event.pointerId);
       return;
     }
@@ -6604,7 +6621,9 @@
         const [x, y] = toDoc(event);
         // An outline being drawn takes every click: none moves the selection
         ui.stage.classList.toggle("is-over-selection", !polygon && ops.selectionContains(x, y));
-      }
+        // The text a click would leave out is outlined
+        hoverTextArea(polygon ? null : [x, y]);
+      } else hoverTextArea(null);
       return;
     }
     const current = gesture;
@@ -6921,7 +6940,11 @@
       if (current.tapEnds) endEdit();
       else if (current.tapEdit) beginEdit(current.tapEdit);
       else if (current.tapText) ops.selectLayer(current.tapText.id);
-      else if (current.tapWand === "new" && ops.selectionContains(point[0], point[1])) ops.deselect();
+      else if (current.tapWand === "new" && ops.selectionContains(point[0], point[1])) {
+        const area = textAreaAt(point);
+        if (area) leaveOut(app.doc, app.doc.state.selection, area);
+        else ops.deselect();
+      }
       else if (current.tapWand) tapWand(point, current.tapWand);
     } else if (kind === "clean") {
       cleanAt(current, point, event);
@@ -6939,6 +6962,7 @@
       beginEdit(ops.newText(point[0], point[1] + app.textDefaults.size * 0.35 * (doc.resolution / 72)), true);
     } else if (kind === "moveSelection") {
       if (current.moved) ops.nudgeSelection(Math.round(point[0] - current.start[0]), Math.round(point[1] - current.start[1]));
+      else if (current.leaves) leaveOut(app.doc, app.doc.state.selection, current.leaves);
       else if (current.tool === "polygon") {
         // A click there is the first corner of a new outline
         polygon = { points: [current.start], mode, time: performance.now(), screen: [current.x, current.y], doc: app.doc };
@@ -6967,6 +6991,7 @@
   ui.stage.addEventListener("pointerleave", () => {
     ui.brushRing.setAttribute("hidden", "");
     hideStampPreview();
+    hoverTextArea(null);
   });
   ui.stage.addEventListener("contextmenu", (event) => {
     // Ctrl + Space and a click is the zoom's, even where a Mac would see Ctrl + click
