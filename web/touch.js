@@ -834,7 +834,8 @@
       row(T("Full TypeR Panel"), () => openSheet("panel"), false, "script"),
     );
     App.MENUS.forEach(([group, items], index) => {
-      if (group === "Window") return;
+      // TypeR's commands are in its own sheet here, the panel's settings just above
+      if (group === "Window" || group === "TypeR") return;
       // A submenu's items come in its place, named after it
       const flat = items.flatMap((item) => (item && item.submenu ? item.submenu.filter(Boolean).map((sub) => ({ sub, parent: item })) : [item && { sub: item }]));
       const shown = flat.filter((entry) => !entry || (!OUT_OF_PLACE.has(entry.sub.label) && !(entry.sub.label === "Use Installed Fonts…" && !Fonts.canListInstalled())));

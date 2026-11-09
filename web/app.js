@@ -12221,6 +12221,8 @@
       { label: "Merge Visible", keys: "Shift+Cmd+E", enabled: hasDoc, action: () => ops.mergeVisible() },
       { label: "Flatten Image", enabled: hasDoc, action: () => ops.flatten() },
     ]],
+    // Where Photoshop has its Type menu
+    ["TypeR", TYPER_MENU],
     ["Select", [
       { label: "All", keys: "Cmd+A", enabled: hasDoc, action: () => ops.selectAll() },
       { label: "Deselect", keys: "Cmd+D", enabled: hasSelection, action: () => ops.deselect() },
@@ -12357,7 +12359,8 @@
   ];
   // A submenu's items take their place in their menu's group, named after it too
   const menuGroupItems = (items) => items.filter(Boolean).flatMap((item) => (item.submenu ? item.submenu.filter(Boolean).map((sub) => Object.assign(sub, { parent: item })) : [item]));
-  const SHORTCUT_GROUPS = [["Tools", TOOL_ITEMS], ...MENUS.map(([name, items]) => [name, menuGroupItems(items)]), ["Colours and brush", MORE_ITEMS], ["Layers and text", LAYER_AND_TEXT_ITEMS], ["Mouse", MOUSE_ITEMS]];
+  // The TypeR menu's keys are TypeR's own, set in its settings: not here too
+  const SHORTCUT_GROUPS = [["Tools", TOOL_ITEMS], ...MENUS.filter(([name]) => name !== "TypeR").map(([name, items]) => [name, menuGroupItems(items)]), ["Colours and brush", MORE_ITEMS], ["Layers and text", LAYER_AND_TEXT_ITEMS], ["Mouse", MOUSE_ITEMS]];
   const SHORTCUTS = SHORTCUT_GROUPS.flatMap(([group, items]) => items.map((item) => ({ id: `${group}:${item.id || item.label}`, group, item, keys: item.keys || "", alias: item.alias })));
   // What the Shortcuts tab shows first: the keys of every day. The rest waits under Other
   // shortcuts, and the search goes through everything.
@@ -12732,10 +12735,11 @@
     const label = document.createElement("span");
     label.textContent = menuLabel(item);
     row.appendChild(label);
-    if (item.keys) {
+    if (item.keys || item.shownKeys) {
       const keys = document.createElement("kbd");
-      keys.textContent = keyLabel(item.keys);
+      keys.textContent = item.keys ? keyLabel(item.keys) : item.shownKeys();
       row.appendChild(keys);
+      item.keysEl = keys;
     }
     item.row = row;
     item.labelEl = label;
@@ -12941,6 +12945,8 @@
         return;
       }
       item.row.disabled = item.enabled ? !item.enabled() : false;
+      // Keys that another part sets: TypeR's, from its own settings
+      if (item.shownKeys) item.keysEl.textContent = item.shownKeys();
       if (item.check) item.labelEl.textContent = `${item.check() ? "✓ " : "   "}${menuLabel(item)}`;
       else if (item.title) item.labelEl.textContent = menuLabel(item);
     });

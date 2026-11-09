@@ -246,8 +246,9 @@
         ? {
           id: `${m}:${n}`,
           name: item.label,
-          label: App.T(item.label),
-          accelerator: accelerator(item.keys),
+          // A name that follows what it does (Release Clipping Mask), or the panel's own (TypeR)
+          label: App.T(item.title ? item.title() : item.label),
+          accelerator: item.keys ? accelerator(item.keys) : item.shownAccelerator ? item.shownAccelerator() : undefined,
           enabled: item.enabled ? Boolean(item.enabled()) : true,
           checked: item.check ? Boolean(item.check()) : undefined,
         }
@@ -317,6 +318,8 @@
       syncMenu();
       ["pointerup", "keyup", "focusin"].forEach((name) => window.addEventListener(name, syncSoon, true));
       window.TypeRPhotoshop.on(syncSoon);
+      // TypeR's modes, switched in its panel
+      window.addEventListener("typer-modes", syncSoon);
       Desktop.onMenuAction((id) => {
         const [m, n] = id.split(":").map(Number);
         const item = App.MENUS[m][1][n];
