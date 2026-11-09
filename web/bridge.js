@@ -577,4 +577,10 @@
     getFile: (path) => files[path],
     setFile: (path, value) => { files[path] = value; },
   };
+  // The panel's button to the other app (TypeR's openInStudio.js): here, the app's own Open in
+  // Photoshop, only in the desktop app, which can reach Photoshop
+  const parentApp = window.parent;
+  if (parentApp.TypeRDesktop && parentApp.TypeRDesktop.photoshop && parentApp.TypeRApp && parentApp.TypeRApp.openInPhotoshop) {
+    window.__typerWeb.openInPhotoshop = () => { parentApp.TypeRApp.openInPhotoshop(); };
+  }
 })();
