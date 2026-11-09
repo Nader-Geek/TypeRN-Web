@@ -94,17 +94,15 @@ const DEMOS = {
     const r = new Rec(page, 'generative-fill', { clip: CLIP, x: 640, y: 360 });
     await r.cursor(); await r.shot(); r.hold(0.6);
     // The girl, whole: her hair, her arms, her dress and her legs down to her feet
-    const pts = [[440, 762], [466, 784], [484, 812], [480, 850], [484, 900], [500, 958], [514, 998], [500, 1014], [470, 1004], [462, 1062], [452, 1130], [448, 1192],
-      [364, 1192], [370, 1120], [374, 1050], [368, 1004], [358, 978], [376, 932], [384, 880], [386, 840], [384, 806], [404, 782], [440, 762]];
+    const pts = [[440, 758], [468, 780], [488, 810], [484, 850], [488, 900], [504, 956], [518, 998], [502, 1018], [476, 1010], [474, 1062], [468, 1130], [462, 1196],
+      [354, 1196], [358, 1120], [364, 1050], [362, 1008], [352, 978], [372, 930], [380, 880], [382, 840], [380, 804], [402, 778], [440, 758]];
     const screen = []; for (const [x, y] of pts) screen.push(await docToScreen(page, x, y));
     await r.drag(screen, 54);
     r.hold(0.4);
     await r.moveTo(...(await center(page, '.ctxbar__gen')));
     await r.click();
-    r.hold(0.2);
-    // The prompt, typed
-    for (const ch of 'Remove the girl, continue the stairs') { await page.keyboard.type(ch); await r.shot(); }
-    r.hold(0.4);
+    // No prompt: the model redraws what the selection hides
+    r.hold(0.5);
     await r.moveTo(...(await center(page, '.ctxbar .btn--main')));
     await r.click();
     await r.moveTo(700, 470, 18);
