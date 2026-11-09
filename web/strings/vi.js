@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "Ngắt từ trong Paragraph Text mới",
     "Always place new text on top": "Luôn đặt văn bản mới lên trên cùng",
     "When off, new text goes right above the selected layer, as in Photoshop.": "Khi tắt, văn bản mới nằm ngay trên layer đang chọn, như trong Photoshop.",
+    "Text size step": "Bước cỡ chữ",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "Mức Ctrl + Shift + < và > thay đổi cỡ chữ. Với Alt, gấp năm lần.",
     "Hyphenation only cuts the words of paragraph text.": "Ngắt từ chỉ cắt các từ của Paragraph Text.",
     "New paragraph text will be hyphenated.": "Paragraph Text mới sẽ được ngắt từ.",
     "New paragraph text won't be hyphenated.": "Paragraph Text mới sẽ không được ngắt từ.",

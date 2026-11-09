@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "Перенесення в новому абзацному тексті",
     "Always place new text on top": "Завжди розміщувати новий текст угорі",
     "When off, new text goes right above the selected layer, as in Photoshop.": "Якщо вимкнено, новий текст з'являється одразу над вибраним шаром, як у Photoshop.",
+    "Text size step": "Крок розміру тексту",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "На скільки Ctrl + Shift + < і > змінюють розмір тексту. З Alt — уп'ятеро більше.",
     "Hyphenation only cuts the words of paragraph text.": "Перенесення працює лише в абзацному тексті.",
     "New paragraph text will be hyphenated.": "У новому абзацному тексті будуть перенесення.",
     "New paragraph text won't be hyphenated.": "У новому абзацному тексті не буде перенесень.",

@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "新段落文本使用连字",
     "Always place new text on top": "始终将新文本放在最上层",
     "When off, new text goes right above the selected layer, as in Photoshop.": "关闭时，新文本会像在 Photoshop 中一样，放在所选图层的正上方。",
+    "Text size step": "文本大小步长",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "Ctrl + Shift + < 和 > 每次改变文本大小的量。按住 Alt 时为五倍。",
     "Hyphenation only cuts the words of paragraph text.": "连字仅断开段落文本中的单词。",
     "New paragraph text will be hyphenated.": "新段落文本将使用连字。",
     "New paragraph text won't be hyphenated.": "新段落文本将不使用连字。",

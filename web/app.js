@@ -249,6 +249,7 @@
         input = document.createElement("input");
         input.type = field.type || "text";
         if (field.min !== undefined) input.min = field.min;
+        if (field.step !== undefined) input.step = field.step;
       }
       if (field.type === "checkbox") input.checked = field.checked;
       else input.value = field.value;
@@ -3135,7 +3136,7 @@
   const STORE_SETTINGS = "typer.web.settings";
   // How far the pointer goes, dragged sideways with Ctrl + Space or the Zoom tool, to zoom twice as close
   const ZOOM_SPEEDS = { normal: 150, fast: 90, veryFast: 55 };
-  const settings = { wheel: "pan", zoomSpeed: "normal", smartGuides: true, snapText: false, transformControls: true, spellcheck: true, taskBar: true, taskBarPlace: null, hiddenChars: false, discord: "page" };
+  const settings = { wheel: "pan", zoomSpeed: "normal", smartGuides: true, snapText: false, transformControls: true, spellcheck: true, taskBar: true, taskBarPlace: null, hiddenChars: false, discord: "page", sizeStep: 2 };
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORE_SETTINGS)) || {};
     // On a Mac a mouse can't be told from a trackpad, so "auto" isn't offered there
@@ -3159,6 +3160,7 @@
     else if (place && (place.side === "below" || place.side === "above") && number(place.gap) && number(place.dx)) settings.taskBarPlace = { side: place.side, gap: place.gap, dx: place.dx };
     if (ZOOM_SPEEDS[saved.zoomSpeed]) settings.zoomSpeed = saved.zoomSpeed;
     if (saved.hiddenChars === true) settings.hiddenChars = true;
+    if (typeof saved.sizeStep === "number" && saved.sizeStep > 0 && saved.sizeStep <= 100) settings.sizeStep = saved.sizeStep;
     if (saved.discord === "app" || saved.discord === "off") settings.discord = saved.discord;
   } catch (error) {
     console.warn("TypeR web: could not read the settings", error);
@@ -3167,7 +3169,7 @@
     const d = app.textDefaults;
     try {
       // A language nobody chose keeps following the interface
-      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, zoomSpeed: settings.zoomSpeed === "normal" ? undefined : settings.zoomSpeed, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, taskBar: settings.taskBar ? undefined : false, taskBarPlace: settings.taskBarPlace || undefined, hiddenChars: settings.hiddenChars || undefined, discord: settings.discord === "page" ? undefined : settings.discord, ligature: d.ligature, hyphenate: d.hyphenate || undefined, autoKern: d.autoKern === "manual" ? "manual" : undefined, textOnTop: d.textOnTop || undefined, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
+      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, zoomSpeed: settings.zoomSpeed === "normal" ? undefined : settings.zoomSpeed, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, taskBar: settings.taskBar ? undefined : false, taskBarPlace: settings.taskBarPlace || undefined, hiddenChars: settings.hiddenChars || undefined, discord: settings.discord === "page" ? undefined : settings.discord, sizeStep: settings.sizeStep === 2 ? undefined : settings.sizeStep, ligature: d.ligature, hyphenate: d.hyphenate || undefined, autoKern: d.autoKern === "manual" ? "manual" : undefined, textOnTop: d.textOnTop || undefined, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
     } catch (error) {
       console.warn("TypeR web: could not keep the settings", error);
     }
@@ -3227,7 +3229,7 @@
         };
         const general = document.createElement("div");
         general.className = "settings__pane";
-        general.append(heading(T("General")), card("lang", "wheel", "zoomSpeed", ...(discord ? ["discord"] : [])), card("language", "ligature", "hyphenate", "textOnTop"));
+        general.append(heading(T("General")), card("lang", "wheel", "zoomSpeed", ...(discord ? ["discord"] : [])), card("language", "ligature", "hyphenate", "textOnTop", "sizeStep"));
         middle.textContent = "";
         const panes = { general, appearance: appearance.pane };
         if (generative) panes.generative = generative.pane;
@@ -3304,6 +3306,7 @@
         { id: "ligature", label: T("Standard ligatures in new text"), type: "checkbox", checked: d.ligature },
         { id: "hyphenate", label: T("Hyphenate new paragraph text"), type: "checkbox", checked: Boolean(d.hyphenate) },
         { id: "textOnTop", label: T("Always place new text on top"), type: "checkbox", checked: Boolean(d.textOnTop), hint: () => T("When off, new text goes right above the selected layer, as in Photoshop.") },
+        { id: "sizeStep", label: T("Text size step"), value: settings.sizeStep, type: "number", min: 0.1, step: "any", hint: () => T("How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.") },
       ],
     });
     if (!answer) return;
@@ -3314,6 +3317,8 @@
     d.ligature = answer.ligature;
     d.hyphenate = answer.hyphenate;
     d.textOnTop = answer.textOnTop;
+    const step = Math.round(parseFloat(String(answer.sizeStep).replace(",", ".")) * 100) / 100;
+    if (step > 0 && step <= 100) settings.sizeStep = step;
     keepSettings();
     if (shortcuts) shortcuts.save();
     if (generative) generative.save();
@@ -12347,9 +12352,10 @@
     }
   });
 
-  // Photoshop's steps: 2 points, and 10 with Alt
+  // Photoshop's steps: 2 points, and 10 with Alt. The step can be changed in the settings.
   const stepTextSize = (direction, large) => {
-    applyTextPatch((style) => ({ size: Math.max(1, (style.impliedFontSize || style.size || 12) + direction * (large ? 10 : 2)) }), null, "text-size");
+    const step = settings.sizeStep * (large ? 5 : 1);
+    applyTextPatch((style) => ({ size: Math.max(1, Math.round(((style.impliedFontSize || style.size || 12) + direction * step) * 100) / 100) }), null, "text-size");
     characterKey = "";
     renderCharacter();
     if (!ui.editor.hidden) placeEditor();

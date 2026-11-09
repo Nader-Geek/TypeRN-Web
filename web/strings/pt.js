@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "Hifenizar o novo texto de parágrafo",
     "Always place new text on top": "Colocar sempre o novo texto no topo",
     "When off, new text goes right above the selected layer, as in Photoshop.": "Desativado, o novo texto fica logo acima da camada selecionada, como no Photoshop.",
+    "Text size step": "Passo do tamanho do texto",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "Quanto Ctrl + Shift + < e > mudam o tamanho do texto. Com Alt, cinco vezes mais.",
     "Hyphenation only cuts the words of paragraph text.": "A hifenização só divide as palavras de um texto de parágrafo.",
     "New paragraph text will be hyphenated.": "O novo texto de parágrafo será hifenizado.",
     "New paragraph text won't be hyphenated.": "O novo texto de parágrafo não será hifenizado.",

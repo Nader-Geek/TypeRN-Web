@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "Yeni paragraf metninde heceleme",
     "Always place new text on top": "Yeni metni her zaman en üste yerleştir",
     "When off, new text goes right above the selected layer, as in Photoshop.": "Kapalıyken yeni metin, Photoshop'taki gibi seçili katmanın hemen üstüne gelir.",
+    "Text size step": "Metin boyutu adımı",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "Ctrl + Shift + < ve > tuşlarının metin boyutunu ne kadar değiştirdiği. Alt ile beş katı.",
     "Hyphenation only cuts the words of paragraph text.": "Heceleme yalnızca paragraf metnindeki sözcükleri böler.",
     "New paragraph text will be hyphenated.": "Yeni paragraf metni hecelenecek.",
     "New paragraph text won't be hyphenated.": "Yeni paragraf metni hecelenmeyecek.",

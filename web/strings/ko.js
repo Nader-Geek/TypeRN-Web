@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "새 단락 텍스트에 하이픈 넣기",
     "Always place new text on top": "새 텍스트를 항상 맨 위에 배치",
     "When off, new text goes right above the selected layer, as in Photoshop.": "끄면 Photoshop처럼 새 텍스트가 선택한 레이어 바로 위에 만들어집니다.",
+    "Text size step": "텍스트 크기 단계",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "Ctrl + Shift + < 와 > 로 텍스트 크기가 바뀌는 정도입니다. Alt를 누르면 다섯 배입니다.",
     "Hyphenation only cuts the words of paragraph text.": "하이픈 넣기는 단락 텍스트의 단어만 나눕니다.",
     "New paragraph text will be hyphenated.": "새 단락 텍스트에 하이픈이 들어갑니다.",
     "New paragraph text won't be hyphenated.": "새 단락 텍스트에 하이픈이 들어가지 않습니다.",

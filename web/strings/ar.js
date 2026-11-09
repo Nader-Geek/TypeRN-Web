@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "الواصلة في نص الفقرة الجديد",
     "Always place new text on top": "ضع النص الجديد دائمًا في الأعلى",
     "When off, new text goes right above the selected layer, as in Photoshop.": "عند إيقافه، يوضع النص الجديد مباشرة فوق الطبقة المحددة، كما في Photoshop.",
+    "Text size step": "خطوة حجم النص",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "مقدار تغيير Ctrl + Shift + < و > لحجم النص. مع Alt، خمسة أضعاف ذلك.",
     "Hyphenation only cuts the words of paragraph text.": "لا تقسم الواصلة إلا كلمات نص الفقرة.",
     "New paragraph text will be hyphenated.": "سيُقسَّم نص الفقرة الجديد بالواصلة.",
     "New paragraph text won't be hyphenated.": "لن يُقسَّم نص الفقرة الجديد بالواصلة.",

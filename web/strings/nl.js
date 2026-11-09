@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "Woordafbreking in nieuwe alineatekst",
     "Always place new text on top": "Nieuwe tekst altijd bovenaan plaatsen",
     "When off, new text goes right above the selected layer, as in Photoshop.": "Uit: nieuwe tekst komt direct boven de geselecteerde laag, zoals in Photoshop.",
+    "Text size step": "Stap van de tekstgrootte",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "Hoeveel Ctrl + Shift + < en > de tekstgrootte veranderen. Met Alt vijf keer zoveel.",
     "Hyphenation only cuts the words of paragraph text.": "Woordafbreking breekt alleen woorden in alineatekst af.",
     "New paragraph text will be hyphenated.": "Nieuwe alineatekst wordt afgebroken.",
     "New paragraph text won't be hyphenated.": "Nieuwe alineatekst wordt niet afgebroken.",

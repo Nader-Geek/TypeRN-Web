@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "Sillabazione nel nuovo testo di paragrafo",
     "Always place new text on top": "Metti sempre il nuovo testo in cima",
     "When off, new text goes right above the selected layer, as in Photoshop.": "Se disattivato, il nuovo testo va subito sopra il livello selezionato, come in Photoshop.",
+    "Text size step": "Passo della dimensione del testo",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "Di quanto Ctrl + Maiusc + < e > cambiano la dimensione del testo. Con Alt, cinque volte tanto.",
     "Hyphenation only cuts the words of paragraph text.": "La sillabazione divide solo le parole di un testo di paragrafo.",
     "New paragraph text will be hyphenated.": "Il nuovo testo di paragrafo sarà sillabato.",
     "New paragraph text won't be hyphenated.": "Il nuovo testo di paragrafo non sarà sillabato.",

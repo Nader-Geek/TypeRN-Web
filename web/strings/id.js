@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "Pemenggalan kata pada Paragraph Text baru",
     "Always place new text on top": "Selalu letakkan teks baru di paling atas",
     "When off, new text goes right above the selected layer, as in Photoshop.": "Jika mati, teks baru diletakkan tepat di atas layer yang dipilih, seperti di Photoshop.",
+    "Text size step": "Langkah ukuran teks",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "Seberapa banyak Ctrl + Shift + < dan > mengubah ukuran teks. Dengan Alt, lima kali lipat.",
     "Hyphenation only cuts the words of paragraph text.": "Pemenggalan kata hanya memotong kata pada Paragraph Text.",
     "New paragraph text will be hyphenated.": "Paragraph Text baru akan dipenggal.",
     "New paragraph text won't be hyphenated.": "Paragraph Text baru tidak akan dipenggal.",

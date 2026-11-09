@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "Separación por sílabas en el texto de párrafo nuevo",
     "Always place new text on top": "Colocar siempre el texto nuevo arriba del todo",
     "When off, new text goes right above the selected layer, as in Photoshop.": "Si está desactivado, el texto nuevo va justo encima de la capa seleccionada, como en Photoshop.",
+    "Text size step": "Paso del tamaño del texto",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "Cuánto cambian Ctrl + Mayús + < y > el tamaño del texto. Con Alt, cinco veces más.",
     "Hyphenation only cuts the words of paragraph text.": "La separación por sílabas solo corta las palabras de un texto de párrafo.",
     "New paragraph text will be hyphenated.": "El texto de párrafo nuevo se separará por sílabas.",
     "New paragraph text won't be hyphenated.": "El texto de párrafo nuevo no se separará por sílabas.",

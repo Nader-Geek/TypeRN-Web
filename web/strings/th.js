@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "ตัดคำด้วยยัติภังค์ใน Paragraph Text ใหม่",
     "Always place new text on top": "วางข้อความใหม่ไว้บนสุดเสมอ",
     "When off, new text goes right above the selected layer, as in Photoshop.": "เมื่อปิด ข้อความใหม่จะอยู่เหนือเลเยอร์ที่เลือกทันที เหมือนใน Photoshop",
+    "Text size step": "ระยะปรับขนาดข้อความ",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "ปริมาณที่ Ctrl + Shift + < และ > เปลี่ยนขนาดข้อความ เมื่อกด Alt ด้วย จะเปลี่ยนมากขึ้นห้าเท่า",
     "Hyphenation only cuts the words of paragraph text.": "การตัดคำใช้ได้กับ Paragraph Text เท่านั้น",
     "New paragraph text will be hyphenated.": "Paragraph Text ใหม่จะตัดคำด้วยยัติภังค์",
     "New paragraph text won't be hyphenated.": "Paragraph Text ใหม่จะไม่ตัดคำด้วยยัติภังค์",

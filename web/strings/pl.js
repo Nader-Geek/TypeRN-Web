@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "Dzielenie wyrazów w nowym tekście akapitowym",
     "Always place new text on top": "Zawsze umieszczaj nowy tekst na górze",
     "When off, new text goes right above the selected layer, as in Photoshop.": "Po wyłączeniu nowy tekst trafia tuż nad zaznaczoną warstwę, jak w Photoshopie.",
+    "Text size step": "Krok rozmiaru tekstu",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "O ile Ctrl + Shift + < i > zmieniają rozmiar tekstu. Z Alt pięć razy więcej.",
     "Hyphenation only cuts the words of paragraph text.": "Dzielenie wyrazów działa tylko w tekście akapitowym.",
     "New paragraph text will be hyphenated.": "Nowy tekst akapitowy będzie dzielony.",
     "New paragraph text won't be hyphenated.": "Nowy tekst akapitowy nie będzie dzielony.",

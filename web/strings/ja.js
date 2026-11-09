@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "新規段落テキストのハイフネーション",
     "Always place new text on top": "新規テキストを常に最上部に配置",
     "When off, new text goes right above the selected layer, as in Photoshop.": "オフのときは、Photoshop と同じく、選択中のレイヤーのすぐ上に新規テキストが作成されます。",
+    "Text size step": "テキストサイズの増減幅",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "Ctrl + Shift + < と > でテキストサイズを変える幅。Alt を押すと 5 倍。",
     "Hyphenation only cuts the words of paragraph text.": "ハイフネーションは段落テキストの単語だけを分割します。",
     "New paragraph text will be hyphenated.": "新規段落テキストはハイフネーションされます。",
     "New paragraph text won't be hyphenated.": "新規段落テキストはハイフネーションされません。",

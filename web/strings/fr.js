@@ -289,6 +289,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Hyphenate new paragraph text": "Césure dans les nouveaux textes de paragraphe",
     "Always place new text on top": "Toujours placer les nouveaux textes en haut",
     "When off, new text goes right above the selected layer, as in Photoshop.": "Désactivé, un nouveau texte se place juste au-dessus du calque sélectionné, comme dans Photoshop.",
+    "Text size step": "Pas de la taille du texte",
+    "How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.": "De combien Ctrl + Maj + < et > changent la taille du texte. Avec Alt, cinq fois plus.",
     "Hyphenation only cuts the words of paragraph text.": "La césure ne coupe que les mots d'un texte de paragraphe.",
     "New paragraph text will be hyphenated.": "Les nouveaux textes de paragraphe auront la césure.",
     "New paragraph text won't be hyphenated.": "Les nouveaux textes de paragraphe n'auront pas la césure.",
