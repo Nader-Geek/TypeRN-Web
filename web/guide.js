@@ -1139,6 +1139,9 @@
     const step = run.steps[run.at];
     const targets = (step && !run.passed && step.targets) || [];
     const rects = run.hidden ? [] : targets.map(rectOf);
+    // Everything is measured before anything is written: a measure after a write costs a layout,
+    // and this runs on every frame of a lesson
+    const measured = run.card && !run.moved ? { stage: document.getElementById("stage").getBoundingClientRect(), w: run.card.offsetWidth, h: run.card.offsetHeight } : null;
     while (box.children.length < rects.length) {
       const ring = el("div", "guide-ring", box);
       el("span", "guide-ring__label", ring);
@@ -1147,21 +1150,25 @@
       if (!ring.classList.contains("guide-ring")) return;
       const rect = rects[i];
       if (!rect) {
-        ring.hidden = true;
+        if (!ring.hidden) ring.hidden = true;
         return;
       }
-      ring.hidden = false;
+      // Written only when it moved: a ring that stays costs the page nothing
+      const label = targets[i] && targets[i].label ? T(targets[i].label) : "";
+      const shape = [Math.round(rect.left), Math.round(rect.top), Math.round(rect.right - rect.left), Math.round(rect.bottom - rect.top), rect.round ? 1 : 0, label].join("|");
+      if (ring.hidden) ring.hidden = false;
+      if (ring.dataset.shape === shape) return;
+      ring.dataset.shape = shape;
       ring.style.left = `${Math.round(rect.left)}px`;
       ring.style.top = `${Math.round(rect.top)}px`;
       ring.style.width = `${Math.round(rect.right - rect.left)}px`;
       ring.style.height = `${Math.round(rect.bottom - rect.top)}px`;
       ring.classList.toggle("is-round", Boolean(rect.round));
-      const label = targets[i] && targets[i].label ? T(targets[i].label) : "";
       ring.firstChild.textContent = label;
       ring.firstChild.hidden = !label;
     });
     run.rects = rects.filter(Boolean);
-    placeCard();
+    placeCard(measured);
   };
   let ringFrame = 0;
   const ringLoop = () => {
@@ -1174,13 +1181,13 @@
   // The card keeps clear of what it points at: bottom left of the page, else top left, else
   // bottom right. Once dragged, it stays where it was put.
   const overlaps = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-  const placeCard = () => {
+  const placeCard = (measured) => {
     if (!run || !run.card) return;
     const card = run.card;
     if (run.moved) return;
-    const stage = document.getElementById("stage").getBoundingClientRect();
-    const w = card.offsetWidth;
-    const h = card.offsetHeight;
+    const stage = measured ? measured.stage : document.getElementById("stage").getBoundingClientRect();
+    const w = measured ? measured.w : card.offsetWidth;
+    const h = measured ? measured.h : card.offsetHeight;
     const spots = [
       { left: stage.left + 14, top: stage.bottom - h - 14 },
       { left: stage.left + 14, top: stage.top + 14 },

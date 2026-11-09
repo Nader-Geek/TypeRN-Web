@@ -329,9 +329,30 @@
     });
     if (changed) style.textContent = next;
   };
+  // Only the <style> elements a change touches are read again, not all of them at each
+  // change of the panel: the panel's own rules are in its head, the previews' in its body
+  const styleOf = (node) => {
+    const element = node.nodeType === 1 ? node : node.parentNode;
+    return element && element.nodeType === 1 ? element.closest("style") : null;
+  };
+  const rewriteTouchedRules = (mutations) => {
+    const touched = new Set();
+    mutations.forEach((mutation) => {
+      const style = styleOf(mutation.target);
+      if (style) touched.add(style);
+      else if (mutation.type === "childList") {
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType !== 1) return;
+          if (node.nodeName === "STYLE") touched.add(node);
+          else if (node.firstElementChild) node.querySelectorAll("style").forEach((inner) => touched.add(inner));
+        });
+      }
+    });
+    touched.forEach(rewriteFontRules);
+  };
   const watchFontRules = () => {
     const scan = () => Array.prototype.forEach.call(document.querySelectorAll("style"), rewriteFontRules);
-    new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    new MutationObserver(rewriteTouchedRules).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
     // A kept font is read when it's first asked for: its rule waits for it
     const stop = window.parent.TypeRFonts.onChange(scan);
     window.addEventListener("pagehide", stop);
@@ -480,14 +501,51 @@
   const load = (url) => fetch(url).then((response) => (response.ok ? response.text() : "")).catch(() => "");
 
   // FontScanR reads the list of fonts once, when it opens, but the browser only learns
-  // about the computer's fonts one by one, during the scan: it would call them missing
-  new MutationObserver(() => {
-    document.querySelectorAll(".fsr-item").forEach((item) => {
-      const preview = item.querySelector(".fsr-item-preview");
-      const state = window.parent.TypeRFonts.isMissing(preview.title) ? "missing" : "found";
-      if (item.dataset.font !== state) item.dataset.font = state;
+  // about the computer's fonts one by one, during the scan: it would call them missing.
+  // The rows added are marked, once per frame, and all of them again when the fonts change
+  const markFound = (item) => {
+    const preview = item.querySelector(".fsr-item-preview");
+    if (!preview) return;
+    const state = window.parent.TypeRFonts.isMissing(preview.title) ? "missing" : "found";
+    if (item.dataset.font !== state) item.dataset.font = state;
+  };
+  const fsrAdded = new Set();
+  let fsrAll = false;
+  let fsrFrame = 0;
+  const markFsrItems = () => {
+    fsrFrame = 0;
+    const all = fsrAll;
+    const added = Array.from(fsrAdded);
+    fsrAll = false;
+    fsrAdded.clear();
+    if (all) {
+      document.querySelectorAll(".fsr-item").forEach(markFound);
+      return;
+    }
+    added.forEach((node) => {
+      if (!node.isConnected) return;
+      const item = node.closest(".fsr-item");
+      if (item) markFound(item);
+      else if (node.firstElementChild) node.querySelectorAll(".fsr-item").forEach(markFound);
     });
+  };
+  const markFsrSoon = () => {
+    if (!fsrFrame) fsrFrame = window.requestAnimationFrame(markFsrItems);
+  };
+  new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        const element = node.nodeType === 1 ? node : node.parentElement;
+        if (element) fsrAdded.add(element);
+      });
+    });
+    if (fsrAdded.size) markFsrSoon();
   }).observe(document.documentElement, { childList: true, subtree: true });
+  const stopMarking = window.parent.TypeRFonts.onChange(() => {
+    fsrAll = true;
+    markFsrSoon();
+  });
+  window.addEventListener("pagehide", stopMarking);
 
   // Sentences that say something else here than in Photoshop: there are no profiles
   const loadWebText = () => fetch("../panel-locale/web-text.json").then((response) => response.json()).catch(() => ({}));

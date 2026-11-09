@@ -755,6 +755,36 @@
     return layer ? sfxOf(doc, layer) : null;
   };
 
+  // The SFX as it is now, read once and shared by the overlay, the panel and the options bar
+  // until something changes: the document's state and its layers are made anew on every change,
+  // so the same state, group and fonts mean the same reading. Its recipe and layout are read,
+  // never changed: what edits them reads its own with `settled`.
+  let reading = null;
+  const settledNow = (doc, group) => {
+    const gen = Fonts.generation;
+    if (reading && reading.doc === doc && reading.state === doc.state && reading.group === group && reading.gen === gen && reading.resolution === doc.resolution && reading.width === doc.width && reading.height === doc.height) return reading;
+    const next = { doc, state: doc.state, group, gen, resolution: doc.resolution, width: doc.width, height: doc.height, recipe: null, byKey: null, layout: null, failed: false, boxes: null };
+    try {
+      const read = settled(doc, group);
+      next.recipe = read.recipe;
+      next.byKey = read.byKey;
+    } catch (error) {
+      next.recipe = normal(group.sfx);
+      next.failed = true;
+    }
+    if (!next.failed) {
+      try {
+        next.layout = layoutOf(next.recipe, doc);
+      } catch (error) {
+        next.failed = true;
+      }
+    }
+    reading = next;
+    return reading;
+  };
+  // The layout of a recipe: the shared one when it is the shared recipe, else laid out now
+  const layoutNow = (recipe, doc) => (reading && reading.recipe === recipe && reading.layout && reading.doc === doc && reading.gen === Fonts.generation && reading.resolution === doc.resolution ? reading.layout : layoutOf(recipe, doc));
+
   const fontNames = (recipe) => {
     const names = [recipe.font.ps];
     recipe.letters.forEach((letter) => {
@@ -1415,16 +1445,6 @@
     mark = kind || null;
     drawOverlay();
   };
-  // The letter's box on the page, turned with it
-  const cornersOf = (pose, doc, pad = 0) => {
-    const m = measure(doc, pose.font, pose.ch);
-    const k = pose.size / 100;
-    const w = (m.w * k * pose.sx) / 2 + pad;
-    const h = (m.h * k * pose.sy) / 2 + pad;
-    const spin = spinOf(pose.rot, pose.skew);
-    return [[-w, -h], [w, -h], [w, h], [-w, h]].map(([x, y]) => [pose.center[0] + spin[0] * x + spin[2] * y, pose.center[1] + spin[1] * x + spin[3] * y]);
-  };
-
   const drawOverlay = () => {
     const g = overlayGroup();
     if (!g) return;
@@ -1439,20 +1459,26 @@
     }
     const group = activeSfx();
     if (!group) return;
-    let recipe;
-    let layout;
-    try {
-      recipe = settled(doc, group).recipe;
-      layout = layoutOf(recipe, doc);
-    } catch (error) {
-      return;
+    const read = settledNow(doc, group);
+    if (read.failed) return;
+    const { recipe, layout } = read;
+    // The letters' boxes on the page, kept with the reading: a zoom or a pan only projects them
+    if (!read.boxes) {
+      const byKey = new Map(recipe.letters.map((item) => [item.key, item]));
+      read.boxes = layout.letters.map((pose) => {
+        const m = measure(doc, pose.font, pose.ch);
+        const k = pose.size / 100;
+        return { pose, letter: byKey.get(pose.key) || null, w: (m.w * k * pose.sx) / 2, h: (m.h * k * pose.sy) / 2, spin: spinOf(pose.rot, pose.skew) };
+      });
     }
     svg("polyline", { points: layout.guide.map(screen).map((p) => p.join(",")).join(" "), class: "sfx-guide" }, g);
     const key = pickedLetter(group);
-    layout.letters.forEach((pose) => {
-      const corners = cornersOf(pose, doc, 2 / doc.view.zoom).map(screen);
+    const pad = 2 / doc.view.zoom;
+    read.boxes.forEach(({ pose, letter, spin, w: hw, h: hh }) => {
+      const w = hw + pad;
+      const h = hh + pad;
+      const corners = [[-w, -h], [w, -h], [w, h], [-w, h]].map(([x, y]) => screen([pose.center[0] + spin[0] * x + spin[2] * y, pose.center[1] + spin[1] * x + spin[3] * y]));
       const on = pose.key === key;
-      const letter = recipe.letters.find((item) => item.key === pose.key);
       svg("polygon", { points: corners.map((p) => p.join(",")).join(" "), class: `sfx-letter${on ? " is-on" : ""}${letter && (letter.o || letter.lock) ? " is-touched" : ""}` }, g);
       if (letter && letter.lock) {
         const [x, y] = corners[1];
@@ -1840,6 +1866,8 @@
 
   let freeDrawing = false;
   let panelKey = "";
+  let panelRecipe = null;
+  let panelRecipeJson = "";
   const el = (tag, className, parent, text) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -1940,14 +1968,7 @@
   // The word field of the options bar: a new SFX's word is typed there at once
   let barWord = null;
   let optionsKey = "";
-  const recipeNow = (group) => {
-    if (!group || !app.doc) return defaults;
-    try {
-      return settled(app.doc, group).recipe;
-    } catch (error) {
-      return normal(group.sfx);
-    }
-  };
+  const recipeNow = (group) => (group && app.doc ? settledNow(app.doc, group).recipe : defaults);
   // The bar, the panel and the page shown again: what was picked has changed
   const showAll = () => {
     drawOverlay();
@@ -1966,7 +1987,7 @@
   // The letters' size as it shows: on a path that sets it, what the path makes of it
   const shownSize = (recipe, group) => {
     const fitting = recipe.path.kind === "free" || recipe.path.length > 0;
-    return round(fitting && group && app.doc ? recipe.size * layoutOf(recipe, app.doc).fit * recipe.scale : recipe.size * recipe.scale, 10);
+    return round(fitting && group && app.doc ? recipe.size * layoutNow(recipe, app.doc).fit * recipe.scale : recipe.size * recipe.scale, 10);
   };
   // A path drawn by hand grows with its letters; on the others, a size typed sets the size and
   // the path no longer decides it
@@ -2087,7 +2108,7 @@
       change(letter.o, false);
     }
   };
-  const poseNow = (recipe, key) => layoutOf(recipe, app.doc).letters.find((item) => item.key === key);
+  const poseNow = (recipe, key) => layoutNow(recipe, app.doc).letters.find((item) => item.key === key);
   const turnLetterTo = (key, value, coalesce) => editLetter(key, (l, r) => {
     const now = poseNow(r, key);
     const delta = value - (now ? now.rot - r.angle : 0);
@@ -2556,7 +2577,16 @@
     if (!force && host.contains(active) && (active.tagName === "INPUT" || active.tagName === "SELECT") && active.type !== "checkbox" && active.type !== "button") return;
     const group = activeSfx();
     const recipe = recipeNow(group);
-    const shownKey = JSON.stringify([group ? group.id : null, group ? group.name : "", recipe, Boolean(group && group.mask), Fonts.generation, presets.length, bank.length, freeDrawing, Boolean(selection()), galleryTab]);
+    const shownKey = JSON.stringify([group ? group.id : null, group ? group.name : "", Boolean(group && group.mask), Fonts.generation, presets.length, bank.length, freeDrawing, Boolean(selection()), galleryTab]);
+    // The same recipe object is the same recipe; another one is read through only when it is new
+    if (recipe !== panelRecipe) {
+      const json = JSON.stringify(recipe);
+      panelRecipe = recipe;
+      if (json !== panelRecipeJson) {
+        panelRecipeJson = json;
+        panelKey = "";
+      }
+    }
     if (!force && shownKey === panelKey) return;
     panelKey = shownKey;
     const scroll = host.scrollTop;

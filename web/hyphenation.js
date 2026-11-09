@@ -80,11 +80,16 @@
   /* ------------------------------- the hyphen library ------------------------------ */
 
   const hyphenators = new Map();
+  // The cuts of each word, kept: the same words are asked for at each change of a text
+  const known = new Map();
+  const KNOWN_MAX = 4000;
   const isLoaded = (language) => !language || hyphenators.has(language);
   const load = async (language) => {
     if (isLoaded(language)) return;
     const [engine, patterns] = await Promise.all([import("./vendor/hyphen/hyphenEngine.js"), import(`./vendor/hyphen/${PATTERNS[language]}Patterns.js`)]);
     hyphenators.set(language, engine.default(patterns.default, { minWordLength: 4 }));
+    // The cuts found without these patterns are no longer right
+    known.clear();
   };
 
   const patternPoints = (language, word) => {
@@ -168,6 +173,15 @@
   // automatic hyphenation keeps to the cuts typography prefers.
   const breakPoints = (run, language, every) => {
     if (!language) return [];
+    const key = `${language}${every ? "+" : "-"}${run}`;
+    const kept = known.get(key);
+    if (kept) return kept;
+    const points = findBreakPoints(run, language, every);
+    if (known.size >= KNOWN_MAX) known.clear();
+    known.set(key, points);
+    return points;
+  };
+  const findBreakPoints = (run, language, every) => {
     const lead = /^['’]*/.exec(run)[0].length;
     const body = run.slice(lead).replace(/['’]+$/, "");
     const elided = /['’]/.test(body);

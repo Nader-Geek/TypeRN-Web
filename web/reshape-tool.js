@@ -107,19 +107,22 @@
     return true;
   };
 
-  // Drawn again at the next frame, once however many moves come before it
-  const show = () => {
+  // Drawn again at the next frame, once however many moves come before it. `quick`, from a
+  // handle being dragged: the inside stays plain until the handle is let go.
+  let frameQuick = false;
+  const show = (quick = false) => {
+    frameQuick = frame ? frameQuick && quick : quick;
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
-      redraw();
+      redraw(frameQuick);
     });
   };
-  const redraw = () => {
+  const redraw = (quick) => {
     const s = session;
     if (!s || app.doc !== s.doc) return;
     s.shape = R.shapeOf(s.model, s.params);
-    s.result = R.render(s.model, s.shape, { cleared: s.cleared });
+    s.result = R.render(s.model, s.shape, { cleared: s.cleared, quick });
     if (!s.result) return;
     const canvas = pictureOf(s.result, true);
     const r = s.result;
@@ -131,11 +134,18 @@
     drawOverlay();
   };
 
-  // The picture as a canvas. On screen, what will still need filling is striped.
+  // The picture as a canvas. On screen, what will still need filling is striped, and the same
+  // canvas is painted again at every move; the one laid on the page is its own.
+  let preview = null;
   const pictureOf = (result, onScreen) => {
-    const canvas = PS.newCanvas(result.width, result.height);
+    let canvas;
+    if (onScreen) {
+      if (!preview || preview.width !== result.width || preview.height !== result.height) preview = PS.newCanvas(result.width, result.height);
+      canvas = preview;
+    } else canvas = PS.newCanvas(result.width, result.height);
     const ctx = canvas.getContext("2d");
-    const image = new ImageData(new Uint8ClampedArray(result.rgba), result.width, result.height);
+    // Drawn straight from the picture's own pixels: the stripes go on them, and only on screen
+    const image = new ImageData(result.rgba, result.width, result.height);
     if (onScreen && result.gapCount) {
       const px = image.data;
       for (let y = 0; y < result.height; y++) {
@@ -157,6 +167,7 @@
   const end = () => {
     if (frame) cancelAnimationFrame(frame);
     frame = 0;
+    preview = null;
     const s = session;
     session = null;
     if (s && s.doc.extra) ops.reshapeShow(null);
@@ -538,18 +549,16 @@
       const hh = (bottom - top) / 2;
       s.params.box = { left: cx - hw, right: cx + hw, top: cy - hh, bottom: cy + hh };
     }
-    show();
+    show(true);
     if (mode === "rotate") App().renderOptions();
   };
   const up = (current, event, point, cancelled) => {
     const s = session;
     if (!s) return;
-    if (cancelled) {
-      s.params = clone(current.from);
-      show();
-    } else if (current.mode === "pull" && Math.hypot(current.pull.dx, current.pull.dy) < 0.5) {
-      s.params.pulls.pop();
-    }
+    if (cancelled) s.params = clone(current.from);
+    else if (current.mode === "pull" && Math.hypot(current.pull.dx, current.pull.dy) < 0.5) s.params.pulls.pop();
+    // The bubble as it will be, its inside shaded, now that the handle is let go
+    show();
     App().renderOptions();
   };
 

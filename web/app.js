@@ -650,8 +650,19 @@
   document.addEventListener("input", (event) => {
     if (event.target.type === "range") showSliderFill(event.target);
   }, true);
+  // The stage's place on screen, measured once per event however many ask (a measure after a
+  // write to the page costs a layout)
+  let measuredFor = null;
+  let measuredRect = null;
+  const stageRectOf = (event) => {
+    if (event !== measuredFor) {
+      measuredFor = event;
+      measuredRect = ui.stage.getBoundingClientRect();
+    }
+    return measuredRect;
+  };
   const toDoc = (event) => {
-    const rect = ui.stage.getBoundingClientRect();
+    const rect = stageRectOf(event);
     const v = view();
     return [(event.clientX - rect.left - v.x) / v.zoom, (event.clientY - rect.top - v.y) / v.zoom];
   };
@@ -816,6 +827,7 @@
     const d = selection ? ringsToD(selection.rings) : "";
     ui.antsA.setAttribute("d", d);
     ui.antsB.setAttribute("d", d);
+    ui.antsB.classList.toggle("is-live", Boolean(selection));
   };
   const setDrag = (d) => {
     ui.drag.setAttribute("d", d);
@@ -3459,6 +3471,23 @@
   // Task Bar brings it back). It follows the text, and steps aside during a drag.
   const taskBar = $("ctxbar");
   let taskBarKey = "";
+  // Its size, measured when it's built again, or a few times a second: measuring it on every
+  // frame, after the overlay was written, costs a layout each time
+  let taskBarMeasured = { key: null, built: null, at: 0, width: 0, height: 0 };
+  const taskBarSize = () => {
+    const now = performance.now();
+    if (taskBarMeasured.key !== taskBarKey || taskBarMeasured.built !== taskBar.firstChild || now - taskBarMeasured.at > 250) {
+      taskBarMeasured = { key: taskBarKey, built: taskBar.firstChild, at: now, width: taskBar.offsetWidth, height: taskBar.offsetHeight };
+    }
+    return taskBarMeasured;
+  };
+  // The generative settings, read from storage once a second at most, not on every frame
+  let genAccountRead = { at: -Infinity, account: null };
+  const genAccount = () => {
+    const now = performance.now();
+    if (now - genAccountRead.at > 1000) genAccountRead = { at: now, account: Gen.load() };
+    return genAccountRead.account;
+  };
   const setTaskBar = (on) => {
     settings.taskBar = on;
     keepSettings();
@@ -3511,8 +3540,7 @@
     }
     taskBar.hidden = false;
     // Under the text, or over it near the bottom, or inside the page's view as a last resort
-    const width = taskBar.offsetWidth;
-    const height = taskBar.offsetHeight;
+    const { width, height } = taskBarSize();
     const GAP = 12;
     let top = box.y1 + GAP;
     if (top + height > stageH - 8) top = box.y0 - GAP - height >= 8 ? box.y0 - GAP - height : stageH - height - 8;
@@ -4658,7 +4686,7 @@
       taskBar.hidden = true;
       return;
     }
-    const account = Gen && Gen.load();
+    const account = Gen && genAccount();
     const key = JSON.stringify(["selection", textSelection(), gen.open, settings.spellcheck, Boolean(Gen), Boolean(Gen) && [account.service, Gen.modelOf(account), account.custom]]);
     if (key !== taskBarKey) {
       const typing = taskBar.contains(document.activeElement) && document.activeElement.tagName === "INPUT";
@@ -4670,8 +4698,7 @@
     const b = selection.bounds;
     const [x0, y0] = toScreen(b.left, b.top);
     const [x1, y1] = toScreen(b.right, b.bottom);
-    const width = taskBar.offsetWidth;
-    const height = taskBar.offsetHeight;
+    const { width, height } = taskBarSize();
     const GAP = 12;
     let top = y1 + GAP;
     if (top + height > stageH - 8) top = y0 - GAP - height >= 8 ? y0 - GAP - height : stageH - height - 8;
@@ -4709,10 +4736,33 @@
       schedule(false);
     });
   }
+  // What the options bar shows for the Move and Type tools, as a cheap signature: the bar is
+  // built again only when it changes (identities, the state never changing in place)
+  const NO_STATE = {};
+  const tokens = new WeakMap();
+  let nextToken = 1;
+  const tokenOf = (object) => {
+    if (!object || typeof object !== "object") return 0;
+    let token = tokens.get(object);
+    if (!token) {
+      token = nextToken++;
+      tokens.set(object, token);
+    }
+    return token;
+  };
+  let optionsShown = "";
+  const optionsSignature = () => {
+    const doc = app.doc;
+    // A transform or a warp under way: the bar shows its numbers, built again every time as before
+    if (transform || warpedLayer()) return "live:" + nextToken++;
+    const active = doc ? doc.state.layers.filter((layer) => doc.state.activeIds.includes(layer.id)) : [];
+    return [app.tool, doc ? doc.id : "", Fonts.generation, settings.hiddenChars ? 1 : 0, editing ? editing.id + ":" + (editRange() || []).join("-") : "", active.map((layer) => layer.id + ":" + tokenOf(layer)).join(","), tokenOf(app.textDefaults)].join("|");
+  };
   const renderOptions = () => {
     const bar = ui.options;
     if (scrubbing) return;
     if (bar.contains(document.activeElement) && document.activeElement.tagName === "INPUT" && document.activeElement.type !== "checkbox") return;
+    optionsShown = optionsSignature();
     bar.textContent = "";
     const tool = app.tool;
     const head = document.createElement("span");
@@ -5672,7 +5722,7 @@
       const [a, b] = Array.from(pointers.values());
       const distance = Math.hypot(a[0] - b[0], a[1] - b[1]);
       const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-      const rect = ui.stage.getBoundingClientRect();
+      const rect = stageRectOf(event);
       panBy(mid[0] - pinch.mid[0], mid[1] - pinch.mid[1]);
       zoomTo(pinch.zoom * (distance / pinch.distance), mid[0] - rect.left, mid[1] - rect.top);
       pinch.mid = mid;
@@ -5688,7 +5738,7 @@
       schedule(false);
     }
     if ((tool === "brush" || tool === "eraser" || tool === "stamp" || tool === "heal") && !(event.pointerType === "touch" && !gesture) && !(gesture && gesture.kind === "brushAdjust")) {
-      const rect = ui.stage.getBoundingClientRect();
+      const rect = stageRectOf(event);
       ui.brushRing.setAttribute("cx", event.clientX - rect.left);
       ui.brushRing.setAttribute("cy", event.clientY - rect.top);
       ui.brushRing.setAttribute("r", Math.max(1, (app.brush.size / 2) * view().zoom));
@@ -7232,11 +7282,16 @@
     layersKey = "";
     renderLayers();
   };
-  const thumbs = new WeakMap();
+  // One per layer: a layer's past versions, kept by the history, don't keep a thumbnail each
+  const thumbs = new Map();
   const thumbOf = (layer, doc) => {
     const pixels = thumbPixels();
-    const kept = thumbs.get(layer);
-    if (kept && kept.pixels === pixels) return kept.canvas;
+    const kept = thumbs.get(layer.id);
+    if (kept && kept.layer === layer && kept.pixels === pixels) return kept.canvas;
+    if (thumbs.size > 400) {
+      const alive = new Set(app.docs.flatMap((item) => item.state.layers.map((each) => each.id)));
+      thumbs.forEach((item, id) => { if (!alive.has(id)) thumbs.delete(id); });
+    }
     const visual = PS.visualOf(layer, doc);
     const canvas = document.createElement("canvas");
     const scale = pixels / Math.max(doc.width, doc.height);
@@ -7247,7 +7302,7 @@
       ctx.imageSmoothingQuality = "high";
       ctx.drawImage(visual.canvas, visual.x * scale, visual.y * scale, visual.canvas.width * scale, visual.canvas.height * scale);
     }
-    thumbs.set(layer, { pixels, canvas });
+    thumbs.set(layer.id, { layer, pixels, canvas });
     return canvas;
   };
 
@@ -7498,7 +7553,13 @@
     shownActive = activeKey;
     if (activeChanged && !finding()) setFoldersOpen(doc, foldersAround(doc), true);
     const target = ops.maskTarget();
-    const key = JSON.stringify([doc.id, doc.state.activeIds, doc.historyIndex, doc.state.layers.map((layer) => [layer.id, layer.visible, layer.name, layer.locked, layer.open, (layer.paint || []).length, Boolean(layer.clipping), layer.color || "", layer.locks || 0, PS.fillOf(layer), layer.link || 0, hasFx(layer) ? [layer.stroke.enabled !== false, fxOpen.has(layer.id)] : 0]), Fonts.generation, target ? [target.id, target.part] : null, doc.maskView ? doc.maskView.mode : null, thumbPixels(), layerFind.open, layerFind.words, Array.from(layerFind.kinds)]);
+    // The text being typed renames its layer at every key: its row follows, the list stays
+    const typed = editing && !finding() ? doc.state.layers.find((layer) => layer.id === editing.id) : null;
+    if (typed) {
+      const shownName = ui.layers.querySelector(`#layer-row-${typed.id} .layer__name`);
+      if (shownName && !shownName.firstElementChild && shownName.textContent !== typed.name) shownName.textContent = typed.name;
+    }
+    const key = JSON.stringify([doc.id, doc.state.activeIds, doc.historyIndex, doc.state.layers.map((layer) => [layer.id, layer.visible, typed === layer ? "" : layer.name, layer.locked, layer.open, (layer.paint || []).length, Boolean(layer.clipping), layer.color || "", layer.locks || 0, PS.fillOf(layer), layer.link || 0, hasFx(layer) ? [layer.stroke.enabled !== false, fxOpen.has(layer.id)] : 0]), Fonts.generation, target ? [target.id, target.part] : null, doc.maskView ? doc.maskView.mode : null, thumbPixels(), layerFind.open, layerFind.words, Array.from(layerFind.kinds)]);
     if (key === layersKey) return;
     layersKey = key;
     const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
@@ -12566,7 +12627,8 @@
       if (openMenu && !event.target.closest(".menu")) closeMenus();
     });
   };
-  const allMenuItems = () => MENUS.flatMap(([, list]) => list).flatMap((item) => (item && item.submenu ? [item, ...item.submenu] : [item])).filter(Boolean);
+  let menuItems = null;
+  const allMenuItems = () => menuItems || (menuItems = MENUS.flatMap(([, list]) => list).flatMap((item) => (item && item.submenu ? [item, ...item.submenu] : [item])).filter(Boolean));
   const renderMenusState = () => {
     allMenuItems().forEach((item) => {
       if (!item.row) return;
@@ -13129,6 +13191,16 @@
 
   /* ------------------------------ the engine's news ------------------------- */
 
+  // A change announces itself twice (history, then the page): the panels look once
+  let refreshedFor = null;
+  const refreshAfterChange = () => {
+    const key = app.doc ? app.doc.state : NO_STATE;
+    if (refreshedFor === key) return;
+    refreshedFor = key;
+    queueMicrotask(() => { refreshedFor = null; });
+    renderAfterState();
+    if (gesture === null && (app.tool === "move" || app.tool === "text") && optionsSignature() !== optionsShown) renderOptions();
+  };
   PS.on((type, detail) => {
     // Part of a page during a drag or a stroke: nothing else can have changed, so nothing
     // else needs looking at, sixty times a second
@@ -13137,10 +13209,10 @@
       return;
     }
     if (type === "render") schedule(true);
-    if (type === "render" || type === "history") {
-      renderAfterState();
-      if (gesture === null && (app.tool === "move" || app.tool === "text")) renderOptions();
-    } else if (type === "selection") showSelection(detail);
+    // Another layer chosen: the page is as it was, only what's drawn over it moves
+    if (type === "active") schedule(false);
+    if (type === "render" || type === "history" || type === "active") refreshAfterChange();
+    else if (type === "selection") showSelection(detail);
     else if (type === "options") renderOptions();
     else if (type === "alert") toast(detail.text, true);
     else if (type === "confirm") {
@@ -13155,6 +13227,8 @@
       } else viewChanged();
       showSelection(detail ? detail.state.selection : null);
       schedule(true);
+      refreshedFor = detail ? detail.state : NO_STATE;
+      queueMicrotask(() => { refreshedFor = null; });
       renderAfterState();
       renderStatus();
       renderOptions();

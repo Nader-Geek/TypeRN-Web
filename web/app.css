@@ -233,8 +233,10 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 
 .ants { fill: none; stroke-width: 1px; vector-effect: non-scaling-stroke; shape-rendering: crispEdges; }
 .ants--a { stroke: #fff; }
-/* A few steps a second: a selection on a page must not redraw it on every frame */
-.ants--b { stroke: #000; stroke-dasharray: 4 4; animation: ants 0.5s steps(4) infinite; }
+/* A few steps a second: a selection on a page must not redraw it on every frame, and without a
+   selection the page doesn't redraw at all (a running animation costs style work on every frame) */
+.ants--b { stroke: #000; stroke-dasharray: 4 4; }
+.ants--b.is-live { animation: ants 0.5s steps(4) infinite; }
 @keyframes ants { to { stroke-dashoffset: -8; } }
 .drag { fill: none; stroke: #fff; stroke-width: 1px; vector-effect: non-scaling-stroke; }
 .drag--ants { stroke: #000; stroke-dasharray: 4 4; }

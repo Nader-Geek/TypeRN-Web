@@ -18,8 +18,19 @@
   const pending = new Map();
   const listeners = new Set();
   let generation = 0;
+  // Counts each change of the Map itself, even between two changed(): what is computed from
+  // it below (the names index, resolve's answers, the list) is never behind it
+  let version = 0;
+  const put = (ps, font) => {
+    fonts.set(ps, font);
+    version++;
+  };
+  const drop = (ps) => {
+    fonts.delete(ps);
+    version++;
+  };
 
-  BUILTIN.forEach((font) => fonts.set(font.postScriptName, Object.assign({ source: "builtin", css: font.family, ready: true }, font)));
+  BUILTIN.forEach((font) => put(font.postScriptName, Object.assign({ source: "builtin", css: font.family, ready: true }, font)));
 
   const changed = () => {
     generation++;
@@ -45,7 +56,7 @@
     const face = new FontFace(css, src);
     const promise = face.load().then(() => {
       document.fonts.add(face);
-      fonts.set(ps, Object.assign({ name: fullName || ps, postScriptName: ps, family: ps, style: "Regular", source: "local", weight: 400, italic: false }, known, { css, src, ready: true }));
+      put(ps, Object.assign({ name: fullName || ps, postScriptName: ps, family: ps, style: "Regular", source: "local", weight: 400, italic: false }, known, { css, src, ready: true }));
       missing.delete(ps);
       pending.delete(ps);
       changed();
@@ -60,17 +71,55 @@
     return promise;
   };
 
-  // A file kept in this browser, known by its name until it's needed
-  const storedFont = (ps, family, style) => {
+  // The fonts by their names, as TypeR matches them (spelling differences aside), and by
+  // their exact family and style. A text is looked up for each run drawn, and the computer
+  // can have thousands of fonts: the index is built once per change of the Map, not per look-up
+  let index = null;
+  let indexVersion = -1;
+  const indexOf = () => {
+    if (index && indexVersion === version) return index;
+    const ready = { ps: new Map(), name: new Map(), familyStyle: new Map(), family: new Map(), exact: new Map() };
+    const stored = { ps: new Map(), name: new Map(), familyStyle: new Map() };
+    const order = new Map();
+    const add = (map, key, font) => {
+      if (key && !map.has(key)) map.set(key, font);
+    };
+    let at = 0;
+    for (const font of fonts.values()) {
+      order.set(font, at++);
+      const into = font.ready ? ready : font.source === "file" ? stored : null;
+      if (!into) continue;
+      add(into.ps, normalize(font.postScriptName), font);
+      add(into.name, normalize(font.name), font);
+      add(into.familyStyle, normalize(`${font.family}${font.style}`), font);
+      if (!font.ready) continue;
+      if (!ready.family.has(font.family)) ready.family.set(font.family, font);
+      const exact = `${font.family}\u0000${font.style}`;
+      if (!ready.exact.has(exact)) ready.exact.set(exact, font);
+    }
+    index = { ready, stored, order };
+    indexVersion = version;
+    return index;
+  };
+  // The first font added that matches by one of its names
+  const firstNamed = (maps, ps, family, style) => {
     const wanted = normalize(ps);
     const full = normalize(`${family || ""}${style || ""}`);
-    for (const font of fonts.values()) {
-      if (font.source !== "file" || font.ready) continue;
-      if (wanted && normalize(font.postScriptName) === wanted) return font;
-      if (full && (normalize(font.name) === full || normalize(`${font.family}${font.style}`) === full)) return font;
+    const { order } = indexOf();
+    let best = null;
+    const consider = (font) => {
+      if (font && (!best || order.get(font) < order.get(best))) best = font;
+    };
+    if (wanted) consider(maps.ps.get(wanted));
+    if (full) {
+      consider(maps.name.get(full));
+      consider(maps.familyStyle.get(full));
     }
-    return null;
+    return best;
   };
+
+  // A file kept in this browser, known by its name until it's needed
+  const storedFont = (ps, family, style) => firstNamed(indexOf().stored, ps, family, style);
   const loadStored = (ps) => {
     if (pending.has(ps)) return pending.get(ps);
     const promise = (async () => {
@@ -85,7 +134,7 @@
       return true;
     })().catch((error) => {
       console.warn("TypeR web: could not load a kept font", ps, error);
-      fonts.delete(ps);
+      drop(ps);
       missing.add(ps);
       return false;
     }).then((loaded) => {
@@ -98,31 +147,37 @@
   };
 
   // The same font under a slightly different spelling, as TypeR matches them
-  const sameFont = (ps, family, style) => {
-    const wanted = normalize(ps);
-    const full = normalize(`${family || ""}${style || ""}`);
-    for (const font of fonts.values()) {
-      if (!font.ready) continue;
-      if (wanted && normalize(font.postScriptName) === wanted) return font;
-      if (full && (normalize(font.name) === full || normalize(`${font.family}${font.style}`) === full)) return font;
-    }
-    return null;
-  };
+  const sameFont = (ps, family, style) => firstNamed(indexOf().ready, ps, family, style);
 
   // What to draw a text style with, right now. An unknown font starts loading and
-  // the page is drawn again when it arrives.
+  // the page is drawn again when it arrives. The answer for a font that isn't there is
+  // kept until the fonts change: it's asked for each run drawn, and the loading it
+  // starts is only started once.
+  const resolved = new Map();
+  let resolvedVersion = -1;
   const resolve = (textStyle) => {
     const ps = textStyle.fontPostScriptName;
     const known = ps && fonts.get(ps);
     if (known && known.ready) return known;
-    const same = sameFont(ps, textStyle.fontName, textStyle.fontStyleName);
-    if (same) return same;
-    const stored = storedFont(ps, textStyle.fontName, textStyle.fontStyleName);
-    if (stored) loadStored(stored.postScriptName);
-    else if (ps) ensure(ps, textStyle.fontName);
-    const name = textStyle.fontName || "";
-    const byName = Array.from(fonts.values()).find((font) => font.ready && font.family === name && font.style === (textStyle.fontStyleName || font.style));
-    return byName || { css: "Wildjess", weight: 400, italic: false, fallback: true };
+    if (resolvedVersion !== version) {
+      resolved.clear();
+      resolvedVersion = version;
+    }
+    const key = `${ps || ""}\u0000${textStyle.fontName || ""}\u0000${textStyle.fontStyleName || ""}`;
+    const kept = resolved.get(key);
+    if (kept) return kept;
+    let found = sameFont(ps, textStyle.fontName, textStyle.fontStyleName);
+    if (!found) {
+      const stored = storedFont(ps, textStyle.fontName, textStyle.fontStyleName);
+      if (stored) loadStored(stored.postScriptName);
+      else if (ps) ensure(ps, textStyle.fontName);
+      const { ready } = indexOf();
+      const name = textStyle.fontName || "";
+      const byName = textStyle.fontStyleName ? ready.exact.get(`${name}\u0000${textStyle.fontStyleName}`) : ready.family.get(name);
+      found = byName || { css: "Wildjess", weight: 400, italic: false, fallback: true };
+    }
+    resolved.set(key, found);
+    return found;
   };
 
   // With Standard ligatures off, Photoshop turns off the font's whole "liga" feature, and with it
@@ -166,7 +221,16 @@
 
   const builtinsLoaded = () => Promise.all(BUILTIN.map((font) => document.fonts.load(`${font.italic ? "italic " : ""}${font.weight} 32px "${font.family}"`))).catch(() => []);
 
-  const list = () => Array.from(fonts.values()).filter((font) => font.source !== "local" || font.listed !== false).sort((a, b) => a.family.localeCompare(b.family) || a.style.localeCompare(b.style));
+  // Sorted once per change of the fonts: the menus ask for it often
+  let listed = null;
+  let listedVersion = -1;
+  const list = () => {
+    if (!listed || listedVersion !== version) {
+      listed = Array.from(fonts.values()).filter((font) => font.source !== "local" || font.listed !== false).sort((a, b) => a.family.localeCompare(b.family) || a.style.localeCompare(b.style));
+      listedVersion = version;
+    }
+    return listed;
+  };
 
   /* ---------------------- fonts installed on the computer ---------------------- */
 
@@ -178,7 +242,7 @@
     entries.forEach((entry) => {
       const ps = entry.postscriptName;
       if (!ps || fonts.has(ps)) return;
-      fonts.set(ps, { name: entry.fullName || ps, postScriptName: ps, family: entry.family || ps, style: entry.style || "Regular", source: "local", css: cssNameOf(ps), weight: 400, italic: false, ready: false });
+      put(ps, { name: entry.fullName || ps, postScriptName: ps, family: entry.family || ps, style: entry.style || "Regular", source: "local", css: cssNameOf(ps), weight: 400, italic: false, ready: false });
       added++;
     });
     if (added || first) changed();
@@ -289,7 +353,7 @@
     await face.load();
     document.fonts.add(face);
     const font = { name: names.full || base, postScriptName: ps, family: names.family || base, style: names.style || "Regular", source: "file", css, weight: 400, italic: false, ready: true, size: buffer.byteLength, url: URL.createObjectURL(new Blob([buffer])) };
-    fonts.set(ps, font);
+    put(ps, font);
     missing.delete(ps);
     return font;
   };
@@ -338,7 +402,7 @@
   const removeFile = async (ps) => {
     const font = fonts.get(ps);
     if (font && font.url) URL.revokeObjectURL(font.url);
-    fonts.delete(ps);
+    drop(ps);
     const db = await openStore().catch(() => null);
     if (db) await new Promise((done) => {
       const tx = db.transaction(STORE, "readwrite");
@@ -378,7 +442,7 @@
   const keepInfo = (info) => inInfo("readwrite", (store) => store.put(info)).catch(() => null);
   const listStored = (info) => {
     if (fonts.has(info.ps)) return;
-    fonts.set(info.ps, { name: info.name, postScriptName: info.ps, family: info.family, style: info.style, source: "file", css: cssNameOf(info.ps), weight: 400, italic: false, ready: false, size: info.size, file: info.file });
+    put(info.ps, { name: info.name, postScriptName: info.ps, family: info.family, style: info.style, source: "file", css: cssNameOf(info.ps), weight: 400, italic: false, ready: false, size: info.size, file: info.file });
   };
 
   // Font files loaded in an earlier session, and the installed fonts if already allowed

@@ -1465,10 +1465,25 @@
     return coarse;
   };
 
+  // Working space kept from one picture to the next: a drag draws the bubble at every move,
+  // and fresh arrays of a few megabytes each time cost more than the drawing itself
+  const scratch = new Map();
+  const scratchOf = (name, Type, length) => {
+    let kept = scratch.get(name);
+    if (!kept || kept.length < length) {
+      kept = new Type(kept ? Math.max(length, Math.min(kept.length * 2, length * 2)) : length);
+      scratch.set(name, kept);
+    }
+    return kept.length === length ? kept : kept.subarray(0, length);
+  };
+
   // The new bubble as a picture. Returns { left, top, width, height, rgba, gap, gapCount,
   // covered } in page pixels: `gap` marks what the old bubble covered that stays uncovered and
   // wasn't painted (the page around it isn't plain), `covered` what the new bubble covers.
+  // `quick`, while a handle is dragged: the inside takes the bubble's colour instead of its
+  // shades, and the arrays returned are working space, good until the next picture.
   const render = (model, shape, options = {}) => {
+    const quick = Boolean(options.quick);
     const { page, source, edge, stroke, line, halo, inner } = model;
     const band = edge + 1.5;
     const R = Math.ceil(Math.max(band, inner) + 2);
@@ -1493,7 +1508,7 @@
     // How much the outline turns at each point, over a few pixels: a corner where it's sharp
     const MITRE = 7;
     const flip = shape.inverted ? Math.PI : 0;
-    const turn = new Float32Array(n);
+    const turn = scratchOf("turn", Float32Array, n);
     for (let k = 0; k < n; k++) {
       const wide = wrapPi(shape.angle[(k + MITRE) % n] - shape.angle[(k - MITRE + n) % n]) * (shape.inverted ? -1 : 1);
       // A corner turns all at once; a round end turns as much, but along the way
@@ -1503,8 +1518,8 @@
     // A sharp corner's point reaches further than the line is wide
     const reachAt = (k) => (turn[k] > 0.45 ? Math.ceil(band * Math.min(4.5, 1 / Math.cos(Math.min(1.2, turn[k] / 2))) + 2) : R);
     // The nearest outline point of each pixel near the outline
-    const best = new Float32Array(w * h).fill(INF);
-    const owner = new Int32Array(w * h).fill(-1);
+    const best = scratchOf("best", Float32Array, w * h).fill(INF);
+    const owner = scratchOf("owner", Int32Array, w * h).fill(-1);
     for (let k = 0; k < n; k++) {
       const qx = shape.x[k];
       const qy = shape.y[k];
@@ -1526,27 +1541,43 @@
         }
       }
     }
-    // Inside or out, row by row
-    const inside = new Uint8Array(w * h);
-    const crossings = [];
+    // Inside or out, row by row: where the outline crosses each row, from the rows each of
+    // its edges spans (the rows whose middle is at or past the edge's top, short of its bottom)
+    const inside = scratchOf("inside", Uint8Array, w * h).fill(0);
+    const rowStart = scratchOf("rowStart", Int32Array, h + 1).fill(0);
+    const rowOf = (y) => Math.ceil(y - top - 0.5);
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const yi = shape.y[i];
+      const yj = shape.y[j];
+      const y0 = Math.max(0, rowOf(Math.min(yi, yj)));
+      const y1 = Math.min(h, rowOf(Math.max(yi, yj)));
+      for (let yy = y0; yy < y1; yy++) rowStart[yy + 1]++;
+    }
+    for (let yy = 0; yy < h; yy++) rowStart[yy + 1] += rowStart[yy];
+    const crossings = scratchOf("crossings", Float64Array, rowStart[h]);
+    const rowFill = scratchOf("rowFill", Int32Array, h);
+    rowFill.set(rowStart.subarray(0, h));
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const yi = shape.y[i];
+      const yj = shape.y[j];
+      const y0 = Math.max(0, rowOf(Math.min(yi, yj)));
+      const y1 = Math.min(h, rowOf(Math.max(yi, yj)));
+      for (let yy = y0; yy < y1; yy++) crossings[rowFill[yy]++] = shape.x[i] + ((shape.x[j] - shape.x[i]) * (yy + top + 0.5 - yi)) / (yj - yi);
+    }
     for (let yy = 0; yy < h; yy++) {
-      const py = yy + top + 0.5;
-      crossings.length = 0;
-      for (let i = 0, j = n - 1; i < n; j = i++) {
-        const yi = shape.y[i];
-        const yj = shape.y[j];
-        if (yi > py !== yj > py) crossings.push(shape.x[i] + ((shape.x[j] - shape.x[i]) * (py - yi)) / (yj - yi));
-      }
-      crossings.sort((a, b) => a - b);
-      for (let c = 0; c + 1 < crossings.length; c += 2) {
-        const x0 = Math.max(0, Math.ceil(crossings[c] - left - 0.5));
-        const x1 = Math.min(w - 1, Math.floor(crossings[c + 1] - left - 0.5));
+      const from = rowStart[yy];
+      const to = rowStart[yy + 1];
+      if (to - from < 2) continue;
+      const row = crossings.subarray(from, to).sort();
+      for (let c = 0; c + 1 < row.length; c += 2) {
+        const x0 = Math.max(0, Math.ceil(row[c] - left - 0.5));
+        const x1 = Math.min(w - 1, Math.floor(row[c + 1] - left - 0.5));
         for (let xx = x0; xx <= x1; xx++) inside[yy * w + xx] = 1;
       }
     }
-    const rgba = new Uint8ClampedArray(w * h * 4);
-    const alpha = new Float32Array(w * h);
-    const depth = new Float32Array(w * h).fill(-INF);
+    const rgba = quick ? scratchOf("rgba", Uint8ClampedArray, w * h * 4).fill(0) : new Uint8ClampedArray(w * h * 4);
+    const alpha = scratchOf("alpha", Float32Array, w * h).fill(0);
+    const depth = scratchOf("depth", Float32Array, w * h).fill(-INF);
     const c = [0, 0, 0];
     const c2 = [0, 0, 0];
     const c3 = [0, 0, 0];
@@ -1574,7 +1605,7 @@
     const S = model.ink;
     // A spike of a tail: its ink, cut out, from the new outline's same place to its tip
     const spike = model.spike;
-    const spriteA = spike ? new Float32Array(w * h) : null;
+    const spriteA = spike ? scratchOf("spriteA", Float32Array, w * h).fill(0) : null;
     if (spike) {
       const { anchor, anchorNew, tip, tipNew, turnBy } = spikePlace(model, shape);
       const L = Math.hypot(tip[0] - anchor[0], tip[1] - anchor[1]) || 1;
@@ -1648,13 +1679,15 @@
         }
       }
     }
-    const interior = [];
+    // The pixels well inside the line, counted in `interiorCount`
+    const interior = scratchOf("interior", Int32Array, w * h);
+    let interiorCount = 0;
     for (let yy = 0; yy < h; yy++) {
       for (let xx = 0; xx < w; xx++) {
         const i = yy * w + xx;
         const k = owner[i];
         if (k < 0) {
-          if (inside[i]) interior.push(i);
+          if (inside[i]) interior[interiorCount++] = i;
           continue;
         }
         const px = xx + left + 0.5;
@@ -1683,7 +1716,7 @@
         let s = inside[i] ? -dist : dist;
         depth[i] = s;
         if (s < -inner) {
-          interior.push(i);
+          interior[interiorCount++] = i;
           continue;
         }
         if (s > band * 4.6) continue;
@@ -1752,7 +1785,7 @@
         }
         if (s > band) continue;
         if (s < -inner) {
-          interior.push(i);
+          interior[interiorCount++] = i;
           continue;
         }
         // Where a spike of a tail leaves the outline, the spike alone is drawn: twice, the two
@@ -1806,19 +1839,21 @@
         alpha[i] = a8;
       }
     }
-    // The inside: the bubble's colour, or its shades carried in from its edge
-    if (model.flat) {
-      interior.forEach((i) => {
+    // The inside: the bubble's colour, or its shades carried in from its edge. While a handle
+    // is dragged, the colour alone: the shades come once it is let go.
+    if (model.flat || quick) {
+      for (let at = 0; at < interiorCount; at++) {
+        const i = interior[at];
         rgba[i * 4] = model.fill[0];
         rgba[i * 4 + 1] = model.fill[1];
         rgba[i * 4 + 2] = model.fill[2];
         alpha[i] = 1;
-      });
-    } else if (interior.length) {
-      const rgb = new Float32Array(w * h * 3);
-      const known = new Uint8Array(w * h);
-      const unknown = new Uint8Array(w * h);
-      interior.forEach((i) => { unknown[i] = 1; });
+      }
+    } else if (interiorCount) {
+      const rgb = scratchOf("rgb", Float32Array, w * h * 3).fill(0);
+      const known = scratchOf("known", Uint8Array, w * h).fill(0);
+      const unknown = scratchOf("unknown", Uint8Array, w * h).fill(0);
+      for (let at = 0; at < interiorCount; at++) unknown[interior[at]] = 1;
       for (let i = 0; i < w * h; i++) {
         if (alpha[i] < 1 || !inside[i] || unknown[i] || depth[i] > -1.5) continue;
         known[i] = 1;
@@ -1827,12 +1862,13 @@
         rgb[i * 3 + 2] = rgba[i * 4 + 2];
       }
       const filled = pushPull(rgb, known, w, h);
-      interior.forEach((i) => {
+      for (let at = 0; at < interiorCount; at++) {
+        const i = interior[at];
         rgba[i * 4] = filled[i * 3];
         rgba[i * 4 + 1] = filled[i * 3 + 1];
         rgba[i * 4 + 2] = filled[i * 3 + 2];
         alpha[i] = 1;
-      });
+      }
     }
     // The spike laid over everything else
     if (spriteA) {
@@ -1846,11 +1882,11 @@
       }
     }
     // Where the old bubble was: the plain page painted again, or a gap left to fill
-    const gap = new Uint8Array(w * h);
+    const gap = quick ? scratchOf("gap", Uint8Array, w * h).fill(0) : new Uint8Array(w * h);
     let gapCount = 0;
     const under = model.under;
     const paintGap = (model.plainOutside || Boolean(under)) && options.paintGap !== false;
-    const covered = new Uint8Array(w * h);
+    const covered = quick ? scratchOf("covered", Uint8Array, w * h).fill(0) : new Uint8Array(w * h);
     for (let yy = 0; yy < h; yy++) {
       const sy = yy + top - source.top;
       for (let xx = 0; xx < w; xx++) {
@@ -1873,7 +1909,7 @@
         rgba[i * 4 + 3] = Math.round(alpha[i] * 255);
       }
     }
-    return { left, top, width: w, height: h, rgba, gap, gapCount, covered, painted: paintGap };
+    return { left, top, width: w, height: h, rgba, gap, gapCount, covered, painted: paintGap, quick };
   };
 
   /* ------------------------------ helpers for the tool ------------------------------ */
