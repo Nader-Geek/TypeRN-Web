@@ -761,6 +761,8 @@ body.is-dragging-tool, body.is-dragging-tool * { cursor: grabbing !important; }
 .settings__nav button.is-on { background: rgba(40, 142, 223, 0.2); color: #fff; font-weight: 600; }
 .settings__nav button.is-on svg { color: #7cc0f5; }
 .settings__nav button:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.modal__body .settings__group { margin: 16px 10px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.settings__nav .settings__arrow { margin-left: auto; padding-left: 8px; opacity: 0.6; }
 .settings__main { position: relative; min-width: 0; min-height: 0; }
 .settings__pane { display: grid; align-content: start; gap: 10px; height: 100%; box-sizing: border-box; padding: 20px 22px 24px; overflow-y: auto; }
 .modal__body .settings__heading { margin: 0 0 2px; font-size: 17px; font-weight: 700; letter-spacing: 0.01em; }
@@ -804,6 +806,7 @@ body.is-dragging-tool, body.is-dragging-tool * { cursor: grabbing !important; }
   .modal--settings .modal__body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .settings__nav { flex-direction: row; padding: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); }
   .modal__body .settings__title { display: none; }
+  .modal__body .settings__group { display: none; }
   .settings__nav button { flex: none; }
   .settings__pane { padding: 16px; }
   .modal--settings .modal__body .set__row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
@@ -837,6 +840,7 @@ body.is-dragging-tool, body.is-dragging-tool * { cursor: grabbing !important; }
 .sk__more-body { display: grid; gap: 2px; padding-top: 4px; }
 .sk__more-body > .sk__group:first-child { margin-top: 4px; }
 .sk__hint { margin: 0 0 4px; padding: 0 10px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+.sk__typer .btn { margin-left: 6px; }
 .sk__note { grid-column: 1 / -1; color: var(--warn); font-size: 12px; line-height: 1.3; }
 .sk__empty { color: var(--muted); text-align: center; padding: 16px 0; }
 .spread { position: absolute; z-index: 8; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 8px; overflow: hidden; box-sizing: border-box; border: 2px dashed var(--blue); background: rgba(40, 142, 223, 0.12); color: #fff; font-size: 13px; line-height: 1.3; text-align: center; pointer-events: none; }

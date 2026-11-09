@@ -3245,6 +3245,33 @@
           nav.appendChild(button);
           if (name !== "general") panes[name].prepend(heading(text));
         });
+        // TypeR's own settings stay in its panel: their tabs are one click away from here
+        if (!Shell.touch && tourButton("settings")) {
+          const group = document.createElement("p");
+          group.className = "settings__group";
+          group.textContent = "TypeR";
+          nav.appendChild(group);
+          TYPER_SETTINGS_TABS.forEach(([tabId, key, english, icon]) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "settings__away";
+            button.innerHTML = ICON[icon];
+            const label = document.createElement("span");
+            label.textContent = panelText(key, english);
+            const away = document.createElement("span");
+            away.className = "settings__arrow";
+            away.textContent = "↗";
+            button.append(label, away);
+            button.title = T("Opens in the TypeR panel");
+            button.addEventListener("click", () => {
+              // What was changed here is kept, as with OK
+              const yes = ui.modal.querySelector(".modal__foot .btn--main");
+              if (yes) yes.click();
+              setTimeout(() => openTypeRSettings(tabId), 0);
+            });
+            nav.appendChild(button);
+          });
+        }
         main.append(...Object.values(panes));
         middle.append(nav, main);
         open(panes[tab] ? tab : "general");
@@ -12553,6 +12580,35 @@
           if (notes[one.id]) make("div", "sk__note", row, notes[one.id]);
         });
       }));
+      // TypeR's, as its settings give them: changed there, and they come first when keys meet
+      const typerRows = Shell.touch ? [] : typerShortcuts().filter((one) => one.keys.length).map((one) => ({ one, name: typerShortcutName(one.id) })).filter(({ one, name }) => !words || name.toLowerCase().includes(words) || typerCaps(one.keys).join("+").toLowerCase().includes(words));
+      if (typerRows.length) {
+        make("div", "sk__group", list, "TypeR");
+        const lead = make("p", "sk__hint sk__typer", list, T("Set in TypeR's own settings. When the app and TypeR have the same keys, TypeR's command runs."));
+        const edit = make("button", "btn btn--small", lead, `${T("Change in TypeR…")}`);
+        edit.type = "button";
+        edit.addEventListener("click", () => {
+          const yes = ui.modal.querySelector(".modal__foot .btn--main");
+          if (yes) yes.click();
+          setTimeout(() => openTypeRSettings("shortcuts"), 0);
+        });
+        typerRows.forEach(({ one, name }) => {
+          shown++;
+          const row = make("div", "sk__row", list);
+          make("span", "sk__name", row, name);
+          const field = make("button", "sk__field", row);
+          field.type = "button";
+          field.disabled = true;
+          typerCaps(one.keys).forEach((cap, index) => {
+            if (index) make("span", "sk__plus", field, "+");
+            make("kbd", "sk__cap", field, cap);
+          });
+          make("span", "", row);
+          make("span", "", row);
+          const same = typerAsApp(one.keys) && SHORTCUTS.filter((other) => valueOf(other) === typerAsApp(one.keys));
+          if (same && same.length) make("div", "sk__note", row, fill(T("Also {name} in the app: these keys run TypeR's command."), { name: same.map((other) => shortcutName(other.item)).join(", ") }));
+        });
+      }
       if (more) list.appendChild(more);
       // What stays as it is: other tools count on them
       const fixed = [["← ↑ → ↓", T("Move the active layer by 1 px (Shift: 10 px), or the selection if a selection tool is on")], [T("Space"), T("Pan")], [IS_MAC ? `⌘${T("Space")} / ⌃${T("Space")}` : `Ctrl+${T("Space")}`, T("Zoom: drag right to zoom in, left to zoom out")], [T("Hold a tool's key"), T("Use the tool until you let go")], ["Enter", T("Apply")], ["Esc", T("Cancel")]].filter(([keys, label]) => !words || label.toLowerCase().includes(words) || keys.toLowerCase().includes(words));
@@ -12635,6 +12691,7 @@
           said.push(fill(T("Taken from {name}."), { name: T(other.item.label) }));
         });
         draft[id] = combo;
+        typerShortcutsOn(combo).forEach((one) => said.push(fill(T("TypeR uses these keys for {name}: TypeR's command runs."), { name: typerShortcutName(one.id) })));
         if (!DESKTOP && BROWSER_KEEPS.has(combo)) said.push(T("The browser keeps this shortcut in a tab: it may not work there."));
         if (said.length) notes[id] = said.join(" ");
         else delete notes[id];
