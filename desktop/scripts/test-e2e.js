@@ -75,7 +75,8 @@ const main = async () => {
   const profile = path.join(WORK, "profile");
   // Two Photoshops to choose from: the test notes what they're asked to open, nothing starts
   const photoshops = [{ path: path.join(WORK, "Adobe Photoshop 2025.app"), name: "Adobe Photoshop 2025", version: "26.0" }, { path: path.join(WORK, "Adobe Photoshop 2026.app"), name: "Adobe Photoshop 2026", version: "27.0" }];
-  let run = await launch(profile, { TYPER_TEST_PHOTOSHOP: JSON.stringify(photoshops) });
+  const exchange = path.join(WORK, "exchange");
+  let run = await launch(profile, { TYPER_TEST_PHOTOSHOP: JSON.stringify(photoshops), TYPER_EXCHANGE_DIR: exchange });
   step("starts with no connection, from its own copy", true, `${run.bootMs} ms to ready`);
   const page = run.page;
   const facts = await page.evaluate(async () => ({
@@ -169,6 +170,35 @@ const main = async () => {
   fs.copyFileSync(png, png2);
   spawnSync(electronPath, [DESKTOP, png2], { env: { ...clean, TYPER_TEST: "1", TYPER_USER_DATA: profile, TYPER_NO_UPDATE: "1" }, timeout: 15000 });
   await waitDocs(page, 3).then(() => step("a second launch hands its file to the open window", true)).catch(() => step("a second launch hands its file to the open window", false));
+
+  // TypeR for Photoshop's Open in TypeR Studio: a request in the folder both apps share, then
+  // typer-studio://open, which carries nothing itself
+  fs.mkdirSync(exchange, { recursive: true });
+  const request = path.join(exchange, "open.json");
+  const png4 = path.join(chapter, "page 4.png");
+  fs.copyFileSync(png, png4);
+  const sendFromPhotoshop = (name) => {
+    fs.writeFileSync(request, JSON.stringify({ from: "TypeR", version: 1, sent: Date.now(), files: [png4, "/etc/hosts"], script: { name, text: "One\r\nTwo" } }));
+    return run.app.evaluate((_, link) => global.typerTest.openLinks([link]), "typer-studio://open");
+  };
+  const scriptTabs = () => page.evaluate(() => {
+    const data = JSON.parse(window.TypeRKit.read(window.TypeRKit.activeStoragePath()) || "null") || {};
+    const tabs = (data.tabs || []).filter((tab) => tab.text === "One\nTwo");
+    return { count: tabs.length, current: tabs.some((tab) => tab.id === data.currentTabId), names: tabs.map((tab) => tab.name) };
+  });
+  await sendFromPhotoshop("From Photoshop");
+  const fromPhotoshop = await waitDocs(page, 4).then(() => true, () => false);
+  step("typer-studio://open opens the files TypeR for Photoshop left, only those, once", fromPhotoshop && !fs.existsSync(request), await page.evaluate(() => window.TypeRPhotoshop.app.docs.map((doc) => doc.name).join(", ")));
+  await page.waitForFunction(() => {
+    const data = JSON.parse(window.TypeRKit.read(window.TypeRKit.activeStoragePath()) || "null") || {};
+    return (data.tabs || []).some((tab) => tab.text === "One\nTwo" && tab.id === data.currentTabId);
+  }, null, { timeout: 10000 }).catch(() => {});
+  const firstTabs = await scriptTabs();
+  step("its script becomes the panel's open tab", firstTabs.count === 1 && firstTabs.current && firstTabs.names[0] === "From Photoshop", JSON.stringify(firstTabs));
+  await sendFromPhotoshop("Again");
+  await wait(2500);
+  const againTabs = await scriptTabs();
+  step("the same script again goes back to its tab, with no copy", againTabs.count === 1 && againTabs.current && !fs.existsSync(request), JSON.stringify(againTabs));
 
   /* ------------------------------------ the menus ------------------------------------- */
   if (process.platform === "darwin") {

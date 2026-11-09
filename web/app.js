@@ -13211,6 +13211,55 @@
     setTimeout(done, 1500);
   });
 
+  // A script sent by TypeR for Photoshop (Open in TypeR Studio): the tab that already holds it,
+  // or a new one, becomes the panel's open tab, as TypeR does with one sent from here
+  const SCRIPT_TAB_FIELDS = ["text", "images", "currentLineIndex", "lastOpenedImagePath", "usedLineStyles"];
+  const importScript = async (script) => {
+    if (!script || typeof script.text !== "string" || !script.text.trim()) return;
+    const lines = (text) => String(text).replace(/\r\n?/g, "\n");
+    const text = lines(script.text);
+    const running = Boolean(ui.frame.src) && !/^about:blank/.test(ui.frame.src);
+    // The panel writes what it holds as it closes; only then can its file change
+    if (running) await closePanel();
+    const path = Kit.activeStoragePath();
+    let storage = null;
+    try {
+      storage = JSON.parse(Kit.read(path) || "null");
+    } catch (error) {
+      storage = null;
+    }
+    storage = storage || Kit.freshStorage(false);
+    const tabs = (Array.isArray(storage.tabs) ? storage.tabs : []).filter((tab) => tab && typeof tab === "object");
+    let tab = tabs.find((one) => typeof one.text === "string" && lines(one.text).trim() === text.trim());
+    if (!tab) {
+      tab = {
+        id: `typer-${Math.random().toString(36).slice(2, 10)}`,
+        name: script.name || "TypeR",
+        text,
+        images: [],
+        currentLineIndex: 0,
+        lastOpenedImagePath: null,
+        usedLineStyles: {},
+        autoName: !script.name,
+      };
+      tabs.push(tab);
+      // A new tab must be reachable, even with the tab bar hidden
+      if (storage.uiLayout && storage.uiLayout.visible && storage.uiLayout.visible.tabBar === false) storage.uiLayout.visible.tabBar = true;
+    }
+    storage.tabs = tabs;
+    storage.currentTabId = tab.id;
+    // The panel takes the script's own fields, beside the tabs, as the open tab's
+    SCRIPT_TAB_FIELDS.forEach((field) => {
+      if (!Object.prototype.hasOwnProperty.call(storage, field)) return;
+      if (field in tab) storage[field] = tab[field];
+      else delete storage[field];
+    });
+    const kept = await Kit.keep(path, JSON.stringify(storage));
+    if (running) startPanel();
+    if (!kept) toast(fill(T("Could not save: {error}"), { error: T("Script") }), true);
+  };
+  if (window.TypeRDesktop && window.TypeRDesktop.onImportScript) window.TypeRDesktop.onImportScript((script) => { importScript(script).catch((error) => console.error(error)); });
+
   /* ------------------------------ the engine's news ------------------------- */
 
   // A change announces itself twice (history, then the page): the panels look once

@@ -42,6 +42,14 @@
     "asar": true,
     "compression": "maximum",
     "npmRebuild": false,
+    "protocols": [
+      {
+        "name": "TypeR Studio",
+        "schemes": [
+          "typer-studio"
+        ]
+      }
+    ],
     "electronLanguages": [
       "en",
       "en-US",

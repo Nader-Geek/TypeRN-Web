@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
   onMenuKey: (listener) => ipcRenderer.on("menu-key", (event, command) => listener(command)),
   textEdit: (command) => ipcRenderer.send("text-edit", command),
   onUpdateReady: (listener) => ipcRenderer.on("update-ready", () => listener()),
+  // A script sent by TypeR for Photoshop with the pages it opens here: { name, text }
+  onImportScript: (listener) => ipcRenderer.on("import-script", (event, script) => listener(script)),
   reloadForUpdate: () => ipcRenderer.send("reload-for-update"),
   // The Photoshop plugin's storage files on this computer, read only, or null
   findPhotoshopSettings: () => ipcRenderer.invoke("photoshop-settings"),

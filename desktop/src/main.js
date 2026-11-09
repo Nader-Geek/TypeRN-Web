@@ -40,6 +40,8 @@ let farewell = false;
 let farewellDone = false;
 const FAREWELL_WAIT = 1500;
 const waitingPaths = [];
+// A script sent by TypeR for Photoshop, kept until the page can take it
+let waitingScript = null;
 
 /* -------------------------------- the app's files -------------------------------- */
 
@@ -105,6 +107,78 @@ const openPaths = async (paths) => {
   } finally {
     if (cdp.isAttached()) cdp.detach();
   }
+};
+
+/* ---------------------------- sent by TypeR for Photoshop ---------------------------- */
+
+// TypeR for Photoshop's "Open in TypeR Studio" writes what to open in a file of the folder both
+// apps share, then opens typer-studio://open. The address carries nothing: a web page can open it
+// too, and only finds there what TypeR left a moment ago, or nothing.
+const LINK_SCHEME = "typer-studio";
+const REQUEST_MAX_AGE = 5 * 60 * 1000;
+// A script, either way between the two apps
+const SCRIPT_LIMIT = 5 * 1024 * 1024;
+const exchangeFolder = () => process.env.TYPER_EXCHANGE_DIR || path.join(app.getPath("appData"), "TypeR", "Studio");
+const isLink = (arg) => typeof arg === "string" && arg.toLowerCase().startsWith(`${LINK_SCHEME}:`);
+
+const deliverScript = (script) => {
+  if (!script) return;
+  if (!win || !pageReady) {
+    waitingScript = script;
+    return;
+  }
+  win.webContents.send("import-script", script);
+};
+
+// The request, taken off the disk so it's used once: { files, script }, or null
+const takeRequest = async () => {
+  const file = path.join(exchangeFolder(), "open.json");
+  let value;
+  try {
+    const text = await fs.promises.readFile(file, "utf8");
+    await fs.promises.unlink(file);
+    value = JSON.parse(text);
+  } catch (error) {
+    return null;
+  }
+  if (!value || typeof value !== "object" || value.from !== "TypeR" || value.version !== 1) return null;
+  const sent = Number(value.sent);
+  if (!Number.isFinite(sent) || Date.now() - sent > REQUEST_MAX_AGE || sent - Date.now() > 60 * 1000) return null;
+  const files = [];
+  for (const one of Array.isArray(value.files) ? value.files.slice(0, 200) : []) {
+    if (typeof one === "string" && path.isAbsolute(one) && OPENABLE.test(one) && (await exists(one)) && !files.includes(one)) files.push(one);
+  }
+  const given = value.script && typeof value.script === "object" ? value.script : null;
+  const text = given && typeof given.text === "string" ? given.text.replace(/\r\n?/g, "\n") : "";
+  const script = text.trim() && text.length <= SCRIPT_LIMIT
+    ? { name: typeof given.name === "string" ? given.name.replace(/\s+/g, " ").trim().slice(0, 200) : "", text }
+    : null;
+  return { files, script };
+};
+
+// Where this copy of the app is, for TypeR for Photoshop to know it's installed, even outside
+// the folders its installers use
+const noteWhereStudioIs = async () => {
+  const place = isMac ? path.resolve(process.execPath, "..", "..", "..") : process.execPath;
+  const file = path.join(exchangeFolder(), "app.json");
+  try {
+    await fs.promises.mkdir(path.dirname(file), { recursive: true });
+    await fs.promises.writeFile(file, JSON.stringify({ from: "TypeR Studio", path: place, version: app.getVersion() }), "utf8");
+  } catch (error) {
+    console.warn("Noting where TypeR Studio is:", error.message);
+  }
+};
+
+const openLinks = async (args) => {
+  if (!args.some(isLink)) return;
+  const request = await takeRequest();
+  if (!request) return;
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+  openPaths(request.files);
+  deliverScript(request.script);
 };
 
 /* ------------------------------------- the menu ------------------------------------- */
@@ -433,6 +507,8 @@ ipcMain.on("page-alive", () => {
 ipcMain.on("page-ready", () => {
   pageReady = true;
   openPaths(waitingPaths.splice(0));
+  deliverScript(waitingScript);
+  waitingScript = null;
   if (process.env.TYPER_NO_UPDATE === "1") return;
   // A page loaded again after the note came up: it comes back
   if (updatePending) updateReady();
@@ -726,6 +802,13 @@ app.on("second-instance", (event, args) => {
     win.focus();
   }
   openPaths(openablePaths(args.slice(1)));
+  openLinks(args.slice(1));
+});
+// The Mac gives the address it was opened with this way, maybe before the app is ready
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  if (app.isReady() && !win) createWindow();
+  openLinks([url]);
 });
 // A Mac tells the app about a file instead of starting it with one, maybe before it's ready
 app.on("open-file", (event, file) => {
@@ -743,8 +826,15 @@ app.whenReady().then(() => {
   if (isMac) app.setAboutPanelOptions({ applicationName: app.getName(), applicationVersion: app.getVersion(), version: content.current().info.id, copyright: "ScanR" });
   // Until the page brings its menus: Electron's default one would offer Reload
   Menu.setApplicationMenu(isMac ? Menu.buildFromTemplate([{ role: "appMenu" }, { role: "editMenu" }, { role: "windowMenu" }]) : null);
-  if (process.env.TYPER_TEST_API === "1") global.typerTest = { content, openPaths };
+  if (process.env.TYPER_TEST_API === "1") global.typerTest = { content, openPaths, openLinks };
   createWindow();
   openPaths(openablePaths(process.argv.slice(app.isPackaged ? 1 : 2)));
+  openLinks(process.argv.slice(app.isPackaged ? 1 : 2));
+  // typer-studio:// leads here. The installers declare it too (package.json, installer.nsh):
+  // this keeps it pointing at this copy of the app.
+  if (app.isPackaged && !isTest) {
+    app.setAsDefaultProtocolClient(LINK_SCHEME);
+    noteWhereStudioIs();
+  }
   if (process.env.TYPER_NO_UPDATE !== "1") setInterval(checkContent, CHECK_EVERY);
 });
