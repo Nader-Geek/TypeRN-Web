@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
   ready: () => ipcRenderer.send("page-ready"),
   setMenu: (model) => ipcRenderer.send("set-menu", model),
   setStrings: (strings) => ipcRenderer.send("set-strings", strings),
+  // The theme's colors for the window's own buttons on Windows (web/theme.js)
+  setTitleBar: (color, symbolColor) => ipcRenderer.send("set-title-bar", color, symbolColor),
   onMenuAction: (listener) => ipcRenderer.on("menu-action", (event, id) => listener(id)),
   onMenuKey: (listener) => ipcRenderer.on("menu-key", (event, command) => listener(command)),
   textEdit: (command) => ipcRenderer.send("text-edit", command),

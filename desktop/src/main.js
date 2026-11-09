@@ -522,6 +522,14 @@ ipcMain.on("text-edit", (event, command) => {
   if (Object.values(TEXT_EDITS).includes(command) && win) win.webContents[command]();
 });
 ipcMain.on("set-strings", (event, given) => { strings = given; });
+ipcMain.on("set-title-bar", (event, color, symbolColor) => {
+  const hex = /^#[0-9a-f]{6}$/i;
+  if (!win || isMac || !hex.test(color) || !hex.test(symbolColor)) return;
+  try {
+    win.setTitleBarOverlay({ color, symbolColor, height: BAR_HEIGHT });
+    win.setBackgroundColor(color);
+  } catch (error) { /* an older Electron */ }
+});
 // Tests close the window themselves: no question in their way, unless it's the one tested
 ipcMain.on("set-farewell", (event, on) => { farewell = Boolean(on) && (!isTest || process.env.TYPER_TEST_FAREWELL === "1"); });
 ipcMain.on("farewell-shown", () => { if (win) win.farewellShown = true; });
