@@ -981,6 +981,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "About TypeR Studio…": "Giới thiệu TypeR Studio…",
     "About TypeR Studio": "Giới thiệu TypeR Studio",
     "Thanks": "Lời cảm ơn",
+    "Developed by {name}": "Phát triển bởi {name}",
     "Miller, for the help and the API behind automatic text detection.": "Miller, vì sự giúp đỡ và API đứng sau tính năng tự động nhận diện chữ.",
     "Ungroup Tools": "Bỏ nhóm công cụ",
     "Reset Toolbar": "Đặt lại thanh công cụ",

@@ -981,6 +981,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "About TypeR Studio…": "TypeR Studio 정보…",
     "About TypeR Studio": "TypeR Studio 정보",
     "Thanks": "감사의 말",
+    "Developed by {name}": "개발: {name}",
     "Miller, for the help and the API behind automatic text detection.": "Miller: 도움과 자동 텍스트 감지를 가능하게 한 API에 감사드립니다.",
     "Ungroup Tools": "도구 그룹 해제",
     "Reset Toolbar": "도구 모음 재설정",

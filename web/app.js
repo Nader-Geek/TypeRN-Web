@@ -13389,12 +13389,15 @@
     const name = document.createElement("p");
     name.className = "about__name";
     name.textContent = "TypeR Studio";
+    const author = document.createElement("p");
+    author.className = "about__author";
+    author.textContent = fill(T("Developed by {name}"), { name: "Sakushi" });
     const head = document.createElement("p");
     head.className = "about__head";
     head.textContent = T("Thanks");
     const miller = document.createElement("p");
     miller.textContent = T("Miller, for the help and the API behind automatic text detection.");
-    body.append(name, head, miller);
+    body.append(name, author, head, miller);
     dialog({ title: T("About TypeR Studio"), body, cancel: false });
   };
 
