@@ -2533,6 +2533,16 @@
   // `rect` redoes only that part of a canvas that already shows this document: what a drag
   // changes on a page 10000 pixels tall is small, and the rest of the page costs nothing.
   // `screen`: the canvas the user sees, with the mask views on it.
+  // A base without its stroke, for what is clipped to it to go on its letters alone. A text
+  // opened from a PSD shows Photoshop's own pixels, the stroke drawn around them: its letters
+  // alone are those pixels. Where an older TypeR drew the stroke into them, TypeR draws the
+  // letters again.
+  const withoutStroke = (layer) => {
+    const raster = layer.kind === "text" ? layer.raster : null;
+    if (!raster) return Object.assign({}, layer, { stroke: null });
+    if (raster.strokeDrawnIn) return Object.assign({}, layer, { stroke: null, raster: null });
+    return Object.assign({}, layer, { stroke: null, raster: { bitmap: raster.bitmap, left: raster.left, top: raster.top } });
+  };
   const paintDoc = (doc, ctx, options = {}) => {
     // On screen, layers being dragged in the panel show where they would land
     const layers = options.screen && doc.orderPreview ? doc.orderPreview : options.screen && doc.extra ? withExtra(doc) : doc.state.layers;
@@ -2639,7 +2649,7 @@
       c.globalCompositeOperation = "source-over";
       if (rect) c.clearRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
       else c.clearRect(0, 0, doc.width, doc.height);
-      drawBase(c, 1, "source-over", ringed ? Object.assign({}, layer, { stroke: null }) : layer);
+      drawBase(c, 1, "source-over", ringed ? withoutStroke(layer) : layer);
       let shaped = false;
       clipped.forEach((item) => {
         const itemAlpha = item.opacity === undefined ? 1 : item.opacity;
