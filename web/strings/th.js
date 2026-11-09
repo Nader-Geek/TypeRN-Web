@@ -88,6 +88,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "This file changed on disk since it was opened here. Open it as it is now? Your unsaved changes here will be lost.": "ไฟล์นี้เปลี่ยนแปลงบนดิสก์ตั้งแต่เปิดที่นี่ เปิดตามที่เป็นอยู่ตอนนี้ไหม การเปลี่ยนแปลงที่ยังไม่ได้บันทึกที่นี่จะหายไป",
     "Open the New Version": "เปิดเวอร์ชันใหม่",
     "Keep Mine": "เก็บของฉันไว้",
+    "Already open in {app} with unsaved changes: {names}. Open the version saved here instead? The changes made in Photoshop will be lost.": "เปิดอยู่แล้วใน {app} พร้อมการเปลี่ยนแปลงที่ยังไม่ได้บันทึก: {names} เปิดเวอร์ชันที่บันทึกไว้ที่นี่แทนไหม การเปลี่ยนแปลงที่ทำใน Photoshop จะหายไป",
     "No Photoshop was found on this computer.": "ไม่พบ Photoshop ในคอมพิวเตอร์เครื่องนี้",
     "Opening {name} in {app}…": "กำลังเปิด {name} ใน {app}…",
     "Opening {count} pages in {app}…": "กำลังเปิด {count} หน้าใน {app}…",

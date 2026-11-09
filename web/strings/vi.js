@@ -88,6 +88,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "This file changed on disk since it was opened here. Open it as it is now? Your unsaved changes here will be lost.": "Tệp này đã thay đổi trên ổ đĩa kể từ khi được mở ở đây. Mở nó như hiện tại? Các thay đổi chưa lưu ở đây sẽ bị mất.",
     "Open the New Version": "Mở phiên bản mới",
     "Keep Mine": "Giữ bản của tôi",
+    "Already open in {app} with unsaved changes: {names}. Open the version saved here instead? The changes made in Photoshop will be lost.": "Đã mở trong {app} với các thay đổi chưa lưu: {names}. Mở phiên bản đã lưu ở đây thay thế? Các thay đổi thực hiện trong Photoshop sẽ bị mất.",
     "No Photoshop was found on this computer.": "Không tìm thấy Photoshop trên máy tính này.",
     "Opening {name} in {app}…": "Đang mở {name} trong {app}…",
     "Opening {count} pages in {app}…": "Đang mở {count} trang trong {app}…",

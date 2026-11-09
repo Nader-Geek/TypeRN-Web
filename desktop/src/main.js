@@ -763,6 +763,84 @@ const openInPhotoshop = async (target, files) => {
   });
 };
 
+// A document Photoshop already has open only comes to the front when its file is opened again,
+// as Photoshop last read it. Before opening, Photoshop closes the ones whose file changed since
+// it was last sent there, so that they open as they are now. One with changes not saved in
+// Photoshop is left as it is, and its name returned, unless replace is true.
+const lastSent = new Map();
+const modifiedAt = async (file) => (await fs.promises.stat(file).catch(() => null) || {}).mtimeMs || 0;
+
+const reloadScript = (files, replace) => `(function () {
+  var wanted = ${JSON.stringify(files)}, replace = ${replace ? "true" : "false"}, found = [], unsaved = [];
+  for (var j = 0; j < wanted.length; j++) wanted[j] = new File(wanted[j]).fsName.toLowerCase();
+  for (var i = 0; i < app.documents.length; i++) {
+    var doc = app.documents[i], where;
+    try { where = doc.fullName.fsName.toLowerCase(); } catch (e) { continue; }
+    for (var k = 0; k < wanted.length; k++) {
+      if (wanted[k] !== where) continue;
+      found.push(doc);
+      if (!doc.saved) unsaved.push(doc.name);
+      break;
+    }
+  }
+  if (unsaved.length && !replace) return unsaved.join("\\n");
+  for (var n = 0; n < found.length; n++) found[n].close(SaveOptions.DONOTSAVECHANGES);
+  return "";
+})();`;
+
+// Runs a script in the Photoshop given, only if it is already running: its answer, as text
+const runInPhotoshop = (target, code) => new Promise((resolve, reject) => {
+  const { execFile } = require("child_process");
+  const done = (error, stdout, stderr) => (error ? reject(new Error(String(stderr || error.message).trim())) : resolve(String(stdout).replace(/\r?\n$/, "")));
+  if (isMac) {
+    const bundle = JSON.stringify(target.id);
+    execFile("/usr/bin/osascript", [
+      "-e", "on run argv",
+      "-e", `if application ${bundle} is not running then return ""`,
+      "-e", `tell application ${bundle} to return do javascript (item 1 of argv)`,
+      "-e", "end run",
+      code,
+    ], { timeout: 20000 }, done);
+    return;
+  }
+  if (process.platform !== "win32") return resolve("");
+  const command = [
+    "try { $ps = [Runtime.InteropServices.Marshal]::GetActiveObject('Photoshop.Application') } catch { exit 0 }",
+    "[Console]::OutputEncoding = [Text.Encoding]::UTF8",
+    "Write-Output $ps.DoJavaScript($env:TYPER_PHOTOSHOP_SCRIPT)",
+  ].join("\n");
+  execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command], {
+    timeout: 20000,
+    windowsHide: true,
+    env: { ...process.env, TYPER_PHOTOSHOP_SCRIPT: code },
+  }, done);
+});
+
+// The names of the documents with changes not saved in Photoshop, left open; [] when all is ready
+const reloadInPhotoshop = async (target, files, replace) => {
+  const changed = [];
+  for (const file of files) {
+    if (lastSent.get(file) !== (await modifiedAt(file))) changed.push(file);
+  }
+  if (!changed.length) return [];
+  if (isTest) {
+    global.typerPhotoshopReloaded = (global.typerPhotoshopReloaded || []).concat([{ files: changed, replace }]);
+    const unsaved = global.typerPhotoshopUnsaved || [];
+    return replace ? [] : unsaved.filter((name) => changed.some((file) => path.basename(file) === name));
+  }
+  try {
+    // Photoshop knows a file by its real place, links followed (/tmp is /private/tmp on a Mac)
+    const real = await Promise.all(changed.map((file) => fs.promises.realpath(file).catch(() => file)));
+    const answer = await runInPhotoshop(target, reloadScript(real, replace));
+    return answer ? answer.split("\n").filter(Boolean) : [];
+  } catch (error) {
+    // Refused (macOS asks once whether TypeR Studio may control Photoshop), or Photoshop busy
+    // with a dialog: the files still open, as before
+    console.warn("Photoshop's open documents:", error.message);
+    return [];
+  }
+};
+
 // The script sent with the pages, for TypeR in Photoshop: a file it looks for when a document
 // opens there, takes into a script tab (the one holding the same text, or a new one), then
 // removes. Only this file is written in TypeR's folder; the plugin's settings stay untouched.
@@ -798,7 +876,7 @@ ipcMain.handle("photoshop-list", async (event) => {
     return [];
   }
 });
-ipcMain.handle("photoshop-open", async (event, id, paths, script) => {
+ipcMain.handle("photoshop-open", async (event, id, paths, script, replace) => {
   if (!fromPage(event)) return { ok: false, message: "Not allowed." };
   try {
     const target = (await findPhotoshops()).find((one) => one.id === id);
@@ -808,6 +886,9 @@ ipcMain.handle("photoshop-open", async (event, id, paths, script) => {
       if (typeof file === "string" && knownPaths.has(file) && /\.ps[db]$/i.test(file) && (await exists(file)) && !files.includes(file)) files.push(file);
     }
     if (!files.length) return { ok: false, message: "No file to open." };
+    // Already open in Photoshop: opened again as they are now, Photoshop's own changes asked about
+    const unsaved = await reloadInPhotoshop(target, files, replace === true);
+    if (unsaved.length) return { ok: false, unsaved, message: `Not saved in Photoshop: ${unsaved.join(", ")}` };
     // Waiting for TypeR before the pages open: it looks for the script as they do
     let scriptError = null;
     if (script && typeof script === "object") {
@@ -819,6 +900,7 @@ ipcMain.handle("photoshop-open", async (event, id, paths, script) => {
       }
     }
     await openInPhotoshop(target, files);
+    for (const file of files) lastSent.set(file, await modifiedAt(file));
     return { ok: true, count: files.length, scriptError };
   } catch (error) {
     console.warn("Open in Photoshop:", error);

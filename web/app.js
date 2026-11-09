@@ -11652,7 +11652,18 @@
       }
       const opening = docs.filter((doc) => places.has(doc));
       if (!opening.length) return;
-      const result = await Studio.open(target.id, opening.map((doc) => places.get(doc)), script);
+      const paths = opening.map((doc) => places.get(doc));
+      let result = await Studio.open(target.id, paths, script);
+      // Already open in Photoshop with changes of its own: they'd be lost
+      if (result && !result.ok && Array.isArray(result.unsaved) && result.unsaved.length) {
+        const replace = await dialog({
+          title: T("Open in Photoshop"),
+          body: fill(T("Already open in {app} with unsaved changes: {names}. Open the version saved here instead? The changes made in Photoshop will be lost."), { app: target.name, names: result.unsaved.join(", ") }),
+          ok: T("Replace"),
+        });
+        if (!replace) return;
+        result = await Studio.open(target.id, paths, script, true);
+      }
       if (!result || !result.ok) {
         toast(fill(T("{app} could not be opened: {error}"), { app: target.name, error: (result && result.message) || "?" }), true);
         return;

@@ -225,6 +225,26 @@ const main = async () => {
   step("the panel's Open in Photoshop button opens the app's dialog", panelHasButton && panelAsks);
   if (panelAsks) await page.click("#modal[open] .modal__foot .btn:not(.btn--main)");
   step("Import the script sends the panel's script with the pages", sentScript && sentScript.name === "Chapter 12" && sentScript.text === "Hello\nWorld" && sentScript.files.length === 1, JSON.stringify(sentScript));
+  // Already open in Photoshop: opened again as it is now only when it changed since it was sent
+  const reloads = await run.app.evaluate(() => global.typerPhotoshopReloaded || []);
+  step("a PSD sent to Photoshop again is opened anew there only when it changed since", reloads.length === 1 && reloads[0].files.length === 1 && fs.realpathSync(reloads[0].files[0]) === fs.realpathSync(psd) && !reloads[0].replace, JSON.stringify(reloads));
+  // With changes not saved in Photoshop: asked first, then replaced
+  await run.app.evaluate(() => { global.typerPhotoshopUnsaved = ["page 2.psd"]; });
+  await page.evaluate(() => window.TypeRPhotoshop.ops.newLayer("For Photoshop again"));
+  const sentBefore = await run.app.evaluate(() => global.typerPhotoshopOpened.length);
+  const sendingAgain = page.evaluate(() => window.TypeRApp.openInPhotoshop());
+  await page.waitForSelector("#modal[open] select", { timeout: 5000 });
+  await page.selectOption("#modal[open] select >> nth=0", "one");
+  await page.click("#modal[open] .modal__foot .btn--main");
+  const askedReplace = await page.waitForFunction(() => {
+    const modal = document.querySelector("#modal[open]");
+    return Boolean(modal && !modal.querySelector("select") && modal.textContent.includes("page 2.psd"));
+  }, null, { timeout: 10000 }).then(() => true, () => false);
+  if (askedReplace) await page.click("#modal[open] .modal__foot .btn--main");
+  await sendingAgain;
+  const replaced = await run.app.evaluate(() => ({ reloads: global.typerPhotoshopReloaded, opened: global.typerPhotoshopOpened.length }));
+  await run.app.evaluate(() => { global.typerPhotoshopUnsaved = []; });
+  step("changes not saved in Photoshop are asked about before the page replaces them", askedReplace && replaced.opened === sentBefore + 1 && replaced.reloads.slice(-2).map((one) => one.replace).join() === "false,true", JSON.stringify(replaced));
   // A page from a folder opened whole holds the folder's permission, not its own: its PSD still opens
   const folderPages = path.join(WORK, "folder chapter");
   fs.mkdirSync(folderPages);

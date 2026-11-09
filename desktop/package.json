@@ -84,6 +84,7 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "notarize": true,
       "extendInfo": {
+        "NSAppleEventsUsageDescription": "TypeR Studio asks Photoshop to open your pages again as they are now when you use Open in Photoshop.",
         "CFBundleDocumentTypes": [
           {
             "CFBundleTypeName": "Photoshop Document",

@@ -38,8 +38,10 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
   // whereEnd, and the app answers with the path it was asked about. Only those paths open.
   photoshop: {
     list: () => ipcRenderer.invoke("photoshop-list"),
-    // With a script, TypeR in Photoshop takes it into a tab as the pages open
-    open: (id, paths, script) => ipcRenderer.invoke("photoshop-open", id, paths, script || null),
+    // With a script, TypeR in Photoshop takes it into a tab as the pages open. A page Photoshop
+    // already has open opens again as it is now; one with changes not saved there comes back as
+    // { ok: false, unsaved: [names] }, and opens over them only with replace.
+    open: (id, paths, script, replace) => ipcRenderer.invoke("photoshop-open", id, paths, script || null, replace === true),
     sendsScript: true,
     whereStart: (name, directory) => ipcRenderer.invoke("where-start", name, directory),
     whereEnd: (token) => ipcRenderer.invoke("where-end", token),
