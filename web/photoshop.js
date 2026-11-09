@@ -7360,7 +7360,7 @@
       firePanelEvent(EVENT_HISTORY);
       return id;
     },
-    // Select Text and Remove Text (textmask.js): a selection as one byte a pixel over the whole
+    // Detect Text and Remove Text (textmask.js): a selection as one byte a pixel over the whole
     // page (1 inside), and back; a selection made from a mask without putting it on the page
     selectionFullMask(selection) {
       const doc = app.doc;

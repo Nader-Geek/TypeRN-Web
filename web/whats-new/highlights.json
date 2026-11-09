@@ -6,8 +6,8 @@
       "icon": "text",
       "title": { "en": "Automatic text detection", "fr": "Détection automatique du texte" },
       "text": {
-        "en": "Select Text finds every letter on the page in seconds. Remove Text then cleans them all: plain backgrounds at once, the art redrawn by Generative Fill.",
-        "fr": "Sélectionner le texte trouve toutes les lettres de la page en quelques secondes. Effacer le texte les nettoie ensuite : les fonds unis tout de suite, le dessin redessiné par le Remplissage génératif."
+        "en": "Detect Text finds every letter on the page in seconds. Remove Text then cleans them all: plain backgrounds at once, the art redrawn by Generative Fill.",
+        "fr": "Détecter le texte trouve toutes les lettres de la page en quelques secondes. Effacer le texte les nettoie ensuite : les fonds unis tout de suite, le dessin redessiné par le Remplissage génératif."
       },
       "where": { "en": "Select → Text", "fr": "Sélection → Texte" },
       "credit": {

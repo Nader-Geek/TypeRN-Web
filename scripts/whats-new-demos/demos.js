@@ -67,7 +67,7 @@ const DEMOS = {
     await setup(page, `${PAGES}/02.psd`, [0, 0, 1114, 700], 'wand');
     const r = new Rec(page, 'text-detection', { clip: CLIP, x: 520, y: 330 });
     await r.cursor(); await r.shot(); r.hold(0.5);
-    await r.moveTo(...(await center(page, 'text=Select Text')));
+    await r.moveTo(...(await center(page, 'text=Detect Text')));
     await r.click();
     await r.film(() => page.evaluate(() => !!window.TypeRPhotoshop.app.doc.state.selection), { every: 100, keep: 3 });
     await sleep(400); await r.shot(); r.hold(1.6);

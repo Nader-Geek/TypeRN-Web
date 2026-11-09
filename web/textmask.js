@@ -1,4 +1,4 @@
-// Select Text and Remove Text: the page, without its texts, goes to a text detection model
+// Detect Text and Remove Text: the page, without its texts, goes to a text detection model
 // (Temizle, by Safi Çizgi), which answers with where the letters are. That becomes a selection;
 // Remove Text then splits it into its areas, fills those on a plain background with that colour
 // and has Generative Fill redraw those over the art (app.js does the asking and the showing).

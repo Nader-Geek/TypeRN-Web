@@ -12,7 +12,7 @@
   const Kit = window.TypeRKit;
   // A page still in a browser's cache may not have loaded this one yet: no Generative Fill then
   const Gen = window.TypeRGenerative || null;
-  // Select Text and Remove Text: on unless turned off on this device (textmask.js), read at start
+  // Detect Text and Remove Text: on unless turned off on this device (textmask.js), read at start
   const TextMask = window.TypeRTextMask && window.TypeRTextMask.enabled() ? window.TypeRTextMask : null;
   // Its areas and plain backgrounds, which need no text detection: Generative Fill reads them too
   const Mask = window.TypeRTextMask || null;
@@ -4199,7 +4199,7 @@
     if (result && result.hidden) toast(T("Cleaned, but the TypeR Clean layer is hidden. Show it in the Layers panel to see the result."), true);
   };
 
-  /* --------------------------- Select Text, Remove Text --------------------------- */
+  /* --------------------------- Detect Text, Remove Text --------------------------- */
 
   // Select > Text: the page, without its texts, goes to the text detection model; where it
   // finds letters becomes the selection, a little grown so their edges and outlines go too. Its
@@ -4225,7 +4225,7 @@
   const selectText = async () => {
     if (!TextMask || textFind.running || textFind.landing || pixelsOnly()) return;
     if (!TextMask.available()) {
-      toast(T("Select Text isn't available for the moment. Try again later."));
+      toast(T("Detect Text isn't available for the moment. Try again later."));
       return;
     }
     const doc = app.doc;
@@ -4246,7 +4246,7 @@
         console.info(`TypeR web: the text detection found ${found.count === null ? "?" : found.count} texts in ${found.seconds === null ? "?" : found.seconds} s`);
       } catch (error) {
         if (!error || error.name !== "AbortError") {
-          console.warn("TypeR web: Select Text failed", error);
+          console.warn("TypeR web: Detect Text failed", error);
           toast(textMaskMessage(error), true);
         }
         return;
@@ -4265,7 +4265,7 @@
     if (!app.docs.includes(doc)) return;
     // Another page came forward meanwhile: its answer waits, and comes at once there
     if (app.doc !== doc) {
-      toast(fill(T("The text of {name} is found: choose Select Text again on it."), { name: doc.name }));
+      toast(fill(T("The text of {name} is found: choose Detect Text again on it."), { name: doc.name }));
       return;
     }
     const grown = TextMask.dilate(mask, doc.width, doc.height, textGrow(doc));
@@ -4274,7 +4274,7 @@
       toast(T("No text found on this page."));
       return;
     }
-    ops.quietSelection(ops.fullMaskSelection(grown, "text"), "Select Text");
+    ops.quietSelection(ops.fullMaskSelection(grown, "text"), "Detect Text");
     const plain = areas.filter((area) => area.plain).length;
     toast(fill(T("{count} text areas: {plain} on a plain background, {art} over the art."), { count: areas.length, plain, art: areas.length - plain }), true);
     gen.open = false;
@@ -4379,8 +4379,8 @@
     });
     return [main, more];
   };
-  // With nothing selected and no text picked, the bar offers Select Text, under the page
-  // With nothing selected, the bar offers Select Text only with a tool for cleaning the page:
+  // With nothing selected and no text picked, the bar offers Detect Text, under the page
+  // With nothing selected, the bar offers Detect Text only with a tool for cleaning the page:
   // whoever only letters doesn't see it. The marquees have it in their options bar instead, as
   // the Bubble Cleaner also does; and it's always in Select > Text.
   const TEXT_BAR_TOOLS = new Set(["clean", "heal", "stamp", "brush", "eraser", "magicEraser", "lasso", "polygon", "wand"]);
@@ -4394,7 +4394,7 @@
       find.type = "button";
       find.className = "ctxbar__gen";
       find.innerHTML = ICON.sparkles;
-      find.append(textFind.running ? T("Finding the text…") : T("Select Text"));
+      find.append(textFind.running ? T("Finding the text…") : T("Detect Text"));
       find.disabled = textFind.running;
       find.addEventListener("click", () => selectText());
       const line = document.createElement("span");
@@ -4622,7 +4622,7 @@
       taskBar.append(deselect, separator(), hide);
       return;
     }
-    // A selection made by Select Text: Remove Text, which sends the art alone to Generative Fill
+    // A selection made by Detect Text: Remove Text, which sends the art alone to Generative Fill
     if (textSelection()) {
       taskBar.append(...removeTextButton(), separator(), deselect, separator(), hide);
       return;
@@ -4766,18 +4766,18 @@
     taskBar.style.top = `${Math.round(Math.max(8, top))}px`;
   };
 
-  // Select Text in the options bar of the Bubble Cleaner and the marquees, one search at a time
+  // Detect Text in the options bar of the Bubble Cleaner and the marquees, one search at a time
   // Greyed while the text detection doesn't answer: a click says why
   const selectTextButton = () => {
     const find = document.createElement("button");
     find.type = "button";
     find.className = "btn btn--small";
-    find.textContent = textFind.running ? T("Finding the text…") : T("Select Text");
+    find.textContent = textFind.running ? T("Finding the text…") : T("Detect Text");
     find.disabled = textFind.running;
     if (!TextMask.available()) {
       find.classList.add("is-unavailable");
       find.setAttribute("aria-disabled", "true");
-      find.title = T("Select Text isn't available for the moment. Try again later.");
+      find.title = T("Detect Text isn't available for the moment. Try again later.");
     }
     find.addEventListener("click", () => selectText());
     return find;

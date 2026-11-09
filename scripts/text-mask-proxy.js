@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// To try Select Text before the text detection (Temizle) takes calls from a browser: a relay on
+// To try Detect Text before the text detection (Temizle) takes calls from a browser: a relay on
 // this computer, which adds the key and the headers a browser needs. The key comes from the
 // environment, never from a file of this repository (its files are public).
 //
