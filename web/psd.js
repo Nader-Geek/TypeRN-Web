@@ -153,6 +153,45 @@
 
   const channel = (value) => Math.max(0, Math.min(255, Math.round(value === undefined ? 0 : value)));
 
+  // A layer style's colour as RGB, whatever the document's mode. In a grayscale document
+  // Photoshop gives an amount of ink (0 is white), in CMYK the four inks, and a colour may also
+  // come as hue, saturation and brightness, or Lab.
+  const rgbFromPsd = (color) => {
+    if (!color) return { r: 0, g: 0, b: 0 };
+    if (color.r !== undefined) return { r: channel(color.r), g: channel(color.g), b: channel(color.b) };
+    if (color.fr !== undefined) return { r: channel(color.fr * 255), g: channel(color.fg * 255), b: channel(color.fb * 255) };
+    if (color.c !== undefined) {
+      const white = (ink) => 255 * (1 - (ink || 0) / 255) * (1 - (color.k || 0) / 255);
+      return { r: channel(white(color.c)), g: channel(white(color.m)), b: channel(white(color.y)) };
+    }
+    if (color.k !== undefined) {
+      const gray = channel(255 - color.k);
+      return { r: gray, g: gray, b: gray };
+    }
+    if (color.h !== undefined) {
+      const h = ((color.h % 1) + 1) % 1 * 6;
+      const v = color.b || 0;
+      const c = v * (color.s || 0);
+      const x = c * (1 - Math.abs((h % 2) - 1));
+      const [r, g, b] = h < 1 ? [c, x, 0] : h < 2 ? [x, c, 0] : h < 3 ? [0, c, x] : h < 4 ? [0, x, c] : h < 5 ? [x, 0, c] : [c, 0, x];
+      return { r: channel((r + v - c) * 255), g: channel((g + v - c) * 255), b: channel((b + v - c) * 255) };
+    }
+    if (color.l !== undefined) {
+      // Lab (D50) to sRGB
+      const L = color.l * 100;
+      const A = color.a * (color.a < 0 ? 128 : 127);
+      const B = color.b * (color.b < 0 ? 128 : 127);
+      const fy = (L + 16) / 116;
+      const f = (t) => (t > 6 / 29 ? t * t * t : 3 * (6 / 29) * (6 / 29) * (t - 4 / 29));
+      const X = 0.9642 * f(fy + A / 500);
+      const Y = f(fy);
+      const Z = 0.8249 * f(fy - B / 200);
+      const gamma = (u) => 255 * (u <= 0.0031308 ? 12.92 * u : 1.055 * Math.pow(u, 1 / 2.4) - 0.055);
+      return { r: channel(gamma(3.1339 * X - 1.6169 * Y - 0.4906 * Z)), g: channel(gamma(-0.9785 * X + 1.9160 * Y + 0.0334 * Z)), b: channel(gamma(0.0720 * X - 0.2290 * Y + 1.4057 * Z)) };
+    }
+    return { r: 0, g: 0, b: 0 };
+  };
+
   const styleFromPsd = (style, scale, resolution) => {
     const font = (style.font && style.font.name) || "";
     const known = Fonts.get(font);
@@ -232,7 +271,7 @@
       .sort((a, b) => a.size.value - b.size.value);
     const stroke = usable[0];
     if (!stroke) return null;
-    const rgb = (color) => ({ r: channel((color || {}).r), g: channel((color || {}).g), b: channel((color || {}).b) });
+    const rgb = rgbFromPsd;
     const out = { enabled: true, size: stroke.size.value, opacity: stroke.opacity === undefined ? 100 : stroke.opacity * 100, position: "outer", color: rgb(stroke.color) };
     const around = usable[1];
     if (around && around.size.value > stroke.size.value) out.outer = { size: around.size.value - stroke.size.value, color: rgb(around.color) };
