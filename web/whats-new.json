@@ -1,4 +1,5 @@
 {"notes": [
+  {"id":"c0dbd251f6f4","at":"2026-11-09T12:17:45+01:00","kind":"fix","text":"A file opened again after it changed (in Photoshop, say) updates its tab instead of opening a copy","lang":{"fr":"Un fichier rouvert après avoir changé (dans Photoshop par exemple) met à jour son onglet au lieu d'en ouvrir une copie"}},
   {"id":"8626216c070c","at":"2026-11-09T12:06:26+01:00","kind":"fix","text":"The Contextual Task Bar no longer hides Generative Fill's progress","lang":{"fr":"La barre des tâches contextuelle ne cache plus la progression du Remplissage génératif"}},
   {"id":"eb81108f8e86","at":"2026-11-09T11:38:13+01:00","kind":"feat","text":"Make your own gradients in the Gradient Editor and keep them as presets","lang":{"fr":"Créez vos propres dégradés dans l'Éditeur de dégradé et gardez-les en paramètres prédéfinis"}},
   {"id":"e38b0ee6dc46","at":"2026-11-09T11:26:03+01:00","kind":"fix","text":"Enter applies the Color Picker after you pick in its square, its hue bar or a swatch","lang":{"fr":"Entrée valide le Sélecteur de couleurs après un choix dans son carré, sa barre de teinte ou un échantillon"}},
