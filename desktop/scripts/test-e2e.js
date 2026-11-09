@@ -162,6 +162,35 @@ const main = async () => {
   step("the page is saved first, then its own PSD opens in the Photoshop chosen", sent.length === 1 && sent[0].app === listed2[1].id && sentFiles.join() === fs.realpathSync(psd) && fs.statSync(psd).mtimeMs > beforePs, JSON.stringify(sent));
   const psRefused = await page.evaluate((id) => window.TypeRDesktop.photoshop.open(id, ["/etc/hosts", "/tmp/elsewhere.psd"]), listed2[0].id);
   step("only the files of open pages can be sent to Photoshop", psRefused && psRefused.ok === false && (await run.app.evaluate(() => global.typerPhotoshopOpened.length)) === 1, JSON.stringify(psRefused));
+  // Import the script: the panel's open tab goes with the pages, for TypeR in Photoshop
+  await page.evaluate(async () => {
+    const path = window.TypeRKit.activeStoragePath();
+    const frame = document.getElementById("panel-frame");
+    const bridge = frame && frame.contentWindow && frame.contentWindow.__typerWeb;
+    const data = JSON.parse((bridge ? bridge.getFile(path) : window.TypeRKit.read(path)) || "{}");
+    const tab = { id: "e2e-script", name: "Chapter 12", text: "Hello\r\nWorld", images: [], currentLineIndex: 0 };
+    data.tabs = (data.tabs || []).concat([tab]);
+    data.currentTabId = tab.id;
+    if (bridge) bridge.setFile(path, JSON.stringify(data));
+    else await window.TypeRKit.keep(path, JSON.stringify(data));
+  });
+  const sendingScript = page.evaluate(() => window.TypeRApp.openInPhotoshop());
+  await page.waitForSelector("#modal[open] input[type=checkbox]", { timeout: 5000 });
+  await page.check("#modal[open] input[type=checkbox]");
+  await page.click("#modal[open] .modal__foot .btn--main");
+  await sendingScript;
+  const sentScript = await run.app.evaluate(() => global.typerPhotoshopScript || null);
+  // The panel's own button to the other app is the app's Open in Photoshop
+  const panelButton = page.frameLocator("#panel-frame").locator(".footer-actions button[aria-label='Ouvrir dans Photoshop']");
+  const panelHasButton = await panelButton.waitFor({ timeout: 15000 }).then(() => true, () => false);
+  if (panelHasButton) {
+    await panelButton.click();
+    await page.waitForSelector("#modal[open] select", { timeout: 5000 }).catch(() => {});
+  }
+  const panelAsks = await page.evaluate(() => Boolean(document.querySelector("#modal[open] select")) && document.querySelector("#modal[open] .modal__head, #modal[open] h2, #modal[open]").textContent.includes("Photoshop"));
+  step("the panel's Open in Photoshop button opens the app's dialog", panelHasButton && panelAsks);
+  if (panelAsks) await page.click("#modal[open] .modal__foot .btn:not(.btn--main)");
+  step("Import the script sends the panel's script with the pages", sentScript && sentScript.name === "Chapter 12" && sentScript.text === "Hello\nWorld" && sentScript.files.length === 1, JSON.stringify(sentScript));
 
   // The other process that the system starts when the app is already open
   const clean = { ...process.env };

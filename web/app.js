@@ -10160,24 +10160,47 @@
     return Studio.whereEnd(token);
   };
 
+  // The script in the panel's open tab, { name, text }, or null when that tab is empty
+  const panelScript = () => {
+    let data = null;
+    try {
+      const bridge = panelBridge();
+      const path = Kit.activeStoragePath();
+      data = JSON.parse((bridge ? bridge.getFile(path) : Kit.read(path)) || "null");
+    } catch (error) {
+      return null;
+    }
+    if (!data || typeof data !== "object") return null;
+    const tab = (Array.isArray(data.tabs) && data.tabs.find((item) => item && item.id === data.currentTabId)) || data;
+    const text = typeof tab.text === "string" ? tab.text : "";
+    return text.trim() ? { name: typeof tab.name === "string" ? tab.name : "", text } : null;
+  };
+
   const askOpenInPhotoshop = async (apps) => {
     let kept = {};
     try {
       kept = JSON.parse(window.localStorage.getItem(PHOTOSHOP_STORE)) || {};
     } catch (error) {}
+    // TypeR in Photoshop takes the script into a tab of its own: an app too old to send it doesn't offer it
+    const script = Studio.sendsScript ? panelScript() : null;
     const fields = [];
     if (app.docs.length > 1) fields.push({ id: "pages", label: T("Pages"), value: kept.pages === "all" ? "all" : "one", options: [["one", T("This page")], ["all", fill(T("All open pages ({count})"), { count: app.docs.length })]] });
     if (apps.length > 1) fields.push({ id: "app", label: T("Open with"), value: apps.some((one) => one.id === kept.app) ? kept.app : apps[0].id, options: apps.map((one) => [one.id, one.version ? `${one.name} (${one.version})` : one.name]) });
-    let answer = { pages: "one", app: apps[0].id };
+    if (script) fields.push({ id: "script", label: T("Import the script"), type: "checkbox", checked: kept.script === true, hint: () => T("TypeR in Photoshop opens it in a new tab, or in the tab that already holds it.") });
+    let answer = { pages: "one", app: apps[0].id, script: false };
     if (fields.length) {
       answer = await dialog({ title: T("Open in Photoshop"), body: T("Unsaved changes are saved first. Pages without a Photoshop file yet are saved as PSD in a folder you choose."), fields, ok: T("Open in Photoshop") });
       if (!answer) return null;
-      answer = Object.assign({ pages: "one", app: apps[0].id }, answer);
+      answer = Object.assign({ pages: "one", app: apps[0].id, script: false }, answer);
       try {
-        window.localStorage.setItem(PHOTOSHOP_STORE, JSON.stringify({ pages: answer.pages, app: answer.app }));
+        window.localStorage.setItem(PHOTOSHOP_STORE, JSON.stringify({ pages: answer.pages, app: answer.app, script: script ? answer.script : kept.script === true }));
       } catch (error) {}
     }
-    return { docs: answer.pages === "all" ? app.docs.slice() : [app.doc], target: apps.find((one) => one.id === answer.app) || apps[0] };
+    return {
+      docs: answer.pages === "all" ? app.docs.slice() : [app.doc],
+      target: apps.find((one) => one.id === answer.app) || apps[0],
+      script: script && answer.script ? script : null,
+    };
   };
 
   // The pages with no PSD of their own, written in a folder the user picks. [doc, path] for each.
@@ -10247,7 +10270,12 @@
 
   let sendingToPhotoshop = false;
   const openInPhotoshop = async () => {
-    if (!Studio || !app.doc || sendingToPhotoshop) return;
+    if (!Studio || sendingToPhotoshop) return;
+    // The menu item waits for a page; the panel's button doesn't
+    if (!app.doc) {
+      toast(T("Open a page first."), true);
+      return;
+    }
     if (!ui.editor.hidden) endEdit();
     sendingToPhotoshop = true;
     try {
@@ -10258,7 +10286,7 @@
       }
       const choice = await askOpenInPhotoshop(apps);
       if (!choice) return;
-      const { docs, target } = choice;
+      const { docs, target, script } = choice;
       for (const doc of docs) {
         if (app.docs.includes(doc) && ownPsd(doc) && PS.isDirty(doc) && !(await save(doc))) return;
       }
@@ -10277,9 +10305,13 @@
       }
       const opening = docs.filter((doc) => places.has(doc));
       if (!opening.length) return;
-      const result = await Studio.open(target.id, opening.map((doc) => places.get(doc)));
+      const result = await Studio.open(target.id, opening.map((doc) => places.get(doc)), script);
       if (!result || !result.ok) {
         toast(fill(T("{app} could not be opened: {error}"), { app: target.name, error: (result && result.message) || "?" }), true);
+        return;
+      }
+      if (result.scriptError) {
+        toast(fill(T("The script could not be sent to TypeR: {error}"), { error: result.scriptError }), true);
         return;
       }
       toast(opening.length === 1

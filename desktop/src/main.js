@@ -745,6 +745,32 @@ const openInPhotoshop = async (target, files) => {
   });
 };
 
+// The script sent with the pages, for TypeR in Photoshop: a file it looks for when a document
+// opens there, takes into a script tab (the one holding the same text, or a new one), then
+// removes. Only this file is written in TypeR's folder; the plugin's settings stay untouched.
+const scriptForPhotoshop = () => path.join(exchangeFolder(), "script.json");
+const sendScript = async (script, files) => {
+  const value = {
+    from: "TypeR Studio",
+    version: 1,
+    sent: Date.now(),
+    name: String(script.name || "").slice(0, 200),
+    text: String(script.text || "").replace(/\r\n?/g, "\n"),
+    files,
+  };
+  if (!value.text.trim() || value.text.length > SCRIPT_LIMIT) throw new Error("This script can't be sent.");
+  if (isTest) {
+    global.typerPhotoshopScript = value;
+    return;
+  }
+  const file = scriptForPhotoshop();
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  // Read whole or not at all: the plugin may look while it's being written
+  const temporary = `${file}.${process.pid}.tmp`;
+  await fs.promises.writeFile(temporary, JSON.stringify(value), "utf8");
+  await fs.promises.rename(temporary, file);
+};
+
 ipcMain.handle("photoshop-list", async (event) => {
   if (!fromPage(event)) return [];
   try {
@@ -754,7 +780,7 @@ ipcMain.handle("photoshop-list", async (event) => {
     return [];
   }
 });
-ipcMain.handle("photoshop-open", async (event, id, paths) => {
+ipcMain.handle("photoshop-open", async (event, id, paths, script) => {
   if (!fromPage(event)) return { ok: false, message: "Not allowed." };
   try {
     const target = (await findPhotoshops()).find((one) => one.id === id);
@@ -764,8 +790,18 @@ ipcMain.handle("photoshop-open", async (event, id, paths) => {
       if (typeof file === "string" && knownPaths.has(file) && /\.ps[db]$/i.test(file) && (await exists(file)) && !files.includes(file)) files.push(file);
     }
     if (!files.length) return { ok: false, message: "No file to open." };
+    // Waiting for TypeR before the pages open: it looks for the script as they do
+    let scriptError = null;
+    if (script && typeof script === "object") {
+      try {
+        await sendScript(script, files);
+      } catch (error) {
+        console.warn("Script for TypeR in Photoshop:", error);
+        scriptError = String(error.message || error).slice(0, 300);
+      }
+    }
     await openInPhotoshop(target, files);
-    return { ok: true, count: files.length };
+    return { ok: true, count: files.length, scriptError };
   } catch (error) {
     console.warn("Open in Photoshop:", error);
     return { ok: false, message: String(error.message || error).slice(0, 300) };

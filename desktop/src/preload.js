@@ -36,7 +36,9 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
   // whereEnd, and the app answers with the path it was asked about. Only those paths open.
   photoshop: {
     list: () => ipcRenderer.invoke("photoshop-list"),
-    open: (id, paths) => ipcRenderer.invoke("photoshop-open", id, paths),
+    // With a script, TypeR in Photoshop takes it into a tab as the pages open
+    open: (id, paths, script) => ipcRenderer.invoke("photoshop-open", id, paths, script || null),
+    sendsScript: true,
     whereStart: (name, directory) => ipcRenderer.invoke("where-start", name, directory),
     whereEnd: (token) => ipcRenderer.invoke("where-end", token),
   },
