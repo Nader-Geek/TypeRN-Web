@@ -6,7 +6,8 @@
 //
 // Needs Google Chrome, ffmpeg and cwebp, desktop/node_modules (npm install in desktop/), and the
 // pages of chapter 104 (PAGES, ~/Downloads/104 by default). Text detection goes through the
-// network; generative-fill uses Nano Banana 2.1 on fal.ai, with a key in FAL_KEY (a few cents).
+// network; text-detection and generative-fill use Nano Banana 2.1 on fal.ai, with a key in FAL_KEY
+// (a few cents).
 // OUT writes the files elsewhere than web/whats-new/.
 const { boot, openFile, sleep } = require('./harness');
 const { Rec, frameDoc, docToScreen, center } = require('./rec');
@@ -45,7 +46,7 @@ const NANO_BANANA = () => {
   if (!process.env.FAL_KEY) throw new Error('generative-fill needs a fal.ai key in FAL_KEY');
   return { 'typer.web.generative': JSON.stringify({ service: 'fal', keys: { fal: process.env.FAL_KEY }, models: { fal: 'google/nano-banana-2.1/edit' } }) };
 };
-const STORAGE = { 'generative-fill': NANO_BANANA };
+const STORAGE = { 'generative-fill': NANO_BANANA, 'text-detection': NANO_BANANA };
 
 // A page, its texts flattened into its pixels, the panels hidden: only the tools and the page
 async function setup(page, file, rect, tool) {
@@ -76,10 +77,18 @@ const DEMOS = {
     await r.shot(); r.hold(0.2);
     await r.moveTo(...(await center(page, '.ctxbar__gen')));
     await r.click();
+    // A paid model, several areas over the art: what it will cost, agreed to
+    await sleep(400); await r.shot();
+    if (await page.locator('.modal .modal__foot .btn--main').count()) {
+      r.hold(1.2);
+      await r.moveTo(...(await center(page, '.modal .modal__foot .btn--main')));
+      await r.click();
+    }
+    // Over once every area over the art has its layer: the plain balloons are painted at once
     const done = () => page.evaluate(() => {
       const names = window.TypeRPhotoshop.app.doc.state.layers.map((l) => l.name).join('|');
       const tray = document.querySelector('.gentray');
-      return /Text removed 3/.test(names) && !(tray && /Generating|Waiting|Downloading/.test(tray.innerText));
+      return /Text removed/.test(names) && !(tray && /Generating|Waiting|Downloading/.test(tray.innerText));
     });
     await r.moveTo(560, 200, 20);
     await r.film(done, { every: 200, keep: 2, max: 90000 });
