@@ -9102,7 +9102,9 @@
       const input = document.createElement("input");
       input.type = "file";
       input.multiple = true;
-      input.accept = ".psd,.psb,.png,.jpg,.jpeg,.webp";
+      // iOS greys out the PSDs as soon as there's a filter (see touch.js): what can't be opened
+      // is refused once picked
+      if (!Shell.touch) input.accept = ".psd,.psb,.png,.jpg,.jpeg,.webp";
       input.addEventListener("change", () => openChapter(Array.from(input.files)));
       input.click();
       return;
@@ -9210,9 +9212,11 @@
     renderMenusState();
     const bridge = !fromPanel && panelBridge();
     if (bridge && !chapter && had) bridge.unlinkPages();
+    if (window.TypeRTouch) window.TypeRTouch.chapterChanged();
     if (!chapter) return;
-    const next = windowItem("Next Page").keys;
-    const previous = windowItem("Previous Page").keys;
+    // Without a keyboard, the pages are in the top bar
+    const next = !Shell.touch && windowItem("Next Page").keys;
+    const previous = !Shell.touch && windowItem("Previous Page").keys;
     toast(next && previous
       ? fill(T("{count} pages imported. {next}: next page, {previous}: previous page."), { count: pages.length, next: keyLabel(next), previous: keyLabel(previous) })
       : fill(T("{count} pages imported."), { count: pages.length }));
@@ -9243,6 +9247,7 @@
     } finally {
       paging = false;
       renderStatus();
+      if (window.TypeRTouch) window.TypeRTouch.chapterChanged();
     }
   };
   const stepPage = (direction) => {
@@ -13575,6 +13580,10 @@
     setPages,
     openChapter,
     goToPage,
+    stepPage,
+    // The chapter's pages for the touch interface: where the page in front is (-1: elsewhere),
+    // and each page's name and open document, if it is open
+    chapter: () => (chapter ? { at: pageOf(app.doc), last: chapter.at, pages: chapter.pages.map((page) => ({ name: page.file.name, doc: app.docs.find((doc) => doc.path === pageKey(page)) || null })) } : null),
     importKits,
     save,
     saveAs,
