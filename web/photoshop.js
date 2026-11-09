@@ -5902,6 +5902,8 @@
     wandAt(x, y, mode, bubbleOnly) {
       const doc = app.doc;
       if (!doc) return null;
+      // Beside the page there is nothing to select: a click there lets go of the selection
+      if (x < 0 || y < 0 || x >= doc.width || y >= doc.height) return !mode || mode === "new" ? ops.deselect() : null;
       const selection = floodSelect(doc, x, y, app.tolerance);
       if (bubbleOnly && !looksLikeBubble(doc, selection)) return false;
       selection.trigger = { source: "wand", x: Math.round(x), y: Math.round(y) };
