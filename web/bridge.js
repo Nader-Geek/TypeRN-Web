@@ -79,12 +79,13 @@
       if (Object.prototype.hasOwnProperty.call(files, path)) return { err: FS.NO_ERROR, data: files[path] };
       return { err: FS.ERR_NOT_FOUND, data: "" };
     },
-    writeFile(path, data) {
+    writeFile(path, data, encoding) {
       files[path] = String(data);
       if (window.parent.TypeRTouch) window.parent.TypeRTouch.panelChanged();
       if (kit.keeps(path)) remember(path, files[path]);
-      // A file written outside TypeR's own folder is an export: it is downloaded
-      else if (String(path).indexOf(ROOT + "/") !== 0) downloadFile(String(path).split(/[\\/]/).pop(), files[path]);
+      // A file written outside TypeR's own folder is an export: it is downloaded. A font or a
+      // .zip comes as Base64, and the file must hold its bytes, not that text
+      else if (String(path).indexOf(ROOT + "/") !== 0) downloadFile(String(path).split(/[\\/]/).pop(), encoding === "Base64" ? fromBase64(files[path]) : files[path]);
       return { err: FS.NO_ERROR };
     },
     deleteFile(path) {
@@ -112,13 +113,15 @@
   fs.showOpenDialog = fs.showOpenDialogEx;
   fs.showSaveDialog = fs.showSaveDialogEx;
 
-  const downloadFile = (name, text) => {
+  const downloadFile = (name, data) => {
     const link = window.parent.document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([text], { type: "application/octet-stream" }));
+    link.href = URL.createObjectURL(new Blob([data], { type: "application/octet-stream" }));
     link.download = name;
     link.click();
     setTimeout(() => URL.revokeObjectURL(link.href), 4000);
   };
+
+  const fromBase64 = (text) => Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
 
   const toBase64 = (bytes) => {
     let binary = "";
@@ -172,6 +175,23 @@
   const lendZipHost = () => {
     window.typerUXP = { request: (name, data) => (name === "exportZipWithFonts" ? exportZip(data) : Promise.reject(new Error(name))) };
     setTimeout(() => { delete window.typerUXP; }, 0);
+  };
+
+  // The fonts the Font FindeR installs (TypeR's fontInstaller.js): kept here like a font file
+  // the user loads, so the text can use them at once. The desktop app also installs them on
+  // the computer, for the other apps, as the Photoshop plugin does.
+  window.typerFontHost = {
+    async installFonts(fonts) {
+      const files = (fonts || []).map((font) => ({ name: font.saveName, displayName: font.displayName, bytes: font.bytes }));
+      const { added } = await window.parent.TypeRFonts.addFiles(files.map((file) => ({ name: file.name, buffer: file.bytes.slice().buffer })));
+      if (!added.length) throw new Error("installFailed");
+      const desktop = window.parent.TypeRDesktop;
+      if (desktop && desktop.installFonts) {
+        const result = await desktop.installFonts(files);
+        if (!result || !result.ok) throw new Error((result && result.message) || "installFailed");
+      }
+      return files.length;
+    },
   };
 
   const pickFiles = (multiple, types) => new Promise((resolve) => {

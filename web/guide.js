@@ -609,7 +609,7 @@
       : T("turn the wheel, pinch on a trackpad, or press {Cmd}{+}");
   };
   const menuButton = (name) => Array.from(document.querySelectorAll("#menus .menu__button")).find((button) => button.textContent === T(name)) || null;
-  const tool = (id) => () => document.querySelector(`#tools [data-tool="${id}"]`);
+  const tool = (id) => () => document.querySelector(`#tools [data-tools~="${id}"]`);
   const byId = (id) => () => document.getElementById(id);
   // After a click in the panel, its keys stay there; a tool's key only lends the tool on the page
   const pageKeys = () => {

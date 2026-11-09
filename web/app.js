@@ -12,7 +12,7 @@
   const Kit = window.TypeRKit;
   // A page still in a browser's cache may not have loaded this one yet: no Generative Fill then
   const Gen = window.TypeRGenerative || null;
-  // Select Text and Remove Text: only once set up on this device (textmask.js), read at start
+  // Select Text and Remove Text: on unless turned off on this device (textmask.js), read at start
   const TextMask = window.TypeRTextMask && window.TypeRTextMask.enabled() ? window.TypeRTextMask : null;
   // Its areas and plain backgrounds, which need no text detection: Generative Fill reads them too
   const Mask = window.TypeRTextMask || null;
@@ -46,6 +46,7 @@
     brushPreview: $("brush-preview"),
     editor: $("editor"),
     typeMarks: $("type-marks"),
+    textMarks: $("text-marks"),
     hud: $("hud"),
     tabs: $("tabs"),
     options: $("options"),
@@ -113,6 +114,7 @@
     fullScreenExit: SVG('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'),
     alignMiddle: SVG('<rect x="4" y="4" width="16" height="16"/><path d="M8 10h8M8 14h8"/>'),
     warp: SVG('<path d="M7.500 5h9L21 19H3Z"/><path d="M12 5v14M5.200 12h13.600"/>'),
+    pilcrow: SVG('<path d="M13 4v16"/> <path d="M17 4v16"/> <path d="M19 4H9.500a4.500 4.500 0 0 0 0 9H13"/>'),
     pencil: SVG('<path d="m4 20 1-4L16 5a2.100 2.100 0 0 1 3 3L8 19ZM14.500 6.500l3 3"/>'),
     lines: SVG('<path d="M4 6h16M4 12h11a3 3 0 0 1 0 6H9M12 15l-3 3 3 3"/>'),
     shapes: SVG('<path d="M8 5h8M5 10h14M4 15h16M8 20h8"/>'),
@@ -388,7 +390,8 @@
 
     modal.textContent = "";
     modal.onkeydown = null;
-    modal.classList.add("modal--picker");
+    // Only its own look: What's New or Send Feedback, shown before in the same window, leave theirs
+    modal.className = "modal modal--picker";
     modal.style.transform = "";
     const head = make("div", "modal__head picker__head", modal, `${T("Color Picker")} (${input.title || input.getAttribute("aria-label") || ""})`);
     const body = make("div", "picker", modal);
@@ -737,14 +740,8 @@
       c.fillRect(8, 8, 8, 8);
       checker = ctx.createPattern(tile, "repeat");
     }
-    // The page lies on the workspace like a sheet of paper, with a soft shadow under it
-    ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-    ctx.shadowBlur = 36 * ratio;
-    ctx.shadowOffsetY = 8 * ratio;
     ctx.fillStyle = checker;
     ctx.fillRect(x, y, dw, dh);
-    ctx.restore();
     ctx.imageSmoothingEnabled = v.zoom < 2;
     // While something moves, speed: the sharp picture comes when it stops
     ctx.imageSmoothingQuality = pinch || gesture || performance.now() < quickUntil ? "low" : "high";
@@ -1026,6 +1023,7 @@
     drawGenAreas();
     ui.handles.textContent = "";
     handleBoxes = [];
+    drawHiddenChars();
     drawTypeMarks();
     ui.box.setAttribute("hidden", "");
     pixelControls = null;
@@ -1397,6 +1395,22 @@
     return rotateCursor(sideOfFrame(pu, pv, hw, hh, u));
   };
   const inRotateZone = (event) => Boolean(rotateZoneCursor(event));
+  // While a text is typed in, its handles size the box and the text flows again in it, as in
+  // Photoshop; with Ctrl or Cmd, they size the letters. A turned text keeps sizing its letters.
+  // Otherwise, the side points size the box and the corners the letters.
+  const boxHandle = (handle, layer, typing, event) => (typing && !layer.rotated ? !isCommand(event) : handle.kind.length !== 2);
+  // While a text is typed in, a little further out than the ring that turns it, a drag moves
+  // it, as in Photoshop. A click there still ends the edit.
+  const MOVE_REACH = 48;
+  const inTypingMoveZone = (event) => {
+    if (ui.editor.hidden || !editing || !turnControls || Shell.touch || isFinger(event)) return false;
+    const rect = ui.stage.getBoundingClientRect();
+    const dx = event.clientX - rect.left - turnControls.center[0];
+    const dy = event.clientY - rect.top - turnControls.center[1];
+    const { u, v, hw, hh } = turnControls;
+    const out = Math.hypot(Math.max(0, Math.abs(dx * u[0] + dy * u[1]) - hw), Math.max(0, Math.abs(dx * v[0] + dy * v[1]) - hh));
+    return out > ROTATE_REACH && out <= ROTATE_REACH + MOVE_REACH;
+  };
   const beginTransform = () => {
     if (transformOf()) return true;
     if (warpedLayer()) leaveSurface();
@@ -1804,7 +1818,6 @@
 
   /* -------------------------------- tools -------------------------------- */
 
-  const RESHAPER = false;
   const TOOLS = [
     ["move", "Move", "V"],
     ["rectangle", "Rectangular Marquee", "M"],
@@ -1820,11 +1833,11 @@
     ["gradient", "Gradient", "G"],
     ["stamp", "Clone Stamp", "S"],
     ["clean", "Bubble Cleaner", "J"],
-    // Shift+J, as in Photoshop. The Bubble Reshaper below would need another key.
+    // Shift+J, as in Photoshop
     ["heal", "Spot Healing Brush", "Shift+J"],
-    // The Bubble Reshaper (reshape.js, reshape-tool.js) is off until it is good enough: its files
-    // aren't loaded, and with RESHAPER false it has no button and no key
-    ...(RESHAPER ? [["reshape", "Bubble Reshaper", "Shift+J"]] : []),
+    // The Bubble Reshaper (reshape.js, reshape-tool.js): still experimental, and said so in its
+    // name and its hint. U, Photoshop's shapes, since Shift+J is the Spot Healing Brush's.
+    ["reshape", "Bubble Reshaper (experimental)", "U"],
     ["eyedropper", "Eyedropper", "I"],
     ["text", "Type", "T"],
     ["sfx", "SFX", "K"],
@@ -1832,6 +1845,8 @@
     ["hand", "Hand", "H"],
     ["zoom", "Zoom", "Z"],
   ];
+  // While a text is typed in: what the handles and the edges of its box do
+  const TYPING_HINT = "Handles: the text box, the text flows again. Cmd + handle: the text size. Just outside: turn. A little further: move. Esc or Cmd+Enter: done.";
   const TRANSFORM_HINT = "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.";
   const TOOL_HINT = {
     move: "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.",
@@ -1916,6 +1931,13 @@
     ui.stage.style.cursor = "";
     app.tool = tool;
     ui.stage.dataset.tool = tool;
+    // A group shows the tool last chosen in it, by its list or by its key
+    const slot = slotOf(tool);
+    if (slot && slot.current !== tool) {
+      slot.current = tool;
+      saveSlots();
+      renderToolSlots();
+    }
     ui.tools.querySelectorAll("[data-tool]").forEach((button) => {
       const on = button.dataset.tool === tool;
       button.classList.toggle("is-on", on);
@@ -1930,31 +1952,606 @@
     schedule(false);
   };
 
-  const buildTools = () => {
-    ui.tools.textContent = "";
+  /* ---- the toolbar's places: tools moved and grouped by hand, as Photoshop groups its own ---- */
+
+  // Each place shows one tool of its group, the last one used. A drag moves a place, or one
+  // tool out of its group's list; dropped on another place, it joins that group.
+  const STORE_TOOLBAR = "typer.web.toolbar";
+  const TOOL_GROUPS = [["rectangle", "ellipse"], ["lasso", "polygon"], ["eraser", "magicEraser"]];
+  const toolEntry = (id) => TOOLS.find((entry) => entry && entry[0] === id);
+  const defaultSlots = () => {
+    const slots = [];
     TOOLS.forEach((entry) => {
       if (!entry) {
-        const gap = document.createElement("span");
-        gap.className = "tools__gap";
-        ui.tools.appendChild(gap);
+        slots.push({ gap: true });
         return;
       }
-      const [id, name, key] = entry;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "tool";
-      button.dataset.tool = id;
-      button.dataset.name = T(name);
-      button.innerHTML = ICON[id];
-      const label = toolTitle(name, key);
-      button.title = label;
-      button.setAttribute("aria-label", label);
-      button.addEventListener("click", () => setTool(id));
-      ui.tools.appendChild(button);
+      const group = TOOL_GROUPS.find((tools) => tools.includes(entry[0]));
+      const tools = group ? group.filter(toolEntry) : [entry[0]];
+      if (tools[0] === entry[0]) slots.push({ tools, current: tools[0] });
     });
+    return slots;
+  };
+  const loadSlots = () => {
+    let saved = null;
+    try {
+      saved = JSON.parse(window.localStorage.getItem(STORE_TOOLBAR));
+    } catch (error) {
+      saved = null;
+    }
+    return Array.isArray(saved) ? completeSlots(saved) : defaultSlots();
+  };
+  // Every tool in exactly one place, whatever a saved or imported arrangement says
+  const completeSlots = (saved) => {
+    const seen = new Set();
+    const slots = [];
+    saved.forEach((slot) => {
+      if (slot && slot.gap) {
+        slots.push({ gap: true });
+        return;
+      }
+      const tools = (slot && Array.isArray(slot.tools) ? slot.tools : []).filter((id) => toolEntry(id) && !seen.has(id));
+      tools.forEach((id) => seen.add(id));
+      if (tools.length) slots.push({ tools, current: tools.includes(slot.current) ? slot.current : tools[0] });
+    });
+    // A tool this arrangement never had comes after the one it follows in the default order
+    const order = TOOLS.filter(Boolean).map((entry) => entry[0]);
+    order.forEach((id, index) => {
+      if (seen.has(id)) return;
+      const before = order.slice(0, index).reverse().find((other) => seen.has(other));
+      const at = before ? slots.findIndex((slot) => slot.tools && slot.tools.includes(before)) + 1 : 0;
+      slots.splice(at, 0, { tools: [id], current: id });
+      seen.add(id);
+    });
+    return slots;
+  };
+  let toolSlots = loadSlots();
+  const saveSlots = () => {
+    try {
+      window.localStorage.setItem(STORE_TOOLBAR, JSON.stringify(toolSlots));
+    } catch (error) {
+      console.warn("TypeR web: could not keep the toolbar", error);
+    }
+  };
+  const slotOf = (id) => toolSlots.find((slot) => slot.tools && slot.tools.includes(id));
+
+  const toolButton = (slot, index) => {
+    const id = slot.current;
+    const [, name, key] = toolEntry(id);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "tool";
+    button.classList.toggle("tool--group", slot.tools.length > 1);
+    button.dataset.slot = String(index);
+    button.dataset.tool = id;
+    // Every tool of the place, for what looks a tool up (guide.js)
+    button.dataset.tools = slot.tools.join(" ");
+    button.dataset.name = T(name);
+    button.innerHTML = ICON[id];
+    const label = toolTitle(name, key);
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    if (slot.tools.length > 1) button.setAttribute("aria-haspopup", "menu");
+    const on = app.tool === id;
+    button.classList.toggle("is-on", on);
+    button.setAttribute("aria-pressed", String(on));
+    let held = 0;
+    let opened = false;
+    button.addEventListener("pointerdown", (event) => {
+      opened = false;
+      if (Shell.touch || event.button !== 0) return;
+      closeToolFlyout();
+      // Held a moment, a group opens its list, as in Photoshop: let go over one of its tools,
+      // and that tool is chosen
+      clearTimeout(held);
+      if (slot.tools.length > 1) {
+        held = setTimeout(() => {
+          opened = true;
+          stopToolDrag();
+          openToolFlyout(index);
+          const release = (up) => {
+            window.removeEventListener("pointerup", release, true);
+            window.removeEventListener("pointercancel", release, true);
+            if (up.type !== "pointerup" || !toolFlyout) return;
+            const under = document.elementFromPoint(up.clientX, up.clientY);
+            const row = under && under.closest(".tool-flyout__item");
+            if (!row || !toolFlyout.list.contains(row)) return;
+            closeToolFlyout();
+            setTool(row.dataset.tool);
+          };
+          window.addEventListener("pointerup", release, true);
+          window.addEventListener("pointercancel", release, true);
+        }, 200);
+      }
+      startToolDrag(event, { slot: index }, button, () => clearTimeout(held));
+    });
+    ["pointerup", "pointercancel"].forEach((type) => button.addEventListener(type, () => clearTimeout(held)));
+    button.addEventListener("click", () => {
+      if (opened || toolDragged) return;
+      setTool(slot.current);
+    });
+    button.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!Shell.touch) openToolFlyout(index);
+    });
+    return button;
+  };
+
+  // On phones and tablets every tool has its own place, in the order chosen here
+  const renderToolSlots = () => {
+    if (!ui.toolsEnd) return;
+    ui.tools.querySelectorAll("[data-slot]").forEach((node) => node.remove());
+    let gapBefore = true;
+    let last = null;
+    toolSlots.forEach((slot, index) => {
+      if (slot.gap) {
+        if (gapBefore) return;
+        last = document.createElement("span");
+        last.className = "tools__gap";
+        last.dataset.slot = "";
+        ui.tools.insertBefore(last, ui.toolsEnd);
+        gapBefore = true;
+        return;
+      }
+      gapBefore = false;
+      const shown = Shell.touch ? slot.tools.map((id) => ({ tools: [id], current: id })) : [slot];
+      shown.forEach((one) => {
+        last = toolButton(one, index);
+        ui.tools.insertBefore(last, ui.toolsEnd);
+      });
+    });
+    if (last && last.classList.contains("tools__gap")) last.remove();
+  };
+
+  // The list of a group: its tools, to pick or to drag out, and what rearranges the toolbar
+  let toolFlyout = null;
+  const closeToolFlyout = () => {
+    if (!toolFlyout) return;
+    toolFlyout.list.remove();
+    toolFlyout = null;
+  };
+  const openToolFlyout = (index) => {
+    closeToolFlyout();
+    closeContextMenu();
+    const slot = toolSlots[index];
+    const anchor = ui.tools.querySelector(`.tool[data-slot="${index}"]`);
+    if (!slot || !slot.tools || !anchor) return;
+    const list = document.createElement("div");
+    list.className = "menu__list menu__list--context tool-flyout";
+    if (lang === "ar") list.dir = "rtl";
+    list.setAttribute("role", "menu");
+    slot.tools.forEach((id) => {
+      const [, name, key] = toolEntry(id);
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "menu__item tool-flyout__item";
+      row.classList.toggle("is-current", id === slot.current);
+      row.setAttribute("role", "menuitem");
+      row.dataset.tool = id;
+      row.innerHTML = ICON[id];
+      const label = document.createElement("span");
+      label.textContent = T(name);
+      row.appendChild(label);
+      if (key) {
+        const keys = document.createElement("kbd");
+        keys.textContent = keyLabel(key);
+        row.appendChild(keys);
+      }
+      row.addEventListener("pointerdown", (event) => {
+        if (event.button === 0) startToolDrag(event, { slot: index, tool: id }, row);
+      });
+      row.addEventListener("click", () => {
+        if (toolDragged) return;
+        closeToolFlyout();
+        setTool(id);
+      });
+      list.appendChild(row);
+    });
+    const sep = document.createElement("div");
+    sep.className = "menu__sep";
+    list.appendChild(sep);
+    const action = (label, run) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "menu__item";
+      row.setAttribute("role", "menuitem");
+      row.textContent = T(label);
+      row.addEventListener("click", () => {
+        closeToolFlyout();
+        run();
+      });
+      list.appendChild(row);
+    };
+    if (slot.tools.length > 1) action("Ungroup Tools", () => ungroupTools(index));
+    action("Reset Toolbar", resetToolbar);
+    document.body.appendChild(list);
+    toolFlyout = { list, slot: index };
+    // Beside the toolbar, on the side of the page
+    const box = anchor.getBoundingClientRect();
+    const place = ui.tools.dataset.place;
+    let x = box.right + 4;
+    let y = box.top;
+    if (place === "right") x = box.left - list.offsetWidth - 4;
+    else if (place === "top") [x, y] = [box.left, box.bottom + 4];
+    else if (place === "bottom") [x, y] = [box.left, box.top - list.offsetHeight - 4];
+    list.style.left = `${Math.max(8, Math.min(x, window.innerWidth - list.offsetWidth - 8))}px`;
+    list.style.top = `${Math.max(8, Math.min(y, window.innerHeight - list.offsetHeight - 8))}px`;
+  };
+  document.addEventListener("pointerdown", (event) => {
+    if (toolFlyout && !toolFlyout.list.contains(event.target)) closeToolFlyout();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (toolFlyout && event.key === "Escape") closeToolFlyout();
+  });
+
+  // The toolbar's labels: the browser's own wait a second or so before showing, these a quarter
+  // of one, and none at all while going from one tool to the next. Only with a mouse: a finger
+  // has no hover, and a pen's would get in the way. A label's title is set aside while it shows,
+  // so that the browser's doesn't come as well.
+  const TIP_WAIT = 250;
+  const tip = { node: null, target: null, timer: 0, warmUntil: 0, pressed: null };
+  const hideTip = () => {
+    clearTimeout(tip.timer);
+    tip.timer = 0;
+    if (tip.node && !tip.node.hidden) {
+      tip.node.hidden = true;
+      tip.warmUntil = performance.now() + 500;
+    }
+  };
+  const leaveTip = () => {
+    hideTip();
+    const target = tip.target;
+    tip.target = null;
+    if (target && target.dataset.tip !== undefined) {
+      if (!target.hasAttribute("title")) target.title = target.dataset.tip;
+      delete target.dataset.tip;
+    }
+  };
+  const showTip = () => {
+    tip.timer = 0;
+    const target = tip.target;
+    if (!target || !target.isConnected || !target.dataset.tip || toolFlyout) return;
+    if (!tip.node) {
+      tip.node = document.createElement("div");
+      tip.node.className = "tool-tip";
+      tip.node.setAttribute("role", "tooltip");
+      document.body.appendChild(tip.node);
+    }
+    const node = tip.node;
+    node.textContent = target.dataset.tip;
+    node.hidden = false;
+    // Beside the toolbar, on the side of the page, as its groups' lists
+    const box = target.getBoundingClientRect();
+    const place = ui.tools.dataset.place;
+    const gap = 6;
+    let x = box.right + gap;
+    let y = box.top + (box.height - node.offsetHeight) / 2;
+    if (place === "right") x = box.left - node.offsetWidth - gap;
+    else if (place === "top" || place === "bottom") {
+      x = box.left + (box.width - node.offsetWidth) / 2;
+      y = place === "top" ? box.bottom + gap : box.top - node.offsetHeight - gap;
+    }
+    node.style.left = `${Math.max(8, Math.min(x, window.innerWidth - node.offsetWidth - 8))}px`;
+    node.style.top = `${Math.max(8, Math.min(y, window.innerHeight - node.offsetHeight - 8))}px`;
+  };
+  ui.tools.addEventListener("pointermove", (event) => {
+    if (event.pointerType !== "mouse" || event.buttons) return;
+    if (tip.target && tip.target.isConnected && tip.target.contains(event.target)) return;
+    leaveTip();
+    const target = event.target.closest("[title]");
+    if (!target || !ui.tools.contains(target) || !target.title) return;
+    tip.target = target;
+    target.dataset.tip = target.title;
+    target.removeAttribute("title");
+    // The button just clicked, even drawn again since (a group showing its new tool), stays quiet
+    const box = tip.pressed;
+    if (box && event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom) return;
+    tip.pressed = null;
+    if (performance.now() < tip.warmUntil) showTip();
+    else tip.timer = setTimeout(showTip, TIP_WAIT);
+  });
+  ui.tools.addEventListener("pointerleave", () => {
+    leaveTip();
+    tip.pressed = null;
+  });
+  // A click, a hold for a group's list, a right click or a drag: the label goes until the next tool
+  ui.tools.addEventListener("pointerdown", () => {
+    hideTip();
+    tip.warmUntil = 0;
+    tip.pressed = tip.target ? tip.target.getBoundingClientRect() : null;
+  }, true);
+  ui.tools.addEventListener("scroll", hideTip, { passive: true });
+  window.addEventListener("blur", leaveTip);
+
+  const ungroupTools = (index) => {
+    const slot = toolSlots[index];
+    if (!slot || !slot.tools) return;
+    toolSlots.splice(index, 1, ...slot.tools.map((id) => ({ tools: [id], current: id })));
+    saveSlots();
+    renderToolSlots();
+  };
+  const resetToolbar = () => {
+    toolSlots = defaultSlots();
+    try {
+      window.localStorage.removeItem(STORE_TOOLBAR);
+    } catch (error) {
+      console.warn("TypeR web: could not reset the toolbar", error);
+    }
+    renderToolSlots();
+  };
+
+  // Photoshop's toolbar, saved from Edit > Toolbar… as a .tbr: an action descriptor whose
+  // "tlst" lists the groups, each a list of tools by their four-letter keys. The tools TypeR
+  // has keep Photoshop's order and groups; the others are left out, and TypeR's own tools
+  // come after the ones they follow here.
+  const PHOTOSHOP_TOOLS = {
+    arwT: "move", rgmt: "rectangle", elmt: "ellipse", laso: "lasso", pgon: "polygon", wand: "wand", crop: "crop",
+    pntb: "brush", eras: "eraser", mera: "magicEraser", bndT: "gradient", stam: "stamp", sphB: "heal",
+    eyed: "eyedropper", txBx: "text", hand: "hand", zoom: "zoom",
+  };
+  const readDescriptor = (buffer) => {
+    const view = new DataView(buffer);
+    let at = 0;
+    const need = (count) => {
+      if (at + count > view.byteLength) throw new Error("not a Photoshop toolbar");
+    };
+    const u32 = () => {
+      need(4);
+      at += 4;
+      return view.getUint32(at - 4);
+    };
+    const key = (length) => {
+      need(length);
+      const text = String.fromCharCode(...new Uint8Array(buffer, at, length));
+      at += length;
+      return text;
+    };
+    const id = () => {
+      const length = u32();
+      return key(length || 4);
+    };
+    const unicode = () => {
+      const length = u32();
+      need(length * 2);
+      let text = "";
+      for (let index = 0; index < length; index++) text += String.fromCharCode(view.getUint16(at + index * 2));
+      at += length * 2;
+      return text.replace(/\0+$/, "");
+    };
+    const value = (type) => {
+      if (type === "long") {
+        const number = u32();
+        return { number, key: String.fromCharCode(number >>> 24, (number >>> 16) & 255, (number >>> 8) & 255, number & 255) };
+      }
+      if (type === "bool") {
+        need(1);
+        return view.getUint8(at++) !== 0;
+      }
+      if (type === "doub") {
+        need(8);
+        at += 8;
+        return view.getFloat64(at - 8);
+      }
+      if (type === "UntF") {
+        key(4);
+        need(8);
+        at += 8;
+        return view.getFloat64(at - 8);
+      }
+      if (type === "TEXT") return unicode();
+      if (type === "enum") return [id(), id()];
+      if (type === "type" || type === "GlbC") return [unicode(), id()];
+      if (type === "tdta") return key(u32());
+      if (type === "VlLs") {
+        const count = u32();
+        return Array.from({ length: count }, () => value(key(4)));
+      }
+      if (type === "Objc" || type === "GlbO") return descriptor();
+      throw new Error("not a Photoshop toolbar");
+    };
+    const descriptor = () => {
+      unicode();
+      id();
+      const out = {};
+      const count = u32();
+      for (let index = 0; index < count; index++) {
+        const name = id();
+        out[name] = value(key(4));
+      }
+      return out;
+    };
+    return descriptor();
+  };
+  const slotsFromToolbar = (buffer) => {
+    const preset = readDescriptor(buffer);
+    if (!Array.isArray(preset.tlst)) throw new Error("not a Photoshop toolbar");
+    const slots = [];
+    preset.tlst.forEach((group) => {
+      const tools = (Array.isArray(group) ? group : [])
+        .map((tool) => tool && tool.toolKey && PHOTOSHOP_TOOLS[tool.toolKey.key])
+        .filter((tool, index, all) => tool && toolEntry(tool) && all.indexOf(tool) === index);
+      if (tools.length) slots.push({ tools, current: tools[0] });
+    });
+    return slots;
+  };
+  const importToolbar = async (file) => {
+    try {
+      const slots = slotsFromToolbar(await file.arrayBuffer());
+      if (!slots.length) {
+        toast(fill(T("{name} has none of TypeR's tools."), { name: file.name }), true);
+        return;
+      }
+      toolSlots = completeSlots(slots);
+      saveSlots();
+      renderToolSlots();
+      toast(fill(T("Toolbar imported from {name}."), { name: file.name }));
+    } catch (error) {
+      toast(fill(T("{name} can't be read: {error}"), { name: file.name, error: error.message || error }), true);
+    }
+  };
+  const pickToolbar = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".tbr";
+    input.addEventListener("change", () => {
+      if (input.files[0]) importToolbar(input.files[0]);
+    });
+    input.click();
+  };
+
+  // Dragging: a copy of the icon follows the pointer, a line shows where it would go, a frame
+  // the group it would join
+  let toolDrag = null;
+  let toolDragged = false;
+  const dropMark = document.createElement("div");
+  dropMark.className = "tool-drop";
+  dropMark.hidden = true;
+  const stopToolDrag = () => {
+    if (!toolDrag) return;
+    toolDrag.stop();
+  };
+  const horizontalTools = () => ["top", "bottom"].includes(ui.tools.dataset.place);
+  const toolDropTarget = (x, y, source) => {
+    // Within its own group's list: a new place in the list
+    if (toolFlyout && source.tool && toolFlyout.slot === source.slot) {
+      const box = toolFlyout.list.getBoundingClientRect();
+      if (x >= box.left - 16 && x <= box.right + 16 && y >= box.top - 16 && y <= box.bottom + 16) {
+        const rows = Array.from(toolFlyout.list.querySelectorAll(".tool-flyout__item"));
+        let at = rows.findIndex((row) => {
+          const r = row.getBoundingClientRect();
+          return y < r.top + r.height / 2;
+        });
+        if (at < 0) at = rows.length;
+        const edge = at < rows.length ? rows[at].getBoundingClientRect().top : rows[rows.length - 1].getBoundingClientRect().bottom;
+        return { within: at, rect: { x: box.left + 4, y: edge - 1, w: box.width - 8, h: 2 } };
+      }
+    }
+    const bar = ui.tools.getBoundingClientRect();
+    const margin = 24;
+    if (x < bar.left - margin || x > bar.right + margin || y < bar.top - margin || y > bar.bottom + margin) return null;
+    let best = null;
+    let distance = Infinity;
+    ui.tools.querySelectorAll(".tool[data-slot]").forEach((button) => {
+      const r = button.getBoundingClientRect();
+      const d = Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom));
+      if (d < distance) [best, distance] = [button, d];
+    });
+    if (!best) return null;
+    const r = best.getBoundingClientRect();
+    const index = Number(best.dataset.slot);
+    const row = horizontalTools();
+    const along = row ? (x - r.left) / r.width : (y - r.top) / r.height;
+    // Over the middle of another place: into its group
+    if (distance === 0 && along > 0.25 && along < 0.75 && !(index === source.slot && !source.tool)) {
+      return { into: index, rect: { x: r.left, y: r.top, w: r.width, h: r.height } };
+    }
+    const after = along >= 0.5;
+    const rect = row
+      ? { x: (after ? r.right : r.left) - 1, y: r.top, w: 2, h: r.height }
+      : { x: r.left, y: (after ? r.bottom : r.top) - 1, w: r.width, h: 2 };
+    return { at: after ? index + 1 : index, rect };
+  };
+  const dropTool = (source, target) => {
+    const slots = toolSlots.map((slot) => (slot.gap ? slot : { tools: slot.tools.slice(), current: slot.current }));
+    const from = slots[source.slot];
+    if (!from) return;
+    let moving = from.tools;
+    if (target.within !== undefined) {
+      const at = from.tools.indexOf(source.tool);
+      from.tools.splice(at, 1);
+      from.tools.splice(target.within > at ? target.within - 1 : target.within, 0, source.tool);
+    } else if (target.into === source.slot) {
+      return;
+    } else {
+      if (source.tool) {
+        moving = [source.tool];
+        from.tools = from.tools.filter((id) => id !== source.tool);
+        if (from.current === source.tool) from.current = from.tools[0];
+      } else from.tools = [];
+      if (target.into !== undefined) slots[target.into].tools.push(...moving);
+      else slots.splice(target.at, 0, { tools: moving, current: source.tool || from.current || moving[0] });
+    }
+    // A place left empty goes, a group shows one of its own tools
+    toolSlots = slots.filter((slot) => slot.gap || slot.tools.length);
+    toolSlots.forEach((slot) => {
+      if (!slot.gap && !slot.tools.includes(slot.current)) slot.current = slot.tools[0];
+    });
+    saveSlots();
+    renderToolSlots();
+    if (target.within !== undefined) openToolFlyout(toolSlots.indexOf(slots[source.slot]));
+  };
+  const startToolDrag = (event, source, node, onLift) => {
+    if (Shell.touch || event.button !== 0 || toolDrag) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let ghost = null;
+    let target = null;
+    const move = (next) => {
+      if (!ghost) {
+        if (Math.hypot(next.clientX - startX, next.clientY - startY) < 5) return;
+        if (onLift) onLift();
+        if (!source.tool) closeToolFlyout();
+        ghost = document.createElement("div");
+        ghost.className = "tool tool-ghost";
+        ghost.innerHTML = ICON[source.tool || toolSlots[source.slot].current];
+        document.body.append(ghost, dropMark);
+        node.classList.add("is-dragged");
+        document.body.classList.add("is-dragging-tool");
+      }
+      ghost.style.left = `${next.clientX - 16}px`;
+      ghost.style.top = `${next.clientY - 15}px`;
+      target = toolDropTarget(next.clientX, next.clientY, source);
+      dropMark.hidden = !target;
+      dropMark.classList.toggle("is-into", Boolean(target && target.into !== undefined));
+      if (target) {
+        dropMark.style.left = `${target.rect.x}px`;
+        dropMark.style.top = `${target.rect.y}px`;
+        dropMark.style.width = `${target.rect.w}px`;
+        dropMark.style.height = `${target.rect.h}px`;
+      }
+    };
+    const stop = (drop) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      toolDrag = null;
+      if (!ghost) return;
+      ghost.remove();
+      dropMark.hidden = true;
+      node.classList.remove("is-dragged");
+      document.body.classList.remove("is-dragging-tool");
+      // The click that ends a drag isn't one
+      toolDragged = true;
+      setTimeout(() => { toolDragged = false; }, 0);
+      if (drop && target) dropTool(source, target);
+      else if (source.tool && toolFlyout && !drop) closeToolFlyout();
+    };
+    const up = () => stop(true);
+    const cancel = () => stop(false);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    toolDrag = { stop: () => stop(false) };
+  };
+
+  const buildTools = () => {
+    ui.tools.textContent = "";
     const gap = document.createElement("span");
     gap.className = "tools__gap";
     ui.tools.appendChild(gap);
+    ui.toolsEnd = gap;
+    renderToolSlots();
+    ui.tools.addEventListener("contextmenu", (event) => {
+      if (Shell.touch || event.target.closest(".tool, input")) return;
+      event.preventDefault();
+      openContextMenu(event.clientX, event.clientY, [{ label: "Import Photoshop Toolbar (.tbr)…", action: pickToolbar }, { label: "Reset Toolbar", action: resetToolbar }]);
+    });
+    Shell.onChange(() => {
+      closeToolFlyout();
+      renderToolSlots();
+    });
     const swatches = document.createElement("div");
     swatches.className = "swatches";
     const make = (cls, title, key) => {
@@ -2243,6 +2840,7 @@
     }
     const patch = { fontPostScriptName: face.postScriptName, fontName: face.family, fontStyleName: face.style };
     Object.assign(app.textDefaults, { font: face.postScriptName, family: face.family, style: face.style });
+    keepTextTool();
     Fonts.ensure(face.postScriptName).then(() => applyTextPatch(patch, null, "font"));
   };
 
@@ -2511,7 +3109,9 @@
   };
 
   const STORE_SETTINGS = "typer.web.settings";
-  const settings = { wheel: "pan", smartGuides: true, snapText: false, transformControls: true, spellcheck: true, taskBar: true };
+  // How far the pointer goes, dragged sideways with Ctrl + Space or the Zoom tool, to zoom twice as close
+  const ZOOM_SPEEDS = { normal: 150, fast: 90, veryFast: 55 };
+  const settings = { wheel: "pan", zoomSpeed: "normal", smartGuides: true, snapText: false, transformControls: true, spellcheck: true, taskBar: true, hiddenChars: false };
   try {
     const saved = JSON.parse(window.localStorage.getItem(STORE_SETTINGS)) || {};
     // On a Mac a mouse can't be told from a trackpad, so "auto" isn't offered there
@@ -2521,11 +3121,14 @@
     if (saved.ligature === false) app.textDefaults.ligature = false;
     if (saved.hyphenate === true) app.textDefaults.hyphenate = true;
     if (saved.autoKern === "manual") app.textDefaults.autoKern = "manual";
+    if (saved.textOnTop === true) app.textDefaults.textOnTop = true;
     if (saved.smartGuides === false) settings.smartGuides = false;
     if (saved.snapText === true) settings.snapText = true;
     if (saved.spellcheck === false) settings.spellcheck = false;
     if (saved.transformControls === false) settings.transformControls = false;
     if (saved.taskBar === false) settings.taskBar = false;
+    if (ZOOM_SPEEDS[saved.zoomSpeed]) settings.zoomSpeed = saved.zoomSpeed;
+    if (saved.hiddenChars === true) settings.hiddenChars = true;
   } catch (error) {
     console.warn("TypeR web: could not read the settings", error);
   }
@@ -2533,7 +3136,7 @@
     const d = app.textDefaults;
     try {
       // A language nobody chose keeps following the interface
-      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, taskBar: settings.taskBar ? undefined : false, ligature: d.ligature, hyphenate: d.hyphenate || undefined, autoKern: d.autoKern === "manual" ? "manual" : undefined, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
+      window.localStorage.setItem(STORE_SETTINGS, JSON.stringify({ spellcheck: settings.spellcheck ? undefined : false, wheel: settings.wheel, zoomSpeed: settings.zoomSpeed === "normal" ? undefined : settings.zoomSpeed, smartGuides: settings.smartGuides, snapText: settings.snapText || undefined, transformControls: settings.transformControls ? undefined : false, taskBar: settings.taskBar ? undefined : false, hiddenChars: settings.hiddenChars || undefined, ligature: d.ligature, hyphenate: d.hyphenate || undefined, autoKern: d.autoKern === "manual" ? "manual" : undefined, textOnTop: d.textOnTop || undefined, language: d.language === PS.DEFAULT_TEXT_LANGUAGE ? undefined : d.language }));
     } catch (error) {
       console.warn("TypeR web: could not keep the settings", error);
     }
@@ -2589,7 +3192,7 @@
         };
         const general = document.createElement("div");
         general.className = "settings__pane";
-        general.append(heading(T("General")), card("lang", "wheel"), card("language", "ligature", "hyphenate"));
+        general.append(heading(T("General")), card("lang", "wheel", "zoomSpeed"), card("language", "ligature", "hyphenate", "textOnTop"));
         middle.textContent = "";
         const panes = { general };
         if (generative) panes.generative = generative.pane;
@@ -2633,16 +3236,20 @@
       fields: [
         { id: "lang", label: T("Interface language"), value: lang, options: Object.keys(LANGUAGES).map((code) => [code, LANGUAGES[code]]) },
         { id: "wheel", label: T("Mouse wheel"), value: settings.wheel, options: [["pan", T("Like Photoshop")], ["zoom", T("The wheel zooms")], ...(IS_MAC ? [] : [["auto", T("Mouse zooms, trackpad scrolls")]])], hint: (value) => (value === "zoom" ? T("The wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers zoom too, and so does a pinch.") : T(value === "auto" ? "A mouse's wheel zooms. Alt + wheel scrolls up and down, Shift + wheel sideways. On a trackpad, two fingers scroll and a pinch zooms." : "The wheel scrolls up and down. Alt + wheel zooms, Ctrl or Cmd + wheel scrolls sideways. On a trackpad, two fingers scroll and a pinch zooms.")) },
+        { id: "zoomSpeed", label: T("Zoom speed"), value: settings.zoomSpeed, options: [["normal", T("Normal")], ["fast", T("Fast")], ["veryFast", T("Very fast")]], hint: () => T("When dragging sideways with Ctrl + Space or the Zoom tool.") },
         { id: "language", label: T("Language of new text"), value: d.language, options: PS.TEXT_LANGUAGES.map(([name, , own]) => [name, own]) },
         { id: "ligature", label: T("Standard ligatures in new text"), type: "checkbox", checked: d.ligature },
         { id: "hyphenate", label: T("Hyphenate new paragraph text"), type: "checkbox", checked: Boolean(d.hyphenate) },
+        { id: "textOnTop", label: T("Always place new text on top"), type: "checkbox", checked: Boolean(d.textOnTop), hint: () => T("When off, new text goes right above the selected layer, as in Photoshop.") },
       ],
     });
     if (!answer) return;
     settings.wheel = answer.wheel;
+    settings.zoomSpeed = answer.zoomSpeed;
     d.language = answer.language;
     d.ligature = answer.ligature;
     d.hyphenate = answer.hyphenate;
+    d.textOnTop = answer.textOnTop;
     keepSettings();
     if (shortcuts) shortcuts.save();
     if (generative) generative.save();
@@ -2661,6 +3268,35 @@
   } catch (error) {
     app.textDefaults.verticalAlign = "center";
   }
+
+  // The Type tool's font, size and anti-aliasing come back after a reload, as in Photoshop
+  const STORE_TEXT_TOOL = "typer.web.textTool";
+  const TEXT_TOOL_FONT = { font: app.textDefaults.font, family: app.textDefaults.family, style: app.textDefaults.style };
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(STORE_TEXT_TOOL)) || {};
+    const d = app.textDefaults;
+    if (saved.font && saved.family) Object.assign(d, { font: String(saved.font), family: String(saved.family), style: String(saved.style || "Regular") });
+    if (Number(saved.size) >= 1 && Number(saved.size) <= 2000) d.size = Number(saved.size);
+    if (/^antiAlias/.test(saved.antiAlias)) d.antiAlias = saved.antiAlias;
+  } catch (error) {
+    console.warn("TypeR web: could not read the Type tool's settings", error);
+  }
+  const keepTextTool = () => {
+    const d = app.textDefaults;
+    try {
+      window.localStorage.setItem(STORE_TEXT_TOOL, JSON.stringify({ font: d.font, family: d.family, style: d.style, size: d.size, antiAlias: d.antiAlias }));
+    } catch (error) {
+      console.warn("TypeR web: could not keep the Type tool's settings", error);
+    }
+  };
+  // A font kept from last time that is no longer on this computer gives way to the first one.
+  // What was kept stays: the font may come back.
+  const checkTextToolFont = async () => {
+    const d = app.textDefaults;
+    if (d.font === TEXT_TOOL_FONT.font || (await Fonts.ensure(d.font, d.family))) return;
+    Object.assign(d, TEXT_TOOL_FONT);
+    renderOptions();
+  };
   const inBoxOf = (layer) => {
     const shape = layer.params.layerText.textShape && layer.params.layerText.textShape[0];
     return shape && shape.textType === "box" && shape.box;
@@ -2711,11 +3347,13 @@
       const face = Fonts.get(faces.value);
       if (!face) return;
       Object.assign(d, { font: face.postScriptName, family: face.family, style: face.style });
+      keepTextTool();
       Fonts.ensure(face.postScriptName).then(() => applyTextPatch({ fontPostScriptName: face.postScriptName, fontName: face.family, fontStyleName: face.style }, null, "font"));
     });
     const size = numberInput(style ? Math.round((style.impliedFontSize || style.size) * 10) / 10 : d.size, 1, 2000, (value) => {
       if (!value) return;
       d.size = value;
+      keepTextTool();
       applyTextPatch({ size: value }, null, "size");
     });
     size.title = T("Size");
@@ -2772,6 +3410,7 @@
     antiAlias.value = current;
     antiAlias.addEventListener("change", () => {
       d.antiAlias = antiAlias.value;
+      keepTextTool();
       const texts = activeTexts();
       if (!texts.length) return;
       if (texts.some((item) => item.raster && Fonts.isMissing(item.params.layerText.textStyleRange[0].textStyle.fontPostScriptName))) toast(T("This text's font is missing: it will be drawn with another font."), true);
@@ -2825,7 +3464,7 @@
     keepSettings();
     taskBarKey = "";
     schedule(false);
-    if (!on) toast(fill(T("Contextual task bar hidden. {menu} shows it again."), { menu: `${T("Window")} > ${T("Contextual Task Bar")}` }));
+    if (!on) toast(fill(T("Contextual task bar hidden. {menu} shows it again."), { menu: `${T("Window")} > ${T("Contextual Task Bar")}` }), true);
   };
   const buildTaskBar = () => {
     const c = textControls(taskBar, true);
@@ -4156,7 +4795,7 @@
       }
       if (activeTexts().length) {
         const c = textControls(bar, true);
-        bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns);
+        bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns, hiddenCharsButton());
       }
     }
     if (tool === "brush" || tool === "eraser" || tool === "stamp" || tool === "heal") {
@@ -4222,7 +4861,7 @@
     if ((tool === "heal" || tool === "gradient") && window.TypeRRetouch) window.TypeRRetouch.options(bar);
     if (tool === "text") {
       const c = textControls(bar, true);
-      bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns);
+      bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns, hiddenCharsButton());
     }
     if (tool === "crop") cropOptions(bar);
     if (tool === "zoom" || tool === "hand") {
@@ -4256,7 +4895,6 @@
   };
   // Dragged sideways, the zoom follows the pointer from where it was pressed: to the right it
   // comes closer, to the left it goes back. A click without a drag is one step, Alt one step back.
-  const ZOOM_DRAG = 150;
   const beginZoom = (base, event) => {
     const rect = ui.stage.getBoundingClientRect();
     gesture = Object.assign(base, { kind: "zoom", zoom: view().zoom, cx: event.clientX - rect.left, cy: event.clientY - rect.top });
@@ -4701,13 +5339,14 @@
     // can also move the page, to see where the text goes: only its tap ends the edit.
     const turnWhileTyping = !ui.editor.hidden && Boolean(editing) && !hitHandle(event) && turnControls && !isFinger(event) && inRotateZone(event);
     const handleWhileTyping = !ui.editor.hidden && (hitHandle(event) || turnWhileTyping);
+    const moveWhileTyping = !handleWhileTyping && event.button === 0 && !moveLent(event) && inTypingMoveZone(event);
     const fingerWhileTyping = !ui.editor.hidden && !handleWhileTyping && isFinger(event);
-    if (!ui.editor.hidden && !handleWhileTyping && !fingerWhileTyping) {
+    if (!ui.editor.hidden && !handleWhileTyping && !fingerWhileTyping && !moveWhileTyping) {
       endEdit();
       // The click that closes a text only closes it: with the wand it would paste the next line
       if ((app.tool === "text" && !moveLent(event)) || (app.tool === "wand" && !wandSetAside(event))) return;
     }
-    if (!handleWhileTyping && !fingerWhileTyping) ui.stage.focus({ preventScroll: true });
+    if (!handleWhileTyping && !fingerWhileTyping && !moveWhileTyping) ui.stage.focus({ preventScroll: true });
     if (event.pointerType === "pen") penSeen = true;
     pointers.set(event.pointerId, [event.clientX, event.clientY]);
     if (event.pointerType === "touch" && pointers.size === 2 && gesture && gesture.moved && isMarquee(gesture.kind) && !(gesture.carry && gesture.carry.id !== null)) {
@@ -4741,6 +5380,17 @@
     const tool = lent ? "move" : app.tool;
     const point = toDoc(event);
     const base = { id: event.pointerId, start: point, last: point, x: event.clientX, y: event.clientY, moved: false, slop: event.pointerType === "touch" ? 8 : 3, shiftAtStart: event.shiftKey, altAtStart: event.altKey, lent };
+    if (moveWhileTyping) {
+      if (ops.beginLiveMove([editing.id]).length) {
+        gesture = Object.assign(base, { kind: "move", endsEdit: true });
+        ui.stage.setPointerCapture(event.pointerId);
+        event.preventDefault();
+      } else {
+        ops.endLiveMove(false);
+        endEdit();
+      }
+      return;
+    }
     if (fingerWhileTyping) {
       gesture = Object.assign(base, { kind: "pan", vx: doc.view.x, vy: doc.view.y, tapEnds: true });
       ui.stage.setPointerCapture(event.pointerId);
@@ -4853,7 +5503,7 @@
     const handled = handle && (handleWhileTyping ? doc.state.layers.find((layer) => layer.id === editing.id) : activeTexts()[0]);
     if (handled) {
       gestureCount++;
-      gesture = Object.assign(base, { kind: handle.kind.startsWith("warp") ? "warp" : handled.warp ? "surface" : handle.kind.length === 2 ? "scale" : "side", handle: handle.kind, layer: handled, frame: PS.frameOf(handled, doc), token: `gesture:${gestureCount}` });
+      gesture = Object.assign(base, { kind: handle.kind.startsWith("warp") ? "warp" : handled.warp ? "surface" : boxHandle(handle, handled, handleWhileTyping, event) ? "side" : "scale", handle: handle.kind, layer: handled, frame: PS.frameOf(handled, doc), token: `gesture:${gestureCount}` });
       if (Fonts.isMissing(handled.params.layerText.textStyleRange[0].textStyle.fontPostScriptName) && handled.raster) toast(T("This text's font is missing: it will be drawn with another font."), true);
       ui.stage.setPointerCapture(event.pointerId);
       event.preventDefault();
@@ -5046,7 +5696,7 @@
     }
     if ((tool === "move" || !ui.editor.hidden) && !gesture && app.doc) {
       const over = hitHandle(event);
-      ui.stage.style.cursor = over ? handleCursor(over) : rotateZoneCursor(event) || "";
+      ui.stage.style.cursor = over ? handleCursor(over) : rotateZoneCursor(event) || (inTypingMoveZone(event) ? "move" : "");
     }
     const turning = transformOf();
     if (turning && !gesture) ui.stage.style.cursor = transformCursor(turning, event);
@@ -5102,7 +5752,7 @@
     }
     if (current.kind === "crop") dragCrop(current, point, event);
     else if (current.kind === "transform") dragTransform(current, point, event);
-    else if (current.kind === "zoom") zoomTo(current.zoom * Math.pow(2, (event.clientX - current.x) / ZOOM_DRAG), current.cx, current.cy);
+    else if (current.kind === "zoom") zoomTo(current.zoom * Math.pow(2, (event.clientX - current.x) / ZOOM_SPEEDS[settings.zoomSpeed]), current.cx, current.cy);
     else if (current.kind === "pan") {
       const doc = app.doc;
       doc.view.x = current.vx + event.clientX - current.x;
@@ -5233,16 +5883,20 @@
       const next = { left: f.left, top: f.top, width: f.width, height: f.height, autoHeight: wasBox ? Boolean(wasBox.autoHeight) : true };
       const dx = point[0] - current.start[0];
       const dy = point[1] - current.start[1];
-      if (current.handle === "e" || current.handle === "w") {
-        const grow = (current.handle === "e" ? dx : -dx) * (event.altKey ? 2 : 1);
+      // A corner, while the text is typed in, moves both its sides: the box, not the letters
+      const east = current.handle.includes("e");
+      const north = current.handle.includes("n");
+      if (east || current.handle.includes("w")) {
+        const grow = (east ? dx : -dx) * (event.altKey ? 2 : 1);
         next.width = Math.max(room, f.width + grow);
-        if (current.handle === "w") next.left = f.right - next.width;
+        if (!east) next.left = f.right - next.width;
         if (event.altKey) next.left = f.xMid - next.width / 2;
-      } else {
-        const grow = (current.handle === "s" ? dy : -dy) * (event.altKey ? 2 : 1);
+      }
+      if (north || current.handle.includes("s")) {
+        const grow = (north ? -dy : dy) * (event.altKey ? 2 : 1);
         next.height = Math.max(room, f.height + grow);
         next.autoHeight = false;
-        if (current.handle === "n") next.top = f.bottom - next.height;
+        if (north) next.top = f.bottom - next.height;
         if (event.altKey) next.top = f.yMid - next.height / 2;
       }
       ops.setTextFrame(current.layer, next, current.token);
@@ -5361,6 +6015,11 @@
     } else if (kind === "move") {
       ops.endLiveMove(!cancelled);
       if (!cancelled && !current.moved && current.tapEdit) beginEdit(current.tapEdit);
+      // Moved while typed in: the caret goes along. Only clicked: the edit ends, as anywhere outside.
+      if (current.endsEdit) {
+        if (current.moved || cancelled) placeEditor();
+        else endEdit();
+      }
     } else if (kind === "stroke") ops.endStroke();
     else if (cancelled) return;
     else if (kind === "pendingStroke") {
@@ -5421,7 +6080,8 @@
   });
   ui.stage.addEventListener("contextmenu", (event) => {
     // Ctrl + Space and a click is the zoom's, even where a Mac would see Ctrl + click
-    if (zoomHeld(event) || (gesture && gesture.kind === "zoom")) {
+    // So is Ctrl on a handle, which sizes the letters
+    if (zoomHeld(event) || (gesture && (gesture.kind === "zoom" || gesture.kind === "scale" || gesture.kind === "side" || gesture.kind === "scaleTexts"))) {
       event.preventDefault();
       return;
     }
@@ -5712,6 +6372,94 @@
     if (d) svgEl("path", { class: "type-selection", d }, marks);
   }
 
+  // View > Show Hidden Characters: on every text of the page, a dot for each space, a ring
+  // for a non-breaking one, ¶ where a paragraph ends and § where the text does. They are
+  // only drawn over the page: nothing of them goes in the file.
+  const NO_BREAK_SPACE = /[   ]/;
+  const OTHER_SPACE = /[  - 　]/;
+  function drawHiddenChars() {
+    ui.textMarks.textContent = "";
+    const doc = app.doc;
+    if (!settings.hiddenChars || !doc || transformOf()) return;
+    const z = view().zoom;
+    const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
+    const live = doc.live;
+    doc.state.layers.forEach((stored) => {
+      if (stored.kind !== "text" || stored.visible === false) return;
+      // An SFX's letters are texts of one letter each: marks would only hide them
+      for (let id = stored.group; id && byId.get(id); id = byId.get(id).group) {
+        if (byId.get(id).visible === false || byId.get(id).sfx) return;
+      }
+      const layer = doc.preview && doc.preview.id === stored.id ? doc.preview : stored;
+      // A text on a surface, or turned without being typed on the page, has no straight lines
+      const turn = turnOfTyped(layer, doc);
+      if (layer.warp || (layer.rotated && !turn)) return;
+      const lines = PS.caretLines(layer, doc);
+      if (!lines.length) return;
+      const text = String(layer.params.layerText.textKey || "");
+      const [dx, dy] = live && live.ids.has(layer.id) ? [live.dx, live.dy] : [0, 0];
+      let marks = ui.textMarks;
+      if (turn) {
+        const [a, b, c, d] = turn.spin;
+        const [sx, sy] = toScreen(turn.anchor[0] + dx, turn.anchor[1] + dy);
+        marks = svgEl("g", { transform: `matrix(${a} ${b} ${c} ${d} ${sx - a * sx - c * sy} ${sy - b * sx - d * sy})` }, ui.textMarks);
+      }
+      const at = (x, y) => toScreen(x + dx, y + dy);
+      let dots = "";
+      let rings = "";
+      const glyphs = [];
+      lines.forEach((line, i) => {
+        const r = Math.max(0.9, Math.min(3, line.size * 0.05 * z));
+        const middle = line.baseline - line.size * 0.28;
+        const dot = (x) => {
+          const [cx, cy] = at(x, middle);
+          dots += `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
+        };
+        for (let k = line.start; k < line.end; k++) {
+          const x = (line.xs[k - line.start] + line.xs[k - line.start + 1]) / 2;
+          if (NO_BREAK_SPACE.test(text[k])) {
+            const [cx, cy] = at(x, line.baseline - line.size * 0.55);
+            const ring = r * 1.6;
+            rings += `M${cx - ring} ${cy}a${ring} ${ring} 0 1 0 ${2 * ring} 0a${ring} ${ring} 0 1 0 ${-2 * ring} 0`;
+          } else if (OTHER_SPACE.test(text[k])) dot(x);
+          else if (text[k] === "\t") glyphs.push(["»", x, line]);
+        }
+        // Where a line wraps, the spaces it ends on take no room: they show after it
+        let x = line.xs[line.xs.length - 1];
+        const gap = line.size * 0.25;
+        const next = lines[i + 1];
+        let k = line.end;
+        for (; k < text.length && text[k] === " " && !(next && k >= next.start); k++) {
+          dot(x + gap / 2);
+          x += gap;
+        }
+        if (text[k] === "\r" || text[k] === "\n") glyphs.push(["¶", x + gap * 0.3, line, "start"]);
+        else if (k >= text.length && !next) glyphs.push(["§", x + gap * 0.3, line, "start"]);
+      });
+      if (dots) svgEl("path", { class: "text-mark", d: dots }, marks);
+      if (rings) svgEl("path", { class: "text-mark text-mark--ring", d: rings, style: `stroke-width: ${Math.max(0.8, Math.min(2, lines[0].size * 0.03 * z))}px` }, marks);
+      glyphs.forEach(([glyph, x, line, anchor]) => {
+        const [gx, gy] = at(x, line.baseline);
+        const mark = svgEl("text", { class: "text-mark text-mark--glyph", x: gx, y: gy, "font-size": Math.max(7, line.size * 0.7 * z), "text-anchor": anchor || "middle" }, marks);
+        mark.textContent = glyph;
+      });
+    });
+  }
+  // From the View menu, its shortcut or the Type tool's options
+  const setHiddenChars = (on) => {
+    settings.hiddenChars = on;
+    keepSettings();
+    renderOptions();
+    schedule(false);
+  };
+  const hiddenCharsButton = () => {
+    const item = MENUS.find(([name]) => name === "View")[1].find((entry) => entry && entry.label === "Show Hidden Characters");
+    const title = item && item.keys ? `${T(item.label)} (${keyLabel(item.keys)})` : T("Show Hidden Characters");
+    const button = iconButton("pilcrow", title, settings.hiddenChars, () => setHiddenChars(!settings.hiddenChars));
+    button.classList.add("obar__gap");
+    return button;
+  };
+
   const selectTyped = (anchor, focus) => {
     ui.editor.setSelectionRange(Math.min(anchor, focus), Math.max(anchor, focus), focus < anchor ? "backward" : "forward");
   };
@@ -5835,6 +6583,7 @@
     if (Shell.touch) ui.editor.setSelectionRange(ui.editor.value.length, ui.editor.value.length);
     else if (!isNew) ui.editor.select();
     schedule(false);
+    renderStatus();
     PS.announce("editing");
   };
 
@@ -5855,6 +6604,7 @@
     }
     ui.stage.focus({ preventScroll: true });
     schedule(false);
+    renderStatus();
     PS.announce("editing");
   };
 
@@ -5868,6 +6618,7 @@
     if (target >= 0 && app.doc.historyIndex > target) ops.rollbackHistory(target);
     ui.stage.focus({ preventScroll: true });
     schedule(false);
+    renderStatus();
     PS.announce("editing");
   };
 
@@ -7565,7 +8316,9 @@
     row.className = "character__row wide";
     row.append(c.color, c.aligns,
       iconTextToggle("B", T("Faux bold"), style.syntheticBold, () => applyTextPatch({ syntheticBold: !style.syntheticBold })),
-      iconTextToggle("I", T("Faux italic"), style.syntheticItalic, () => applyTextPatch({ syntheticItalic: !style.syntheticItalic })));
+      iconTextToggle("I", T("Faux italic"), style.syntheticItalic, () => applyTextPatch({ syntheticItalic: !style.syntheticItalic })),
+      // In capitals by the text's language, as in Photoshop: the letters typed stay as they are
+      iconTextToggle("TT", T("All Caps"), style.fontCaps === "allCaps", () => patchTypography({ fontCaps: style.fontCaps === "allCaps" ? "normal" : "allCaps" })));
     host.appendChild(row);
     const stroke = layer.stroke && layer.stroke.enabled ? layer.stroke : null;
     const strokeRow = document.createElement("div");
@@ -7980,7 +8733,7 @@
     renderPager();
     const painting = doc && maskPainting();
     const onMask = painting && (app.tool === "brush" || app.tool === "eraser");
-    const hint = transform ? T(TRANSFORM_HINT) : onMask && painting.target === "quick" ? T("Quick Mask: black takes away from the selection, white adds to it. Q: back to the selection.") : onMask && painting.target === "mask" ? T("On the layer mask: black hides the layer, white shows it, grey half. X: swap the colours.") : warpedLayer() ? T("Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.") : T(TOOL_HINT[app.tool] || "");
+    const hint = transform ? T(TRANSFORM_HINT) : onMask && painting.target === "quick" ? T("Quick Mask: black takes away from the selection, white adds to it. Q: back to the selection.") : onMask && painting.target === "mask" ? T("On the layer mask: black hides the layer, white shows it, grey half. X: swap the colours.") : warpedLayer() ? T("Drag the corners onto the surface, and the middle points to curve it (Alt: one edge only). Shift: stay straight. Esc: done.") : !ui.editor.hidden && !Shell.touch ? T(TYPING_HINT) : `${app.tool === "reshape" ? T("Experimental tool, still being improved.") + " " : ""}${T(TOOL_HINT[app.tool] || "")}`;
     $("status-hint").textContent = hint.replace(/Cmd/g, IS_MAC ? "Cmd" : "Ctrl");
     ui.start.hidden = Boolean(doc);
   };
@@ -8622,7 +9375,11 @@
     let copyOnly = false;
     try {
       if (window.showSaveFilePicker) {
-        const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: "Photoshop", accept: { "image/vnd.adobe.photoshop": [photoshopExtension(doc), ".psd", ".psb"].filter((item, at, all) => all.indexOf(item) === at) } }] });
+        // PNG, JPEG and WebP too, as in Photoshop: the format is the one chosen in the dialog
+        const images = Object.keys(IMAGE_EXTENSIONS).filter((type) => type !== "image/webp" || canWriteWebp);
+        const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: "Photoshop", accept: { "image/vnd.adobe.photoshop": [photoshopExtension(doc), ".psd", ".psb"].filter((item, at, all) => all.indexOf(item) === at) } }, ...images.map((type) => ({ description: IMAGE_LABELS[type], accept: { [type]: type === "image/jpeg" ? [".jpg", ".jpeg"] : [IMAGE_EXTENSIONS[type]] } }))] });
+        const image = images.find((type) => (type === "image/jpeg" ? /\.jpe?g$/i : new RegExp(`\\${IMAGE_EXTENSIONS[type]}$`, "i")).test(handle.name));
+        if (image) return saveImageCopy(doc, handle, image);
         const note = savingNote(doc, block);
         try {
           const built = await buildPsd(doc, handle.name);
@@ -8658,6 +9415,21 @@
     if (copyOnly) toast(fill(T("A copy was downloaded: {name}. This browser can't save over the original file."), { name: doc.name }), true);
     else toast(fill(T("Saved {name}."), { name: doc.name }));
     return true;
+  };
+
+  // A picture holds no layers: it is written as a copy, as Photoshop does, and the page stays
+  // the PSD it was, still to be saved. So closing a page doesn't take a picture for its save.
+  const saveImageCopy = async (doc, handle, type) => {
+    const quality = await askQuality(type, T("Save"));
+    if (quality === null) return false;
+    const note = savingNote(doc, true);
+    try {
+      await writeTo(handle, await imageBlob(doc, type, quality));
+    } finally {
+      note.done();
+    }
+    toast(fill(T("Saved {name}."), { name: handle.name }));
+    return false;
   };
 
   // Someone else, or Photoshop, may have written the file since it was opened or saved here
@@ -8733,6 +9505,35 @@
   const IMAGE_EXTENSIONS = { "image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp" };
   const IMAGE_LABELS = { "image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WebP" };
 
+  // JPEG and WebP have a quality: the one Batch Save keeps for that format, asked each time
+  // a page is exported or saved as one, and kept for next time
+  const QUALITY_OF_TYPE = { "image/jpeg": "quality", "image/webp": "webpQuality" };
+  const keptQuality = (type) => (QUALITY_OF_TYPE[type] ? batchSettings()[QUALITY_OF_TYPE[type]] : 100);
+  const askQuality = async (type, ok) => {
+    const key = QUALITY_OF_TYPE[type];
+    if (!key) return 100;
+    const answer = await dialog({
+      title: IMAGE_LABELS[type],
+      ok,
+      fields: [{ id: "quality", label: T("Quality"), type: "range", min: 1, value: keptQuality(type), hint: (value) => value }],
+      ready: (inputs) => showSliderFill(inputs.quality),
+    });
+    if (!answer) return null;
+    const quality = Math.max(1, Math.min(100, Math.round(Number(answer.quality)) || 92));
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(BATCH_STORE)) || {};
+      saved[key] = quality;
+      window.localStorage.setItem(BATCH_STORE, JSON.stringify(saved));
+    } catch (error) {
+      console.warn("TypeR web: could not keep the quality", error);
+    }
+    return quality;
+  };
+  const imageBlob = async (doc, type, quality) => {
+    const canvas = flattened(doc, type === "image/jpeg" ? "#fff" : null);
+    return PS.withResolution(await new Promise((resolve) => canvas.toBlob(resolve, type, quality / 100)), doc.resolution);
+  };
+
   const exportImage = async (type) => {
     const doc = app.doc;
     if (!doc) return;
@@ -8741,10 +9542,11 @@
       toast(T("This browser can't write WebP."), true);
       return;
     }
+    const quality = await askQuality(type, T("Export"));
+    if (quality === null) return;
     const extension = IMAGE_EXTENSIONS[type];
     const name = doc.name.replace(/\.[^.]+$/, "") + extension;
-    const canvas = flattened(doc, type === "image/jpeg" ? "#fff" : null);
-    const blob = await PS.withResolution(await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92)), doc.resolution);
+    const blob = await imageBlob(doc, type, quality);
     try {
       if (window.showSaveFilePicker) {
         const handle = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: IMAGE_LABELS[type], accept: { [type]: [extension] } }] });
@@ -8769,7 +9571,7 @@
     await nextPaint();
     for (const doc of app.docs) {
       const canvas = flattened(doc, type === "image/jpeg" ? "#fff" : null);
-      entries.push({ blob: await PS.withResolution(await new Promise((resolve) => canvas.toBlob(resolve, type, 0.92)), doc.resolution), name: doc.name.replace(/\.[^.]+$/, "") + extension });
+      entries.push({ blob: await PS.withResolution(await new Promise((resolve) => canvas.toBlob(resolve, type, keptQuality(type) / 100)), doc.resolution), name: doc.name.replace(/\.[^.]+$/, "") + extension });
     }
     working(null);
     try {
@@ -9255,6 +10057,154 @@
     });
     if (failed.length) toast(fill(T("Saved: {saved}. Could not save: {names}"), { saved, names: failed.join(", ") }), true);
     else toast(fill(T("Images saved: {count}."), { count: saved }));
+  };
+
+  // Open in Photoshop (the desktop app only): the page, or all the open pages, go on in the
+  // Photoshop installed, as files. A page with its own PSD is saved there first. The others become
+  // PSDs in a folder the user picks, and are those files from then on, as with Save As.
+  const Studio = (window.TypeRDesktop && window.TypeRDesktop.photoshop) || null;
+  const PHOTOSHOP_STORE = "typer.studio.openInPhotoshop";
+  const ownPsd = (doc) => !doc.idml && Boolean(doc.handle) && doc.handle.kind === "file" && /\.ps[db]$/i.test(doc.handle.name);
+
+  // Where a handle's file is on the disk, or null: asking about its permission tells the app
+  const whereIs = async (handle) => {
+    const token = await Studio.whereStart(handle.name, handle.kind === "directory");
+    try {
+      await handle.queryPermission({ mode: "read" });
+    } catch (error) {
+      console.warn("TypeR Studio: a file's place can't be found", error);
+    }
+    return Studio.whereEnd(token);
+  };
+
+  const askOpenInPhotoshop = async (apps) => {
+    let kept = {};
+    try {
+      kept = JSON.parse(window.localStorage.getItem(PHOTOSHOP_STORE)) || {};
+    } catch (error) {}
+    const fields = [];
+    if (app.docs.length > 1) fields.push({ id: "pages", label: T("Pages"), value: kept.pages === "all" ? "all" : "one", options: [["one", T("This page")], ["all", fill(T("All open pages ({count})"), { count: app.docs.length })]] });
+    if (apps.length > 1) fields.push({ id: "app", label: T("Open with"), value: apps.some((one) => one.id === kept.app) ? kept.app : apps[0].id, options: apps.map((one) => [one.id, one.version ? `${one.name} (${one.version})` : one.name]) });
+    let answer = { pages: "one", app: apps[0].id };
+    if (fields.length) {
+      answer = await dialog({ title: T("Open in Photoshop"), body: T("Unsaved changes are saved first. Pages without a Photoshop file yet are saved as PSD in a folder you choose."), fields, ok: T("Open in Photoshop") });
+      if (!answer) return null;
+      answer = Object.assign({ pages: "one", app: apps[0].id }, answer);
+      try {
+        window.localStorage.setItem(PHOTOSHOP_STORE, JSON.stringify({ pages: answer.pages, app: answer.app }));
+      } catch (error) {}
+    }
+    return { docs: answer.pages === "all" ? app.docs.slice() : [app.doc], target: apps.find((one) => one.id === answer.app) || apps[0] };
+  };
+
+  // The pages with no PSD of their own, written in a folder the user picks. [doc, path] for each.
+  const writeForPhotoshop = async (docs) => {
+    toast(T("Choose a folder for the pages that have no Photoshop file yet."));
+    const near = docs.map((doc) => doc.handle).find((handle) => handle && handle.kind === "file");
+    let folder;
+    try {
+      folder = await window.showDirectoryPicker(Object.assign({ id: "typer-photoshop", mode: "readwrite" }, near ? { startIn: near } : {}));
+    } catch (error) {
+      if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+      return null;
+    }
+    const taken = new Set();
+    const plan = docs.map((doc) => {
+      const base = doc.name.replace(/\.[^.]+$/, "");
+      const extension = photoshopExtension(doc);
+      let name = base + extension;
+      for (let copy = 2; taken.has(name.toLowerCase()); copy++) name = `${base} (${copy})${extension}`;
+      taken.add(name.toLowerCase());
+      return { doc, name };
+    });
+    const existing = [];
+    for (const { name } of plan) if (await folder.getFileHandle(name).catch(() => null)) existing.push(name);
+    if (existing.length) {
+      const body = document.createElement("div");
+      body.className = "batch";
+      const about = document.createElement("p");
+      about.textContent = T("Already in this folder, and will be replaced:");
+      const list = document.createElement("ul");
+      existing.forEach((name) => {
+        const row = document.createElement("li");
+        row.textContent = name;
+        list.appendChild(row);
+      });
+      body.append(about, list);
+      if (!(await dialog({ title: T("Open in Photoshop"), body, ok: T("Replace") }))) return null;
+    }
+    const placed = [];
+    for (const { doc, name } of plan) {
+      if (!app.docs.includes(doc)) continue;
+      const note = savingNote(doc, false);
+      try {
+        const handle = await folder.getFileHandle(name, { create: true });
+        const built = await buildPsd(doc, name);
+        await writeTo(handle, built.blob);
+        // An InDesign page stays one: its PSD is a copy
+        if (!doc.idml) {
+          doc.handle = handle;
+          doc.name = handle.name;
+          ops.fileWritten(doc, await handle.getFile());
+          ops.markSaved(doc, built.savedId);
+          Recent.add([handle]);
+        }
+        const where = await whereIs(handle);
+        if (where) placed.push([doc, where]);
+      } catch (error) {
+        console.error(error);
+        toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
+        return null;
+      } finally {
+        note.done();
+      }
+    }
+    return placed;
+  };
+
+  let sendingToPhotoshop = false;
+  const openInPhotoshop = async () => {
+    if (!Studio || !app.doc || sendingToPhotoshop) return;
+    if (!ui.editor.hidden) endEdit();
+    sendingToPhotoshop = true;
+    try {
+      const apps = await Studio.list().catch(() => []);
+      if (!apps.length) {
+        await dialog({ title: T("Open in Photoshop"), body: T("No Photoshop was found on this computer."), cancel: false });
+        return;
+      }
+      const choice = await askOpenInPhotoshop(apps);
+      if (!choice) return;
+      const { docs, target } = choice;
+      for (const doc of docs) {
+        if (app.docs.includes(doc) && ownPsd(doc) && PS.isDirty(doc) && !(await save(doc))) return;
+      }
+      const places = new Map();
+      const elsewhere = [];
+      for (const doc of docs) {
+        if (!app.docs.includes(doc)) continue;
+        const where = ownPsd(doc) ? await whereIs(doc.handle) : null;
+        if (where) places.set(doc, where);
+        else elsewhere.push(doc);
+      }
+      if (elsewhere.length) {
+        const placed = await writeForPhotoshop(elsewhere);
+        if (!placed) return;
+        placed.forEach(([doc, where]) => places.set(doc, where));
+      }
+      const opening = docs.filter((doc) => places.has(doc));
+      if (!opening.length) return;
+      const result = await Studio.open(target.id, opening.map((doc) => places.get(doc)));
+      if (!result || !result.ok) {
+        toast(fill(T("{app} could not be opened: {error}"), { app: target.name, error: (result && result.message) || "?" }), true);
+        return;
+      }
+      toast(opening.length === 1
+        ? fill(T("Opening {name} in {app}…"), { name: opening[0].name, app: target.name })
+        : fill(T("Opening {count} pages in {app}…"), { count: opening.length, app: target.name }));
+    } finally {
+      sendingToPhotoshop = false;
+    }
   };
 
   const closeDoc = async (doc = app.doc) => {
@@ -9799,6 +10749,13 @@
 
   const hasDoc = () => Boolean(app.doc);
   const hasSelection = () => Boolean(app.doc && app.doc.state.selection);
+  // With a selection on a pixel layer, as Photoshop's Cmd+J: only what is selected is copied
+  const duplicateLayer = () => {
+    if (oneSfx()) return window.TypeRSFX.duplicate();
+    const copied = ops.layerViaCopy(nextLayerName());
+    if (copied === "empty") toast(T("The selected area is empty."));
+    else if (!copied) ops.duplicateLayers();
+  };
   const hasLayer = () => Boolean(activeLayer());
   // One SFX chosen: its copy is an SFX of its own, with letters of its own
   const oneSfx = () => Boolean(window.TypeRSFX && app.doc && app.doc.state.activeIds.length === 1 && window.TypeRSFX.activeSfx() && window.TypeRSFX.activeSfx().id === app.doc.state.activeIds[0]);
@@ -10795,6 +11752,8 @@
       { label: "Export as WebP…", enabled: () => hasDoc() && canWriteWebp, action: () => exportImage("image/webp") },
       { label: "Export for InDesign (IDML)…", enabled: hasDoc, action: exportInDesign },
       { label: "Batch Save…", action: batchSave },
+      // The desktop app only, once its own part knows how
+      ...(Studio ? [{ label: "Open in Photoshop…", enabled: hasDoc, action: openInPhotoshop }] : []),
       null,
       { label: "Import Styles and Fonts (.zip, .json)…", action: () => $("file-kit").click() },
       // The app sees the computer's fonts from the start: there's nothing to ask for
@@ -10839,7 +11798,7 @@
       // Photoshop's Shift+Cmd+N opens a private window from a browser tab: it only arrives in the installed app or full screen
       { label: "New Layer", keys: DESKTOP ? "Shift+Cmd+N" : "Alt+Shift+Cmd+N", alias: DESKTOP ? undefined : "Shift+Cmd+N", enabled: hasDoc, action: () => ops.newLayer(nextLayerName()) },
       { label: "New Group", enabled: hasDoc, action: () => ops.newGroup(T("Group")) },
-      { label: "Duplicate Layer", keys: "Cmd+J", enabled: hasLayer, action: () => (oneSfx() ? window.TypeRSFX.duplicate() : ops.duplicateLayers()) },
+      { label: "Duplicate Layer", keys: "Cmd+J", enabled: hasLayer, action: duplicateLayer },
       { label: "Delete Layer", enabled: hasLayer, action: () => ops.deleteLayers() },
       { label: "Group Layers", keys: "Cmd+G", enabled: () => activeLayers().some((layer) => !layer.isBackground), action: () => ops.groupLayers(T("Group")) },
       { label: "Ungroup Layers", keys: "Shift+Cmd+G", enabled: () => activeLayers().some((layer) => layer.kind === "group"), action: () => ops.ungroupLayers() },
@@ -10927,6 +11886,7 @@
       { label: "Snap Text", check: () => settings.snapText, enabled: () => settings.smartGuides, action: () => { settings.snapText = !settings.snapText; keepSettings(); } },
       // No keys of its own, as in Photoshop: one can be given in the Shortcuts tab
       { label: "Show Transform Controls", check: () => settings.transformControls, enabled: () => !Shell.touch, action: () => setTransformControls(!settings.transformControls) },
+      { label: "Show Hidden Characters", keys: "Alt+Shift+Cmd+I", anywhere: true, check: () => settings.hiddenChars, action: () => setHiddenChars(!settings.hiddenChars) },
     ]],
     ["Window", [
       { label: "Next Document", keys: "Alt+Shift+ArrowRight", alias: "Cmd+Tab", enabled: () => app.docs.length > 1, action: () => stepDoc(1) },
@@ -10946,6 +11906,7 @@
       ...(Shell.touch ? [] : [{ label: "Contextual Task Bar", check: () => settings.taskBar, action: () => setTaskBar(!settings.taskBar) }]),
       null,
       { label: "Reset Workspace", action: () => Workspace().reset() },
+      ...(Shell.touch ? [] : [{ label: "Import Photoshop Toolbar (.tbr)…", action: pickToolbar }, { label: "Reset Toolbar", action: resetToolbar }]),
       ...(DESKTOP ? [] : [{ label: "Touch Interface", action: () => Shell.prefer("touch") }]),
     ]],
     ["Help", [
@@ -11331,13 +12292,7 @@
         }
         applyShortcuts();
         buildMenus();
-        ui.tools.querySelectorAll("[data-tool]").forEach((button) => {
-          const entry = TOOLS.find((one) => one && one[0] === button.dataset.tool);
-          if (!entry) return;
-          const title = toolTitle(entry[1], entry[2]);
-          button.title = title;
-          button.setAttribute("aria-label", title);
-        });
+        renderToolSlots();
       },
     };
   };
@@ -12129,7 +13084,9 @@
     }
     const kits = entries.filter((entry) => /\.(zip|json)$/i.test(entry.file.name));
     if (kits.length) importKits(kits.map((entry) => entry.file));
-    const pages = entries.filter((entry) => !/\.(ttf|otf|ttc|otc|woff2?|zip|json)$/i.test(entry.file.name));
+    const toolbar = entries.find((entry) => /\.tbr$/i.test(entry.file.name));
+    if (toolbar) importToolbar(toolbar.file);
+    const pages = entries.filter((entry) => !/\.(ttf|otf|ttc|otc|woff2?|zip|json|tbr)$/i.test(entry.file.name));
     if (pages.length) (folder ? openChapter(pages) : openFiles(pages));
   });
 
@@ -12287,7 +13244,7 @@
     window.location.href = url.href;
   });
 
-  $("get-plugin").textContent = T("Download");
+  $("get-plugin-text").textContent = T("Download TypeR Studio");
   $("get-plugin").addEventListener("click", (event) => {
     event.preventDefault();
     showDownloads();
@@ -12295,14 +13252,12 @@
   $("support-text").textContent = T("Support the project");
   $("support").title = T("Support the project");
   $("support").setAttribute("aria-label", T("Support the project"));
-  $("start-text").textContent = T("TypeR's real panel and engine in a Photoshop-like workspace. Open a PSD, a PNG or a JPEG, or drop it here. Everything stays on your computer.");
+  $("start-text").textContent = T("Open or drop a PSD, a PNG or a JPEG.");
   $("start-open").textContent = T("Open a file");
-  $("start-kit").textContent = T("Import my styles (.zip)");
   $("start-new").textContent = T("New document");
   $("start-open").addEventListener("click", openDialog);
   $("start-folder").textContent = T("Open pages");
   $("start-folder").addEventListener("click", openPages);
-  $("start-kit").addEventListener("click", () => $("file-kit").click());
   $("start-new").addEventListener("click", newDocument);
   $("start-practice").textContent = T("Try it on a practice page");
   $("start-practice").addEventListener("click", () => {
@@ -12310,7 +13265,6 @@
     if (window.TypeRGuide) window.TypeRGuide.show();
     else startPanel({ tour: true });
   });
-  $("start-flow").textContent = T("Load your script in the TypeR panel, then click a bubble with the Magic Wand: the next line lands in it.");
   // Arabic reads from the right where there are sentences. The workspace itself stays as in Photoshop.
   if (lang === "ar") ["modal", "toast", "busy", "start", "character", "status-hint", "breaks-hint", "breaks-empty"].forEach((id) => { $(id).dir = "rtl"; });
   $("head-layers").textContent = T("Layers");
@@ -12432,6 +13386,7 @@
   const boot = async () => {
     await PS.ops.fontsReady();
     await Promise.all([Fonts.restore().catch(() => null), Kit.loadFiles().catch(() => null)]);
+    await checkTextToolFont().catch(() => null);
     initFontBar();
     // One thing at a time: the panel's tutorial starts once these are read. What's new comes
     // first, since it says nothing on the very first start, when the beta is said.
@@ -12542,6 +13497,7 @@
     exportAllPages,
     canWriteWebp,
     batchSave,
+    openInPhotoshop,
     closeDoc,
     switchDoc,
     newDocument,

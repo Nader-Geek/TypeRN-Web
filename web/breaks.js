@@ -82,7 +82,7 @@
       if (start < 0) return;
       const run = chars.slice(start, end).map((item) => item.ch).join("");
       const from = start;
-      Hyphenation.breakPoints(run, language).forEach((point) => syllableSet.add(from + point));
+      Hyphenation.breakPoints(run, language, true).forEach((point) => syllableSet.add(from + point));
       start = -1;
     };
     chars.forEach((item, index) => {
@@ -162,9 +162,8 @@
     lines.style.lineHeight = "1.25";
     lines.style.textAlign = paragraph.alignment || "center";
     lines.style.textTransform = style.fontCaps === "allCaps" ? "uppercase" : "none";
-    // Uppercase follows the text language, as on the page: a Turkish i becomes İ
-    if (style.textLanguage === "turkishLanguage") lines.lang = "tr";
-    else lines.removeAttribute("lang");
+    // The letters and the uppercase follow the text language, as on the page: a Turkish i becomes İ
+    lines.lang = PS.languageTagOf(style);
     let row = null;
     const startRow = () => {
       row = document.createElement("div");

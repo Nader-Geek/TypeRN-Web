@@ -41,10 +41,11 @@
     if (missing.has(ps)) return Promise.resolve(false);
     const names = [ps, fullName, known && known.name].filter(Boolean);
     const css = cssNameOf(ps);
-    const face = new FontFace(css, names.map((name) => `local(${quote(name)})`).join(", "));
+    const src = names.map((name) => `local(${quote(name)})`).join(", ");
+    const face = new FontFace(css, src);
     const promise = face.load().then(() => {
       document.fonts.add(face);
-      fonts.set(ps, Object.assign({ name: fullName || ps, postScriptName: ps, family: ps, style: "Regular", source: "local", weight: 400, italic: false }, known, { css, ready: true }));
+      fonts.set(ps, Object.assign({ name: fullName || ps, postScriptName: ps, family: ps, style: "Regular", source: "local", weight: 400, italic: false }, known, { css, src, ready: true }));
       missing.delete(ps);
       pending.delete(ps);
       changed();
@@ -122,6 +123,41 @@
     const name = textStyle.fontName || "";
     const byName = Array.from(fonts.values()).find((font) => font.ready && font.family === name && font.style === (textStyle.fontStyleName || font.style));
     return byName || { css: "Wildjess", weight: 400, italic: false, fallback: true };
+  };
+
+  // With Standard ligatures off, Photoshop turns off the font's whole "liga" feature, and with it
+  // the letter variants some lettering fonts keep there (a doubled letter drawn another way).
+  // Canvas has no switch for it: such text is drawn with a twin of the font that has it off.
+  // Until the twin is there, the font itself is used, and the page is drawn again after.
+  const twins = new Map(); // PostScript name -> the twin's CSS name, null while it loads, false if it can't
+  const sourceOf = (font) => {
+    if (font.source === "builtin") return `url("../assets/fonts/${font.file}.woff2")`;
+    if (font.source === "file") return font.url ? `url(${quote(font.url)})` : null;
+    return font.src || null;
+  };
+  const withoutLigatures = (font) => {
+    const ps = font && font.ready && font.postScriptName;
+    if (!ps) return null;
+    if (twins.has(ps)) return twins.get(ps) || null;
+    const src = sourceOf(font);
+    if (!src) {
+      twins.set(ps, false);
+      return null;
+    }
+    const css = `${font.css}--noliga`;
+    twins.set(ps, null);
+    const descriptors = { featureSettings: '"liga" 0' };
+    if (font.source === "builtin") Object.assign(descriptors, { weight: String(font.weight), style: font.italic ? "italic" : "normal" });
+    const face = new FontFace(css, src, descriptors);
+    face.load().then(() => {
+      document.fonts.add(face);
+      twins.set(ps, css);
+      changed();
+    }, (error) => {
+      console.warn("TypeR web: could not turn a font's ligatures off", ps, error);
+      twins.set(ps, false);
+    });
+    return null;
   };
 
   const isMissing = (ps) => Boolean(ps) && missing.has(ps) && !(fonts.get(ps) && fonts.get(ps).ready) && !sameFont(ps);
@@ -390,6 +426,7 @@
     get: (ps) => fonts.get(ps),
     list,
     resolve,
+    withoutLigatures,
     ensure,
     ready,
     isMissing,

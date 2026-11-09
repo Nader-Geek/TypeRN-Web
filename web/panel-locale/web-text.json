@@ -36,7 +36,8 @@
     "whatsNewFontsIntro": "Turn the fonts of existing PSD files into styles and get the ones you are missing, without leaving the page.",
     "whatsNewIntroText": "A hands-on tour: TypeR opens a practice page and a script, and each exercise checks itself as soon as you do it. Each step unlocks the next one, and the guide moves on by itself.",
     "whatsNewDoneCleanup": "Close the practice page without saving it.",
-    "whatsNewPasteOnClickStep4": "No bubble at spot 5: take the Rectangular Marquee (M) and draw a rectangle in the dotted frame. The line is pasted as soon as you let go."
+    "whatsNewPasteOnClickStep4": "No bubble at spot 5: take the Rectangular Marquee (M) and draw a rectangle in the dotted frame. The line is pasted as soon as you let go.",
+    "fontViewerInstalled": "{count} font(s) installed, ready to use."
   },
   "fr_FR": {
     "settingsResetProfile": "Réinitialiser TypeR",
@@ -75,7 +76,8 @@
     "whatsNewFontsIntro": "Transformez les polices de PSD existants en styles et récupérez celles qui vous manquent, sans quitter la page.",
     "whatsNewIntroText": "Un tour pratique : TypeR ouvre une page d’entraînement et un script, et chaque exercice se valide tout seul dès que vous le faites. Chaque étape débloque la suivante, et le guide avance tout seul.",
     "whatsNewDoneCleanup": "Fermez la page d’entraînement sans l’enregistrer.",
-    "whatsNewPasteOnClickStep4": "Pas de bulle à l’emplacement 5 : prenez l’outil Rectangle de sélection (M) et tracez un rectangle dans le cadre en pointillés. La ligne est collée dès que vous relâchez."
+    "whatsNewPasteOnClickStep4": "Pas de bulle à l’emplacement 5 : prenez l’outil Rectangle de sélection (M) et tracez un rectangle dans le cadre en pointillés. La ligne est collée dès que vous relâchez.",
+    "fontViewerInstalled": "{count} police(s) installée(s), prête(s) à l’emploi."
   },
   "es_SP": {
     "settingsResetProfile": "Restablecer TypeR",
@@ -114,7 +116,8 @@
     "whatsNewDoneCleanup": "Cierra la página de práctica sin guardarla.",
     "whatsNewPasteOnClickStep4": "En el punto 5 no hay globo: toma el Marco rectangular (M) y dibuja un rectángulo dentro del marco punteado. La línea se pega en cuanto sueltas.",
     "helpDataImportText": "Carga un archivo JSON para restaurar tu configuración en otro navegador u ordenador, o compartirla con otros rotulistas.",
-    "fontScanNotInstalledHint": "Esta fuente no está instalada en esta computadora; la vista previa y la página utilizarán una fuente sustituta"
+    "fontScanNotInstalledHint": "Esta fuente no está instalada en esta computadora; la vista previa y la página utilizarán una fuente sustituta",
+    "fontViewerInstalled": "{count} fuente(s) instalada(s), lista(s) para usar."
   },
   "it_IT": {
     "settingsResetProfile": "Ripristina TypeR",
@@ -153,7 +156,8 @@
     "whatsNewFontsIntro": "Trasforma i font dei file PSD esistenti in stili e ottieni quelli che ti mancano, senza lasciare la pagina.",
     "whatsNewIntroText": "Un tour pratico: TypeR apre una pagina di esercitazione e uno script, e ogni esercizio si convalida da solo appena lo svolgi. Ogni passaggio sblocca il successivo e la guida va avanti da sola.",
     "whatsNewDoneCleanup": "Chiudi la pagina di esercitazione senza salvarla.",
-    "whatsNewPasteOnClickStep4": "Nessun balloon nel punto 5: prendi lo strumento Selezione rettangolare (M) e traccia un rettangolo nella cornice tratteggiata. La riga viene incollata appena rilasci."
+    "whatsNewPasteOnClickStep4": "Nessun balloon nel punto 5: prendi lo strumento Selezione rettangolare (M) e traccia un rettangolo nella cornice tratteggiata. La riga viene incollata appena rilasci.",
+    "fontViewerInstalled": "Font installati: {count}, pronti all’uso."
   },
   "de_DE": {
     "settingsResetProfile": "TypeR zurücksetzen",
@@ -191,7 +195,8 @@
     "whatsNewPasteOnClickStep4": "An Stelle 5 ist keine Blase: Nimm das Auswahlrechteck-Werkzeug (M) und zieh im gepunkteten Rahmen ein Rechteck auf. Die Zeile wird eingefügt, sobald du loslässt.",
     "walkthroughPasteResult2": "Auswahl, einfügen: Das ist der ganze Ablauf. Mit dem Tastenkürzel bleiben deine Hände auf der Tastatur.",
     "helpIntro": "TypeR platziert, formatiert und richtet deinen Text aus: Behalte das Skript im Bedienfeld und überlasse TypeR den Rest.",
-    "fontScanNotInstalledHint": "Diese Schriftart ist auf diesem Computer nicht installiert. Für die Vorschau und die Seite wird eine Ersatzschriftart verwendet"
+    "fontScanNotInstalledHint": "Diese Schriftart ist auf diesem Computer nicht installiert. Für die Vorschau und die Seite wird eine Ersatzschriftart verwendet",
+    "fontViewerInstalled": "{count} Schrift(en) installiert und sofort verwendbar."
   },
   "pt_BR": {
     "settingsResetProfile": "Redefinir o TypeR",
@@ -230,7 +235,8 @@
     "whatsNewDoneCleanup": "Feche a página de treino sem salvá-la.",
     "whatsNewPasteOnClickStep4": "Não há balão no ponto 5: pegue o Letreiro retangular (M) e desenhe um retângulo dentro da moldura pontilhada. A linha é colada assim que você soltar.",
     "textShapeRInlineApplyHint": "Aplique esta forma de texto à camada de texto selecionada. Clicar com Shift também move para a próxima linha.",
-    "helpDataImportText": "Carregue um arquivo JSON para restaurar sua configuração em outro navegador ou computador, ou compartilhá-la com outros letristas."
+    "helpDataImportText": "Carregue um arquivo JSON para restaurar sua configuração em outro navegador ou computador, ou compartilhá-la com outros letristas.",
+    "fontViewerInstalled": "{count} fonte(s) instalada(s), pronta(s) para usar."
   },
   "ru_RU": {
     "settingsResetProfile": "Сбросить TypeR",
@@ -269,7 +275,8 @@
     "whatsNewDoneCleanup": "Закройте тренировочную страницу без сохранения.",
     "whatsNewPasteOnClickStep4": "В месте 5 бабла нет: возьмите инструмент «Прямоугольная область» (M) и нарисуйте прямоугольник в пунктирной рамке. Строка вставится, как только вы отпустите кнопку мыши.",
     "helpIntro": "TypeR размещает, оформляет и выравнивает текст за вас: держите сценарий в панели, а остальное предоставьте ему.",
-    "fontScanNotInstalledHint": "Этот шрифт не установлен на этом компьютере, при предварительном просмотре и на странице будет использоваться замещающий шрифт."
+    "fontScanNotInstalledHint": "Этот шрифт не установлен на этом компьютере, при предварительном просмотре и на странице будет использоваться замещающий шрифт.",
+    "fontViewerInstalled": "Установлено шрифтов: {count}. Их можно использовать сразу."
   },
   "uk_UA": {
     "settingsResetProfile": "Скинути TypeR",
@@ -308,7 +315,8 @@
     "whatsNewPasteOnClickStep4": "У місці 5 бабла немає: візьміть інструмент «Прямокутна область» (M) і намалюйте прямокутник у пунктирній рамці. Рядок вставиться, щойно ви відпустите кнопку миші.",
     "textShapeRPerformanceTip": "TextShapeR може впливати на швидкодію, особливо на менш потужних комп’ютерах.",
     "helpIntro": "TypeR розміщує, стилізує та вирівнює текст за вас: тримайте сценарій на панелі, а решту залиште йому.",
-    "fontScanNotInstalledHint": "Цей шрифт не встановлено на цьому комп’ютері, для попереднього перегляду та сторінки використовуватиметься інший шрифт"
+    "fontScanNotInstalledHint": "Цей шрифт не встановлено на цьому комп’ютері, для попереднього перегляду та сторінки використовуватиметься інший шрифт",
+    "fontViewerInstalled": "Установлено шрифтів: {count}. Їх можна використовувати одразу."
   },
   "tr_TR": {
     "settingsResetProfile": "TypeR'ı sıfırla",
@@ -347,7 +355,8 @@
     "walkthroughPasteResult2": "Seçim, yapıştırma: döngünün tamamı bu. Kısayolla elleriniz klavyeden hiç ayrılmaz.",
     "helpSectionScriptSubtitle": "Sayfadan ayrılmadan çeviride gezinin.",
     "helpDataImportText": "Kurulumu başka bir tarayıcıda veya bilgisayarda geri getirmek ya da başkalarıyla paylaşmak için bir JSON dosyası yükleyin.",
-    "fontScanNotInstalledHint": "Bu yazı tipi bu bilgisayarda yüklü değil, önizleme ve sayfada yedek bir yazı tipi kullanılacak"
+    "fontScanNotInstalledHint": "Bu yazı tipi bu bilgisayarda yüklü değil, önizleme ve sayfada yedek bir yazı tipi kullanılacak",
+    "fontViewerInstalled": "{count} yazı tipi yüklendi, hemen kullanılabilir."
   },
   "vi_VN": {
     "settingsResetProfile": "Đặt lại TypeR",
@@ -386,7 +395,8 @@
     "whatsNewFontsIntro": "Biến phông chữ trong các PSD có sẵn thành style và lấy những phông còn thiếu, ngay.",
     "whatsNewIntroText": "Phần giới thiệu thực hành: TypeR mở một trang luyện tập và một kịch bản, mỗi bài tập tự được xác nhận ngay khi bạn làm xong. Mỗi bước mở khóa bước tiếp theo, và hướng dẫn tự chuyển tiếp.",
     "whatsNewDoneCleanup": "Đóng trang luyện tập mà không lưu.",
-    "whatsNewPasteOnClickStep4": "Vị trí 5 không có bóng thoại: chọn công cụ Rectangular Marquee (M) và vẽ một hình chữ nhật trong khung chấm. Dòng được dán ngay khi bạn thả chuột."
+    "whatsNewPasteOnClickStep4": "Vị trí 5 không có bóng thoại: chọn công cụ Rectangular Marquee (M) và vẽ một hình chữ nhật trong khung chấm. Dòng được dán ngay khi bạn thả chuột.",
+    "fontViewerInstalled": "Đã cài {count} phông chữ, có thể dùng ngay."
   },
   "ar_AE": {
     "settingsResetProfile": "إعادة تعيين TypeR",
@@ -424,6 +434,7 @@
     "whatsNewDoneCleanup": "أغلق صفحة التدريب دون حفظها.",
     "whatsNewPasteOnClickStep4": "لا توجد فقاعة في الموضع 5: خذ أداة التحديد المستطيل (M) وارسم مستطيلًا داخل الإطار المنقّط. يُلصق السطر بمجرد أن تُفلت الفأرة.",
     "helpIntro": "يقوم TypeR بوضع النص وتنسيقه ومحاذاته نيابةً عنك: احتفظ بالنص في اللوحة واترك الباقي له.",
-    "fontScanNotInstalledHint": "لم يتم تثبيت هذا الخط على هذا الكمبيوتر، وستستخدم المعاينة والصفحة خطًا بديلاً"
+    "fontScanNotInstalledHint": "لم يتم تثبيت هذا الخط على هذا الكمبيوتر، وستستخدم المعاينة والصفحة خطًا بديلاً",
+    "fontViewerInstalled": "تم تثبيت {count} من الخطوط، وهي جاهزة للاستخدام."
   }
 }

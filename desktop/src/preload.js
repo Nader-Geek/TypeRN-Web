@@ -1,6 +1,8 @@
 // All the page can ask of the app. There's no file access here on purpose: the page goes through
 // the same pickers and handles as in a browser, so a download from the site can do no more here.
-// The one exception reads, never writes, the Photoshop plugin's settings files, at fixed places.
+// The exceptions: reading, never writing, the Photoshop plugin's settings files, at fixed places,
+// installing a font file in the user's own font folder, as the plugin's Font FindeR does, and
+// opening in Photoshop the PSD files the page already holds.
 
 const { contextBridge, ipcRenderer, webFrame } = require("electron");
 
@@ -19,11 +21,23 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
   reloadForUpdate: () => ipcRenderer.send("reload-for-update"),
   // The Photoshop plugin's storage files on this computer, read only, or null
   findPhotoshopSettings: () => ipcRenderer.invoke("photoshop-settings"),
+  // Installs the Font FindeR's fonts for this user, as the Photoshop plugin does: font files
+  // only, written in the user's own font folder
+  installFonts: (fonts) => ipcRenderer.invoke("install-fonts", fonts),
   // A question as the window closes (web/feedback.js): said when there is one, then answered
   setFarewell: (on) => ipcRenderer.send("set-farewell", on),
   onFarewell: (listener) => ipcRenderer.on("farewell", () => listener()),
   farewellShown: () => ipcRenderer.send("farewell-shown"),
   closeNow: () => ipcRenderer.send("farewell-done"),
+  // The Photoshops installed, and opening pages in one. Photoshop needs a file's path, which a
+  // handle doesn't give: the page asks about the handle's permission between whereStart and
+  // whereEnd, and the app answers with the path it was asked about. Only those paths open.
+  photoshop: {
+    list: () => ipcRenderer.invoke("photoshop-list"),
+    open: (id, paths) => ipcRenderer.invoke("photoshop-open", id, paths),
+    whereStart: (name, directory) => ipcRenderer.invoke("where-start", name, directory),
+    whereEnd: (token) => ipcRenderer.invoke("where-end", token),
+  },
   // Generative Fill with FLUX on this computer: nothing is downloaded until a model is installed
   localAI: {
     status: () => ipcRenderer.invoke("local-ai-status"),

@@ -323,6 +323,8 @@ html.touch .start p { font-size: 15px; line-height: 1.4; }
 html.touch .start__actions { flex-direction: column; align-items: stretch; width: 100%; max-width: 340px; gap: 10px; }
 html.touch .start__actions .btn { min-height: 50px; font-size: 16px; }
 html.touch #start-practice { display: block !important; }
+html.touch .start__more { gap: 4px 24px; }
+html.touch .start__link { min-height: 44px; font-size: 15px; }
 html.no-doc .stage { touch-action: auto; }
 html[data-sheet="right"] .start img { display: none; }
 html[data-sheet="right"] .start__actions { flex-direction: row; flex-wrap: wrap; justify-content: center; max-width: none; }

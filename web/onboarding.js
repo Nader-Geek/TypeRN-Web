@@ -10,6 +10,8 @@
   const App = () => window.TypeRApp;
   const T = (text) => App().T(text);
   const fill = (text, values) => App().fill(text, values);
+  // Where an item of the Help menu is, as the menu bar says it
+  const menu = (item) => `${T("Help")} → ${T(item).replace(/…$/, "")}`;
 
   const read = (key) => {
     try {
@@ -529,7 +531,6 @@
       title: () => T("You're all set"),
       build(pane, state) {
         const touch = window.TypeRShell.touch;
-        const menu = (item) => `${T("Help")} → ${T(item).replace(/…$/, "")}`;
         const later = fill(T("Everything can be changed later in Settings, and this assistant comes back from {menu}."), { menu: menu("Setup Assistant…") });
         if (touch) {
           el("p", "onboard__lead", pane, later);
@@ -601,6 +602,8 @@
         write("done");
         modal.close();
         modal.remove();
+        // Skipped on a first start: where to find it, and the tutorial, when wanted
+        if (!completed && !state.again) App().toast(fill(T("You'll find this assistant again in {setup}, and the tutorial in {tour}."), { setup: menu("Setup Assistant…"), tour: menu("TypeR Tutorial") }), true);
         const plan = {
           photoshop: state.styles === "photoshop" ? state.photoshop : null,
           kits: state.kits,

@@ -1,4 +1,4 @@
-// The Bubble Reshaper (Shift+J): a click takes a bubble, its handles give it another shape,
+// The Bubble Reshaper (U): a click takes a bubble, its handles give it another shape,
 // Enter lays it on the page. The work is reshape.js's; this is the tool around it: the
 // handles, the bubble shown as it will be, the options bar, and what the old bubble leaves
 // uncovered, painted when the page around was plain, else filled or left selected to redraw.

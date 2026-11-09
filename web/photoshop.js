@@ -36,7 +36,8 @@
     const font = Fonts.resolve(textStyle);
     const italic = font.italic || textStyle.syntheticItalic;
     const weight = textStyle.syntheticBold ? 700 : font.weight;
-    return `${italic ? "italic " : ""}${weight} ${sizePx}px "${font.css}", "Wildjess", sans-serif`;
+    const family = (textStyle.ligature === false && Fonts.withoutLigatures(font)) || font.css;
+    return `${italic ? "italic " : ""}${weight} ${sizePx}px "${family}", "Wildjess", sans-serif`;
   };
 
   const setRunFont = (ctx, textStyle, sizePx) => {
@@ -44,6 +45,7 @@
     if ("letterSpacing" in ctx) ctx.letterSpacing = textStyle.tracking ? `${(textStyle.tracking / 1000) * sizePx}px` : "0px";
     if ("fontKerning" in ctx) ctx.fontKerning = textStyle.autoKern === "manual" ? "none" : "normal";
     if ("fontVariantCaps" in ctx) ctx.fontVariantCaps = textStyle.fontCaps === "smallCaps" ? "small-caps" : "normal";
+    if ("lang" in ctx) ctx.lang = languageTagOf(textStyle);
   };
 
   const sizePxOf = (textStyle, resolution) => ((textStyle.impliedFontSize || textStyle.size || 14) * resolution) / 72;
@@ -62,6 +64,19 @@
   const INTERFACE_TEXT_LANGUAGE = { fr: "standardFrenchLanguage", es: "spanishLanguage", it: "italianLanguage", de: "germanLanguageReformed1996", pt: "brazilianPortugueseLanguage", ru: "russianLanguage", uk: "ukranianLanguage", pl: "polishLanguage", nl: "kdutchLanguageOldRules", tr: "turkishLanguage", ar: "arabicLanguage" };
   const DEFAULT_TEXT_LANGUAGE = INTERFACE_TEXT_LANGUAGE[window.TYPER_I18N.lang] || "englishLanguage";
   // Other names Photoshop gives the same languages, in styles made by the plugin
+  // The same languages as the browser names them. A font made for several languages draws some
+  // letters its own way in one of them, as a Turkish i that keeps its dot in a capitals-only
+  // font: the text's language tells it which.
+  const LANGUAGE_TAGS = {
+    englishLanguage: "en-US", ukenglishLanguage: "en-GB", standardFrenchLanguage: "fr", canadianFrenchLanguage: "fr-CA", spanishLanguage: "es", italianLanguage: "it",
+    germanLanguageReformed1996: "de", oldGermanLanguage: "de", swissGermanLanguageOldRules: "de-CH", standardGermanLanguage: "de", swissGermanLanguage: "de-CH",
+    standardPortugueseLanguage: "pt-PT", brazilianPortugueseLanguage: "pt-BR", kdutchLanguageOldRules: "nl", dutchLanguage: "nl", catalanLanguage: "ca", danishLanguage: "da",
+    swedishLanguage: "sv", bokmalNorwegianLanguage: "nb", nynorskNorwegianLanguage: "nn", finnishLanguage: "fi", icelandicLanguage: "is", polishLanguage: "pl", czechLanguage: "cs",
+    slovakLanguage: "sk", hungarianLanguage: "hu", romanianLanguage: "ro", croatianLanguage: "hr", slovenianLanguage: "sl", lithuanianLanguage: "lt", latvianLanguage: "lv",
+    turkishLanguage: "tr", greekLanguage: "el", russianLanguage: "ru", ukranianLanguage: "uk", bulgarianLanguage: "bg", serbianLanguage: "sr", arabicLanguage: "ar", hebrewLanguage: "he",
+  };
+  // A text with no language is drawn as English, whatever the interface's language
+  const languageTagOf = (textStyle) => LANGUAGE_TAGS[textStyle.textLanguage] || "en";
   const TEXT_LANGUAGE_NUMBERS = TEXT_LANGUAGES.reduce((numbers, [name, number]) => Object.assign(numbers, { [name]: number }), { standardGermanLanguage: 4, swissGermanLanguage: 6, dutchLanguage: 15 });
   const textLanguageNumber = (name) => {
     const number = TEXT_LANGUAGE_NUMBERS[name];
@@ -72,8 +87,10 @@
     return language ? language[0] : undefined;
   };
 
-  // Canvas has no switch for ligatures, but a zero-width non-joiner between two letters
-  // stops them and leaves their kerning alone. Other scripts need their letters joined.
+  // A zero-width non-joiner between two letters also stops ligatures, where the browser can't
+  // turn a font's off (see withoutLigatures in fonts.js), and leaves their kerning alone.
+  // It doesn't stop the letter variants a font keeps with its ligatures. Other scripts need
+  // their letters joined.
   // All Caps follows the text language, as in Photoshop: in Turkish, i becomes İ, not I
   const CASE_LOCALES = { turkishLanguage: "tr" };
   const shownText = ({ text, style }) => {
@@ -314,7 +331,7 @@
   const INK_SIZE = 1024;
   const inkTops = new Map();
   const inkTopOf = (textStyle, ch) => {
-    const key = Fonts.generation + "|" + cssFont(textStyle, INK_SIZE) + "|" + ch;
+    const key = Fonts.generation + "|" + cssFont(textStyle, INK_SIZE) + "|" + languageTagOf(textStyle) + "|" + ch;
     if (!inkTops.has(key)) {
       setRunFont(measureCtx, textStyle, INK_SIZE);
       const m = measureCtx.measureText(ch);
@@ -5793,6 +5810,45 @@
       });
       if (created.length) commitState(doc, "Duplicate Layer", { layers, activeIds: created });
     },
+    // Cmd+J with a selection on one pixel layer, Photoshop's Layer via Copy: only the selected
+    // pixels, on a new layer just above, which looks like its source; the selection is dropped.
+    // null when it doesn't apply (Cmd+J then duplicates the whole layer), "empty" when the
+    // selection holds none of the layer's pixels.
+    layerViaCopy(name) {
+      const doc = app.doc;
+      const selection = doc && doc.state.selection;
+      if (!selection || doc.state.activeIds.length !== 1) return null;
+      const layer = activeRaster(doc);
+      if (!layer) return null;
+      const visual = rasterVisual(layer, doc);
+      if (!visual) return "empty";
+      const b = selection.bounds;
+      const left = Math.max(Math.floor(b.left), Math.floor(visual.x));
+      const top = Math.max(Math.floor(b.top), Math.floor(visual.y));
+      const right = Math.min(Math.ceil(b.right), Math.ceil(visual.x + visual.canvas.width));
+      const bottom = Math.min(Math.ceil(b.bottom), Math.ceil(visual.y + visual.canvas.height));
+      if (right <= left || bottom <= top) return "empty";
+      const bitmap = newCanvas(right - left, bottom - top);
+      const ctx = bitmap.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(visual.canvas, visual.x - left, visual.y - top);
+      const clip = clipOf(selection, 0, 0);
+      if (clip.canvas) {
+        ctx.globalCompositeOperation = "destination-in";
+        ctx.drawImage(clip.canvas, clip.x - left, clip.y - top);
+        ctx.globalCompositeOperation = "source-over";
+      }
+      const alpha = ctx.getImageData(0, 0, bitmap.width, bitmap.height).data;
+      let any = false;
+      for (let i = 3; i < alpha.length && !any; i += 4) any = alpha[i] > 0;
+      if (!any) return "empty";
+      const copy = newRaster(name || layer.name + " copy", { bitmap, left, top, opacity: layer.opacity, blend: layer.blend, fill: layer.fill, knockout: layer.knockout, stroke: layer.stroke ? clone(layer.stroke) : undefined, group: layer.group || null, clipping: Boolean(layer.clipping) });
+      const layers = doc.state.layers.slice();
+      layers.splice(layers.indexOf(layer) + 1, 0, copy);
+      commitState(doc, "Duplicate Layer", { layers, activeIds: [copy.id], selection: null });
+      emit("selection", null);
+      firePanelEvent(EVENT_SELECT);
+      return copy;
+    },
     // The selected layers in a new group, where the topmost of them was
     groupLayers(name) {
       const doc = app.doc;
@@ -7577,7 +7633,7 @@
       const style = { fontPostScriptName: d.font, fontName: d.family, fontStyleName: d.style, size: d.size, impliedFontSize: d.size, autoLeading: true, tracking: 0, horizontalScale: 100, verticalScale: 100, ligature: d.ligature, textLanguage: d.language, autoKern: d.autoKern === "manual" ? "manual" : "metricsKern", color: { red: app.fg.r, green: app.fg.g, blue: app.fg.b } };
       const params = { layerText: { textKey: text, antiAlias: d.antiAlias || "antiAliasSmooth", textClickPoint: { horizontal: (x / doc.width) * 100, vertical: (y / doc.height) * 100 }, textStyleRange: [{ from: 0, to: text.length, textStyle: style }], paragraphStyleRange: [{ from: 0, to: text.length, paragraphStyle: Object.assign({ alignment: "center", autoLeadingPercentage: 1.2 }, d.hyphenate ? { hyphenate: true } : {}) }], textShape: [box ? { textType: "box", orientation: "horizontal", box: Object.assign({ verticalAlign: d.verticalAlign }, box) } : { textType: "point", orientation: "horizontal" }] } };
       const layer = newTextLayer(doc, params, null, text || "Text");
-      commitState(doc, "Type Tool", { layers: doc.state.layers.concat([layer]), activeIds: [layer.id] });
+      commitState(doc, "Type Tool", { layers: addNewTexts(doc.state.layers, [layer], textSpotOf(doc)), activeIds: [layer.id] });
       firePanelEvent(EVENT_SELECT);
       return layer;
     },
@@ -8184,16 +8240,26 @@
     stroke: strokeToApply(stroke),
   });
 
-  // New text goes first in the active layer's folder (or in the selected folder),
-  // on top of the document outside any folder. The list runs from the bottom of
-  // the stack up, with a folder's own entry right above its content.
-  const textFolderOf = (doc) => {
+  // New text goes right above the active layer, in its folder, or first in the selected
+  // folder; on top of the document with nothing selected. With "Always place new text on
+  // top", it goes first in the active layer's folder, or on top of the document. The list
+  // runs from the bottom of the stack up, with a folder's own entry right above its content.
+  const textSpotOf = (doc) => {
     const active = doc.state.layers.find((layer) => layer.id === doc.state.activeIds[doc.state.activeIds.length - 1]);
-    if (!active) return null;
-    return active.kind === "group" ? active.id : active.group || null;
+    if (!active) return {};
+    if (active.kind === "group") return { folder: active.id };
+    return app.textDefaults.textOnTop ? { folder: active.group || null } : { folder: active.group || null, above: active.id };
   };
-  const addNewTexts = (layers, created, folder) => {
-    const at = folder ? layers.findIndex((layer) => layer.id === folder) : -1;
+  const addNewTexts = (layers, created, spot) => {
+    const anchor = spot.above ? layers.findIndex((layer) => layer.id === spot.above) : -1;
+    let at = anchor >= 0 ? anchor + 1 : spot.folder ? layers.findIndex((layer) => layer.id === spot.folder) : -1;
+    let folder = spot.folder || null;
+    // Never under TypeR Clean, whose white would hide it
+    const clean = layers.findIndex((layer) => layer.clean);
+    if (at >= 0 && clean >= 0 && at <= clean) {
+      at = clean + 1;
+      folder = layers[clean].group || null;
+    }
     if (at < 0) return layers.concat(created);
     created.forEach((layer) => { layer.group = folder; });
     return layers.slice(0, at).concat(created, layers.slice(at));
@@ -8593,7 +8659,7 @@
       const params = classicParams(doc, Object.assign({}, data, { textSizeOverride: size }), selection.bounds);
       const layer = newTextLayer(doc, params, data.style && data.style.stroke, data.text);
       layer.source = String(data.text || "");
-      commitState(doc, "TyperTools Paste", { layers: addNewTexts(doc.state.layers, [layer], textFolderOf(doc)), activeIds: [layer.id] });
+      commitState(doc, "TyperTools Paste", { layers: addNewTexts(doc.state.layers, [layer], textSpotOf(doc)), activeIds: [layer.id] });
       emit("paste", { classic: true, layers: [layer] });
       return "";
     },
@@ -8609,7 +8675,7 @@
         const params = classicParams(doc, { text: texts[i], style: styles[i] || styles[0], padding: data.padding }, rectFrom(bounds.left, bounds.top, bounds.right, bounds.bottom));
         created.push(newTextLayer(doc, params, styles[i] && styles[i].stroke, texts[i]));
       });
-      commitState(doc, "TyperTools Paste", { layers: addNewTexts(doc.state.layers, created, textFolderOf(doc)), activeIds: created.map((layer) => layer.id), selection: selectionAfterPaste(doc) });
+      commitState(doc, "TyperTools Paste", { layers: addNewTexts(doc.state.layers, created, textSpotOf(doc)), activeIds: created.map((layer) => layer.id), selection: selectionAfterPaste(doc) });
       emit("paste", { classic: true, layers: created });
       return "";
     },
@@ -8836,7 +8902,7 @@
       const before = doc.history[doc.historyIndex].id;
       let layers = doc.state.layers;
       const created = [];
-      const folder = textFolderOf(doc);
+      let spot = textSpotOf(doc);
       (data.sessions || []).forEach((session) => {
         const plan = session.plan;
         if (plan.autoClean && plan.cleanupPolygon) {
@@ -8846,7 +8912,9 @@
         const layer = newTextLayer(doc, session.text.params, session.text.stroke, session.layerName);
         layer.source = session.layerName || "";
         created.push(layer);
-        layers = addNewTexts(layers, [layer], folder);
+        layers = addNewTexts(layers, [layer], spot);
+        // The next one goes above this one
+        if (spot.above) spot = { folder: layer.group, above: layer.id };
       });
       commitState(doc, "TyperTools Smart Paste", { layers, selection: selectionAfterPaste(doc), activeIds: created.length ? [created[created.length - 1].id] : doc.state.activeIds });
       emit("selection", doc.state.selection);
@@ -8950,6 +9018,7 @@
     withResolution,
     wrapWords,
     cssFont,
+    languageTagOf,
     TEXT_LANGUAGES,
     DEFAULT_TEXT_LANGUAGE,
     textLanguageNumber,

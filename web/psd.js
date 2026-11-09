@@ -307,20 +307,21 @@
     return btoa(binary);
   };
   const fromBase64 = (text) => new TextDecoder().decode(Uint8Array.from(atob(text), (c) => c.charCodeAt(0)));
-  const SFX_PROPERTY = /\s*typer:sfx="[^"]*"|\s*<typer:sfx>[^<]*<\/typer:sfx>/g;
-  const sfxOfXmp = (xmp) => {
-    const found = /typer:sfx(?:="([^"]*)"|>([^<]*)<)/.exec(xmp || "");
+  // One entry of the file's metadata, `typer:<key>`: a list, as base64 JSON
+  const propertyPattern = (key) => new RegExp(`\\s*typer:${key}="[^"]*"|\\s*<typer:${key}>[^<]*<\\/typer:${key}>`, "g");
+  const listOfXmp = (xmp, key) => {
+    const found = new RegExp(`typer:${key}(?:="([^"]*)"|>([^<]*)<)`).exec(xmp || "");
     if (!found) return [];
     try {
       const list = JSON.parse(fromBase64((found[1] || found[2] || "").trim()));
       return Array.isArray(list) ? list : [];
     } catch (error) {
-      console.warn("TypeR web: this file's SFX settings can't be read", error);
+      console.warn(`TypeR web: this file's ${key} settings can't be read`, error);
       return [];
     }
   };
-  const xmpWithSfx = (xmp, list) => {
-    let out = String(xmp || "").replace(SFX_PROPERTY, "");
+  const xmpWithList = (xmp, key, list) => {
+    let out = String(xmp || "").replace(propertyPattern(key), "");
     if (!list.length) return xmp ? out : undefined;
     const value = toBase64(JSON.stringify(list));
     if (!/<rdf:Description\b/.test(out)) {
@@ -328,9 +329,11 @@
     }
     return out.replace(/<rdf:Description\b([^>]*?)(\/?)>/, (tag, attributes, closed) => {
       const ns = /xmlns:typer=/.test(attributes) ? "" : ` xmlns:typer="${XMP_NS}"`;
-      return `<rdf:Description${attributes}${ns} typer:sfx="${value}"${closed}>`;
+      return `<rdf:Description${attributes}${ns} typer:${key}="${value}"${closed}>`;
     });
   };
+  const sfxOfXmp = (xmp) => listOfXmp(xmp, "sfx");
+  const xmpWithSfx = (xmp, list) => xmpWithList(xmp, "sfx", list);
   // Each saved SFX finds its folder again: by name, in order, else by the letters inside
   const attachSfx = (groups, layers, xmp) => {
     const list = sfxOfXmp(xmp);
@@ -347,6 +350,35 @@
       claimed.add(group);
       group.sfx = entry.recipe;
     });
+  };
+
+  // A text in perspective is saved as what shows, in pixels, over its text, hidden (see
+  // nodesFor). Its surface goes in the metadata, so that it opens as the text it was: one layer,
+  // still in perspective, that the Move tool takes by its frame and not by its letters. Left
+  // as two layers if Photoshop changed the text, or took the pixels away.
+  const warpsForSave = (doc) => doc.state.layers
+    .filter((layer) => layer.kind === "text" && layer.warp)
+    .map((layer) => ({ name: layer.name, text: layer.params.layerText.textKey, warp: layer.warp }));
+  const attachWarps = (layers, xmp) => {
+    const list = listOfXmp(xmp, "warps");
+    if (!list.length) return;
+    const gone = new Set();
+    list.forEach((entry) => {
+      if (!entry || !entry.warp || !Array.isArray(entry.warp.corners) || !entry.warp.source) return;
+      const at = layers.findIndex((layer, index) => {
+        const shown = layers[index + 1];
+        return layer.kind === "text" && !gone.has(layer) && layer.visible === false && layer.name === `${entry.name} (text)` && layer.params.layerText.textKey === entry.text
+          && shown && shown.kind !== "text" && shown.kind !== "group" && !gone.has(shown) && shown.name === entry.name && shown.group === layer.group;
+      });
+      if (at < 0) return;
+      const text = layers[at];
+      const shown = layers[at + 1];
+      Object.assign(text, { name: shown.name, visible: shown.visible, opacity: shown.opacity, blend: shown.blend, clipping: shown.clipping, locked: shown.locked, locks: shown.locks, color: shown.color, warp: entry.warp, raster: null });
+      gone.add(text);
+      gone.add(shown);
+    });
+    const shownLayers = new Set(Array.from(gone).filter((layer) => layer.kind !== "text"));
+    for (let i = layers.length - 1; i >= 0; i--) if (shownLayers.has(layers[i])) layers.splice(i, 1);
   };
 
   /* ------------------------------- opening ------------------------------- */
@@ -479,6 +511,7 @@
       });
     };
     walk(psd.children, null);
+    attachWarps(layers, psd.imageResources && psd.imageResources.xmpMetadata);
     // Photoshop's linked layers share a number; one shared by every layer is no link at all
     const shared = new Map();
     layers.forEach((layer) => {
@@ -833,11 +866,24 @@
     delete imageResources.thumbnail;
     delete imageResources.thumbnailRaw;
     const sfx = window.TypeRSFX ? window.TypeRSFX.recipesForSave(doc) : [];
-    const xmp = xmpWithSfx(imageResources.xmpMetadata, sfx);
+    const xmp = xmpWithList(xmpWithSfx(imageResources.xmpMetadata, sfx), "warps", warpsForSave(doc));
     if (xmp === undefined) delete imageResources.xmpMetadata;
     else imageResources.xmpMetadata = xmp;
     const root = Object.assign({}, source, { width: doc.width, height: doc.height, bitsPerChannel: 8, canvas: composite, children, imageResources });
     if (!root.colorMode) root.colorMode = 3;
+    // The file a smart object keeps inside the PSD goes only with a layer that still uses it:
+    // Photoshop refuses to open a PSD with one left over, as when a folder of Generative Fill
+    // layers was merged here
+    if (root.linkedFiles) {
+      const used = new Set();
+      const findUsed = (nodes) => nodes.forEach((node) => {
+        if (node.placedLayer && node.placedLayer.id) used.add(node.placedLayer.id);
+        if (node.children) findUsed(node.children);
+      });
+      findUsed(children);
+      root.linkedFiles = root.linkedFiles.filter((file) => used.has(file.id));
+      if (!root.linkedFiles.length) delete root.linkedFiles;
+    }
     const psb = /\.psb$/i.test(target) || doc.width > 30000 || doc.height > 30000;
     const options = { psb, invalidateTextLayers: flags.editedText, trimImageData: true, noBackground: !(bottom && bottom.isBackground), logMissingFeatures: false };
     if (await startWorker()) {

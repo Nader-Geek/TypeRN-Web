@@ -4,8 +4,8 @@
 // and has Generative Fill redraw those over the art (app.js does the asking and the showing).
 //
 // No key: each install gets its own anonymous token from the service (/v1/device), so each
-// person has their own limit. Hidden until it is turned on on this device: `typer.web.textmask`
-// in localStorage holds { on: true }, and { confidence } (0.05 to 0.95, lower catches more). For
+// person has their own limit. On for everyone: `typer.web.textmask` in localStorage can hold
+// { on: false } to hide it on a device, and { confidence } (0.05 to 0.95, lower catches more). For
 // tests, { url } sends the pages through a relay instead (scripts/text-mask-proxy.js).
 (function () {
   "use strict";
@@ -26,7 +26,7 @@
     }
     const url = typeof saved.url === "string" && /^https?:\/\//.test(saved.url.trim()) ? saved.url.trim().replace(/\/+$/, "") : "";
     const confidence = Number.isFinite(saved.confidence) ? Math.min(0.95, Math.max(0.05, saved.confidence)) : DEFAULT_CONFIDENCE;
-    return { on: saved.on === true || Boolean(url), url: url || API, relay: Boolean(url) && url !== API, confidence };
+    return { on: saved.on !== false || Boolean(url), url: url || API, relay: Boolean(url) && url !== API, confidence };
   };
   const enabled = () => load().on;
 

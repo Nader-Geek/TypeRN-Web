@@ -73,7 +73,9 @@ const makePng = async (page, file) => {
 const main = async () => {
   /* ---------------------------- first launch, no connection --------------------------- */
   const profile = path.join(WORK, "profile");
-  let run = await launch(profile);
+  // Two Photoshops to choose from: the test notes what they're asked to open, nothing starts
+  const photoshops = [{ path: path.join(WORK, "Adobe Photoshop 2025.app"), name: "Adobe Photoshop 2025", version: "26.0" }, { path: path.join(WORK, "Adobe Photoshop 2026.app"), name: "Adobe Photoshop 2026", version: "27.0" }];
+  let run = await launch(profile, { TYPER_TEST_PHOTOSHOP: JSON.stringify(photoshops) });
   step("starts with no connection, from its own copy", true, `${run.bootMs} ms to ready`);
   const page = run.page;
   const facts = await page.evaluate(async () => ({
@@ -140,6 +142,25 @@ const main = async () => {
     return { size: file.size, dirty: window.TypeRPhotoshop.isDirty(window.TypeRPhotoshop.app.doc) };
   });
   step("the saved page is clean", !reread.dirty && reread.size === after.size);
+
+  /* ---------------------------------- Open in Photoshop -------------------------------- */
+  const listed2 = await page.evaluate(() => window.TypeRDesktop.photoshop.list());
+  step("the Photoshops installed are found, the newest first", listed2.map((one) => one.name).join() === "Adobe Photoshop 2026,Adobe Photoshop 2025", JSON.stringify(listed2));
+  const beforePs = fs.statSync(psd).mtimeMs;
+  await page.evaluate(() => window.TypeRPhotoshop.ops.newLayer("Before Photoshop"));
+  const sending = page.evaluate(() => window.TypeRApp.openInPhotoshop());
+  await page.waitForSelector("#modal[open] select", { timeout: 5000 });
+  const psAsked = await page.evaluate(() => Array.from(document.querySelectorAll("#modal[open] select")).map((select) => Array.from(select.options).map((option) => option.textContent)));
+  step("Open in Photoshop asks for this page or all of them, and which Photoshop", psAsked.length === 2 && psAsked[0].length === 2 && psAsked[1].length === 2, JSON.stringify(psAsked));
+  await page.selectOption("#modal[open] select >> nth=0", "one");
+  await page.selectOption("#modal[open] select >> nth=1", listed2[1].id);
+  await page.click("#modal[open] .modal__foot .btn--main");
+  await sending;
+  const sent = await run.app.evaluate(() => global.typerPhotoshopOpened || []);
+  const sentFiles = sent.length === 1 ? sent[0].files.map((file) => fs.realpathSync(file)) : [];
+  step("the page is saved first, then its own PSD opens in the Photoshop chosen", sent.length === 1 && sent[0].app === listed2[1].id && sentFiles.join() === fs.realpathSync(psd) && fs.statSync(psd).mtimeMs > beforePs, JSON.stringify(sent));
+  const psRefused = await page.evaluate((id) => window.TypeRDesktop.photoshop.open(id, ["/etc/hosts", "/tmp/elsewhere.psd"]), listed2[0].id);
+  step("only the files of open pages can be sent to Photoshop", psRefused && psRefused.ok === false && (await run.app.evaluate(() => global.typerPhotoshopOpened.length)) === 1, JSON.stringify(psRefused));
 
   // The other process that the system starts when the app is already open
   const clean = { ...process.env };

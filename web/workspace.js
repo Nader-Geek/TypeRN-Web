@@ -137,15 +137,15 @@
     }, save);
   };
 
-  const stack = (name, x, w, height) => {
+  const stack = (name, x, w, top, height) => {
     const ids = shownIn(name);
     const room = height - SPLIT * (ids.length - 1);
     const sum = ids.reduce((total, id) => total + layout.heights[id], 0);
     const parts = [];
-    let y = 0;
+    let y = top;
     ids.forEach((id, index) => {
       const last = index === ids.length - 1;
-      const h = last ? height - y : Math.round((layout.heights[id] / sum) * room);
+      const h = last ? top + height - y : Math.round((layout.heights[id] / sum) * room);
       const el = element(id);
       el.classList.remove("is-floating");
       el.style.zIndex = "";
@@ -179,18 +179,30 @@
 
     let from = 0;
     let to = W;
+    let top = 0;
+    let bottom = H;
     const tools = element("tools");
     tools.dataset.place = layout.tools;
     tools.classList.toggle("is-floating", layout.tools === "float");
+    // At the top or the bottom, the tools lie in a row across the whole window
+    tools.setAttribute("aria-orientation", layout.tools === "top" || layout.tools === "bottom" ? "horizontal" : "vertical");
+    if (layout.tools !== "float") tools.style.zIndex = "";
     if (layout.tools === "left") {
       place(tools, 0, 0, TOOLS, H);
-      tools.style.zIndex = "";
       from = TOOLS;
     } else if (layout.tools === "right") {
       place(tools, W - TOOLS, 0, TOOLS, H);
-      tools.style.zIndex = "";
       to = W - TOOLS;
+    } else if (layout.tools === "top") {
+      place(tools, 0, 0, W, TOOLS);
+      top = TOOLS;
+    } else if (layout.tools === "bottom") {
+      place(tools, 0, H - TOOLS, W, TOOLS);
+      bottom = H - TOOLS;
     }
+    const tall = bottom - top;
+    geometry.top = top;
+    geometry.bottom = bottom;
 
     // Columns give way before the page does
     const wanted = COLUMNS.map((name) => (shownIn(name).length ? layout.columns[name].width : 0));
@@ -201,21 +213,21 @@
     let docsFrom = from;
     let docsTo = to;
     if (leftW) {
-      stack("left", from, leftW, H);
-      addSplit("v", from + leftW, 0, SPLIT, H, widthSplit("left", 1));
+      stack("left", from, leftW, top, tall);
+      addSplit("v", from + leftW, top, SPLIT, tall, widthSplit("left", 1));
       docsFrom = from + leftW + SPLIT;
     }
     if (rightW) {
-      stack("right", to - rightW, rightW, H);
-      addSplit("v", to - rightW - SPLIT, 0, SPLIT, H, widthSplit("right", -1));
+      stack("right", to - rightW, rightW, top, tall);
+      addSplit("v", to - rightW - SPLIT, top, SPLIT, tall, widthSplit("right", -1));
       docsTo = to - rightW - SPLIT;
     }
     if (middleW) {
-      stack("middle", docsTo - middleW, middleW, H);
-      addSplit("v", docsTo - middleW - SPLIT, 0, SPLIT, H, widthSplit("middle", -1));
+      stack("middle", docsTo - middleW, middleW, top, tall);
+      addSplit("v", docsTo - middleW - SPLIT, top, SPLIT, tall, widthSplit("middle", -1));
       docsTo = docsTo - middleW - SPLIT;
     }
-    place(docs, docsFrom, 0, docsTo - docsFrom, H);
+    place(docs, docsFrom, top, docsTo - docsFrom, tall);
     geometry.docs = { x: docsFrom, w: docsTo - docsFrom };
     geometry.to = to;
 
@@ -270,28 +282,33 @@
   // at the edge of the page. Anywhere else it floats, even over a panel.
   const dropTarget = (id, x, y) => {
     const H = geometry.height;
+    const W = geometry.width;
     if (id === "tools") {
       if (x < 56) return { tools: "left", rect: { x: 0, y: 0, w: TOOLS, h: H } };
-      if (x > geometry.width - 56) return { tools: "right", rect: { x: geometry.width - TOOLS, y: 0, w: TOOLS, h: H } };
+      if (x > W - 56) return { tools: "right", rect: { x: W - TOOLS, y: 0, w: TOOLS, h: H } };
+      if (y < 40) return { tools: "top", rect: { x: 0, y: 0, w: W, h: TOOLS } };
+      if (y > H - 40) return { tools: "bottom", rect: { x: 0, y: H - TOOLS, w: W, h: TOOLS } };
       return null;
     }
+    const top = geometry.top || 0;
+    const bottom = geometry.bottom || H;
     const edge = 36;
     const emptyOf = (name) => !geometry.columns[name] || !geometry.columns[name].parts.some((part) => part.id !== id);
     if (emptyOf("left") && !geometry.columns.left && x >= geometry.docs.x && x < geometry.docs.x + edge) {
-      return { column: "left", before: null, rect: { x: geometry.docs.x, y: 0, w: edge, h: H } };
+      return { column: "left", before: null, rect: { x: geometry.docs.x, y: top, w: edge, h: bottom - top } };
     }
-    if (!geometry.columns.right && x > geometry.to - edge) return { column: "right", before: null, rect: { x: geometry.to - edge, y: 0, w: edge, h: H } };
+    if (!geometry.columns.right && x > geometry.to - edge) return { column: "right", before: null, rect: { x: geometry.to - edge, y: top, w: edge, h: bottom - top } };
     if (!geometry.columns.middle && x > geometry.docs.x + geometry.docs.w - edge && x <= geometry.docs.x + geometry.docs.w) {
-      return { column: "middle", before: null, rect: { x: geometry.docs.x + geometry.docs.w - edge, y: 0, w: edge, h: H } };
+      return { column: "middle", before: null, rect: { x: geometry.docs.x + geometry.docs.w - edge, y: top, w: edge, h: bottom - top } };
     }
     for (const name of COLUMNS) {
       const column = geometry.columns[name];
       if (!column || x < column.x || x > column.x + column.w) continue;
       const parts = column.parts.filter((part) => part.id !== id);
-      if (!parts.length) return { column: name, before: null, rect: { x: column.x, y: 0, w: column.w, h: H } };
+      if (!parts.length) return { column: name, before: null, rect: { x: column.x, y: top, w: column.w, h: bottom - top } };
       for (let index = 0; index <= parts.length; index++) {
-        const at = index < parts.length ? parts[index].y : H;
-        if (Math.abs(y - at) <= 30) return { column: name, before: index < parts.length ? parts[index].id : null, rect: { x: column.x, y: clamp(at - 3, 0, H - 6), w: column.w, h: 6 } };
+        const at = index < parts.length ? parts[index].y : bottom;
+        if (Math.abs(y - at) <= 30) return { column: name, before: index < parts.length ? parts[index].id : null, rect: { x: column.x, y: clamp(at - 3, top, bottom - 6), w: column.w, h: 6 } };
       }
     }
     return null;
@@ -333,8 +350,8 @@
     if (Shell.touch || event.button !== 0) return;
     const box = el.getBoundingClientRect();
     const area = work.getBoundingClientRect();
-    const grabX = event.clientX - box.left;
-    const grabY = event.clientY - box.top;
+    let grabX = event.clientX - box.left;
+    let grabY = event.clientY - box.top;
     const startX = event.clientX;
     const startY = event.clientY;
     let lifted = false;
@@ -345,6 +362,15 @@
         lifted = true;
         el.classList.add("is-moving");
         el.style.zIndex = 40;
+        // Out of a row, the tools stand upright again, held by their grip
+        if (id === "tools" && (layout.tools === "top" || layout.tools === "bottom")) {
+          el.dataset.place = "float";
+          el.setAttribute("aria-orientation", "vertical");
+          el.style.width = `${TOOLS}px`;
+          el.style.height = "auto";
+          grabX = TOOLS / 2;
+          grabY = 5;
+        }
       }
       el.style.left = `${next.clientX - area.left - grabX}px`;
       el.style.top = `${clamp(next.clientY - area.top - grabY, 0, area.height - HEAD)}px`;

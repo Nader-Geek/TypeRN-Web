@@ -10,7 +10,7 @@
 // Without a relay (the service now takes each install's own token), { on: true } is enough,
 // from typer.hayasaku.fr or the desktop app: the service refuses other addresses.
 // Add "confidence" (0.05 to 0.95, 0.2 by default; lower catches more text) to that object to
-// change it. localStorage.removeItem("typer.web.textmask") hides the feature again.
+// change it. localStorage.removeItem("typer.web.textmask") goes back to the service itself.
 
 "use strict";
 

@@ -307,7 +307,10 @@ const ALLOWED = new Set(["local-fonts", "fileSystem", "clipboard-read", "clipboa
 const setPermissions = () => {
   const { defaultSession: ours } = session;
   ours.setPermissionRequestHandler((contents, permission, grant, details) => grant(ALLOWED.has(permission) && isOurs(details.requestingUrl)));
-  ours.setPermissionCheckHandler((contents, permission, origin) => ALLOWED.has(permission) && origin.startsWith(`${SCHEME}://`));
+  ours.setPermissionCheckHandler((contents, permission, origin, details) => {
+    if (permission === "fileSystem") noteWhere(details);
+    return ALLOWED.has(permission) && origin.startsWith(`${SCHEME}://`);
+  });
   // Answering "allow" here only leaves an empty file behind: the writing is refused later anyway
   ours.on("file-system-access-restricted", async (event, details, callback) => {
     await dialog.showMessageBox(win, { type: "info", message: strings.protectedPlace || "This place is protected by the system. Choose another one.", buttons: [strings.ok || "OK"] });
@@ -464,6 +467,214 @@ ipcMain.on("local-ai-cancel", (event, id) => {
   const controller = fromPage(event) && localJobs.get(String(id));
   if (controller) controller.abort();
 });
+
+// The Font FindeR's fonts, installed for this user only, as TypeR for Photoshop does: no admin
+// rights. Only font files, under a plain name, in the user's own font folder. On a Mac CoreText
+// watches that folder; on Windows the font is also registered under HKCU and announced to the
+// running apps.
+const FONT_FILE_LIMIT = 50 * 1024 * 1024;
+const FONT_KIND = { OTTO: ".otf", ttcf: ".ttc", true: ".ttf", "\u0000\u0001\u0000\u0000": ".ttf" };
+// Tests install into a folder of their own
+const fontFolder = () => (isTest && process.env.TYPER_TEST_FONTS) || (isMac
+  ? path.join(app.getPath("home"), "Library", "Fonts")
+  : path.join(process.env.LOCALAPPDATA || path.join(app.getPath("home"), "AppData", "Local"), "Microsoft", "Windows", "Fonts"));
+const psQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
+const registerWindowsFonts = (entries) => new Promise((resolve, reject) => {
+  const script = [
+    "$ErrorActionPreference = 'Stop';",
+    "$reg = 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts';",
+    "if (-not (Test-Path $reg)) { New-Item -Path $reg -Force | Out-Null };",
+    "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class TypeRFontApi { [DllImport(\"gdi32.dll\")] public static extern int AddFontResource(string path); [DllImport(\"user32.dll\")] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result); }';",
+    ...entries.flatMap((entry) => [
+      `New-ItemProperty -Path $reg -Name ${psQuote(entry.registryName)} -Value ${psQuote(entry.path)} -PropertyType String -Force | Out-Null;`,
+      `[void][TypeRFontApi]::AddFontResource(${psQuote(entry.path)});`,
+    ]),
+    // HWND_BROADCAST + WM_FONTCHANGE, and a hung window doesn't stall the install
+    "$out = [IntPtr]::Zero;",
+    "[void][TypeRFontApi]::SendMessageTimeout([IntPtr]0xffff, 0x1D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]$out);",
+  ].join(" ");
+  const { execFile } = require("child_process");
+  execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { windowsHide: true }, (error) => (error ? reject(error) : resolve()));
+});
+const installFonts = async (fonts) => {
+  if (!Array.isArray(fonts) || !fonts.length || fonts.length > 200) throw new Error("Bad request.");
+  if (!isMac && process.platform !== "win32") return 0;
+  const files = fonts.map((font) => {
+    const bytes = font && font.bytes;
+    if (!(bytes instanceof Uint8Array) || bytes.length < 12 || bytes.length > FONT_FILE_LIMIT) throw new Error("Not a font file.");
+    const extension = FONT_KIND[Buffer.from(bytes.subarray(0, 4)).toString("latin1")];
+    if (!extension) throw new Error("Not a font file.");
+    const stem = path.basename(String(font.name || "font")).replace(/\.[^.]*$/, "").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").trim().slice(0, 120) || "font";
+    const displayName = String(font.displayName || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 200) || stem;
+    return { bytes, fileName: stem + extension, registryName: `${displayName} (${extension === ".otf" ? "OpenType" : "TrueType"})` };
+  });
+  const folder = fontFolder();
+  await fs.promises.mkdir(folder, { recursive: true });
+  const entries = [];
+  for (const file of files) {
+    const target = path.join(folder, file.fileName);
+    await fs.promises.writeFile(target, file.bytes);
+    entries.push({ path: target, registryName: file.registryName });
+  }
+  if (process.platform === "win32") await registerWindowsFonts(entries);
+  return entries.length;
+};
+ipcMain.handle("install-fonts", async (event, fonts) => {
+  if (!fromPage(event)) return { ok: false, message: "Not allowed." };
+  try {
+    return { ok: true, count: await installFonts(fonts) };
+  } catch (error) {
+    console.warn("Font install:", error);
+    return { ok: false, message: String(error.message || error).slice(0, 300) };
+  }
+});
+
+/* --------------------------------- Open in Photoshop -------------------------------- */
+
+// Where a file the page holds is: a handle doesn't say, but asking about its permission makes
+// Chromium check it here, with its path. The page asks about one handle at a time, between
+// where-start and where-end; a path is only taken when its name and kind are the handle's.
+// Photoshop is only given the paths found this way.
+let whereAsked = null;
+let whereCount = 0;
+const knownPaths = new Set();
+const noteWhere = (details) => {
+  if (!whereAsked || !details || !details.filePath) return;
+  if (path.basename(details.filePath) !== whereAsked.name || Boolean(details.isDirectory) !== whereAsked.directory) return;
+  whereAsked.paths.add(details.filePath);
+};
+ipcMain.handle("where-start", (event, name, directory) => {
+  if (!fromPage(event)) return 0;
+  whereAsked = { token: ++whereCount, name: String(name), directory: Boolean(directory), paths: new Set() };
+  return whereAsked.token;
+});
+ipcMain.handle("where-end", (event, token) => {
+  const asked = whereAsked;
+  if (!fromPage(event) || !asked || asked.token !== token) return null;
+  whereAsked = null;
+  if (asked.paths.size !== 1) return null;
+  const [found] = asked.paths;
+  knownPaths.add(found);
+  return found;
+});
+
+// The Photoshops installed: the folders Adobe's installer uses, and on a Mac whatever Spotlight
+// knows as Photoshop elsewhere. The newest first.
+const execText = (file, args) => new Promise((resolve) => {
+  const { execFile } = require("child_process");
+  execFile(file, args, { timeout: 5000, windowsHide: true }, (error, stdout) => resolve(error ? "" : String(stdout)));
+});
+const exists = (file) => fs.promises.access(file).then(() => true, () => false);
+const childrenOf = (folder) => fs.promises.readdir(folder).catch(() => []);
+const PHOTOSHOP_ID = /^com\.adobe\.photoshop/i;
+const findMacPhotoshops = async () => {
+  const bundles = [];
+  for (const root of ["/Applications", path.join(app.getPath("home"), "Applications")]) {
+    for (const name of (await childrenOf(root)).filter((one) => /^Adobe Photoshop/i.test(one))) {
+      const full = path.join(root, name);
+      if (/\.app$/i.test(name)) bundles.push(full);
+      else (await childrenOf(full)).filter((one) => /^Adobe Photoshop.*\.app$/i.test(one)).forEach((one) => bundles.push(path.join(full, one)));
+    }
+  }
+  (await execText("/usr/bin/mdfind", ["kMDItemCFBundleIdentifier == 'com.adobe.Photoshop'"])).split("\n")
+    .filter((line) => /\.app$/i.test(line) && !line.includes("/.Trash/")).forEach((line) => bundles.push(line));
+  const found = [];
+  for (const bundle of bundles) {
+    const plist = path.join(bundle, "Contents", "Info.plist");
+    const value = async (key) => (await execText("/usr/bin/plutil", ["-extract", key, "raw", "-o", "-", plist])).trim();
+    if (!PHOTOSHOP_ID.test(await value("CFBundleIdentifier"))) continue;
+    found.push({ path: bundle, name: path.basename(bundle).replace(/\.app$/i, ""), version: await value("CFBundleShortVersionString") });
+  }
+  return found;
+};
+const findWindowsPhotoshops = async () => {
+  const folders = [];
+  const listed = await execText("reg", ["query", "HKLM\\SOFTWARE\\Adobe\\Photoshop", "/s", "/v", "ApplicationPath"]);
+  listed.split(/\r?\n/).forEach((line) => {
+    const match = /^\s*ApplicationPath\s+REG_SZ\s+(.+?)\s*$/.exec(line);
+    if (match) folders.push(match[1]);
+  });
+  for (const programs of [process.env.ProgramW6432, process.env.ProgramFiles].filter(Boolean)) {
+    const adobe = path.join(programs, "Adobe");
+    (await childrenOf(adobe)).filter((name) => /^Adobe Photoshop/i.test(name)).forEach((name) => folders.push(path.join(adobe, name)));
+  }
+  const found = [];
+  for (const folder of folders) {
+    const exe = path.join(folder, "Photoshop.exe");
+    if (await exists(exe)) found.push({ path: exe, name: path.basename(folder.replace(/[\\/]+$/, "")), version: "" });
+  }
+  return found;
+};
+const findPhotoshops = async () => {
+  let found = [];
+  if (process.env.TYPER_TEST_PHOTOSHOP) found = JSON.parse(process.env.TYPER_TEST_PHOTOSHOP);
+  // A test must not find the Photoshop of the computer it runs on
+  else if (isTest) found = [];
+  else if (isMac) found = await findMacPhotoshops();
+  else if (process.platform === "win32") found = await findWindowsPhotoshops();
+  const byPlace = new Map();
+  for (const one of found) {
+    let place = one.path;
+    try {
+      place = await fs.promises.realpath(one.path);
+    } catch (error) {}
+    if (!byPlace.has(place.toLowerCase())) byPlace.set(place.toLowerCase(), { id: place, name: one.name, version: one.version || "" });
+  }
+  const order = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  return [...byPlace.values()].sort((a, b) => order.compare(b.name, a.name));
+};
+
+const openInPhotoshop = async (target, files) => {
+  if (isTest) {
+    global.typerPhotoshopOpened = (global.typerPhotoshopOpened || []).concat([{ app: target.id, files }]);
+    return;
+  }
+  if (isMac) {
+    await new Promise((resolve, reject) => {
+      const { execFile } = require("child_process");
+      execFile("/usr/bin/open", ["-a", target.id, ...files], { timeout: 30000 }, (error, stdout, stderr) => (error ? reject(new Error(String(stderr || error.message).trim())) : resolve()));
+    });
+    return;
+  }
+  // A Photoshop already open takes the files from the one started here
+  const { spawn } = require("child_process");
+  await new Promise((resolve, reject) => {
+    const child = spawn(target.id, files, { detached: true, stdio: "ignore" });
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
+};
+
+ipcMain.handle("photoshop-list", async (event) => {
+  if (!fromPage(event)) return [];
+  try {
+    return await findPhotoshops();
+  } catch (error) {
+    console.warn("Finding Photoshop:", error);
+    return [];
+  }
+});
+ipcMain.handle("photoshop-open", async (event, id, paths) => {
+  if (!fromPage(event)) return { ok: false, message: "Not allowed." };
+  try {
+    const target = (await findPhotoshops()).find((one) => one.id === id);
+    if (!target) return { ok: false, message: "This Photoshop is no longer on this computer." };
+    const files = [];
+    for (const file of Array.isArray(paths) ? paths : []) {
+      if (typeof file === "string" && knownPaths.has(file) && /\.ps[db]$/i.test(file) && (await exists(file)) && !files.includes(file)) files.push(file);
+    }
+    if (!files.length) return { ok: false, message: "No file to open." };
+    await openInPhotoshop(target, files);
+    return { ok: true, count: files.length };
+  } catch (error) {
+    console.warn("Open in Photoshop:", error);
+    return { ok: false, message: String(error.message || error).slice(0, 300) };
+  }
+});
+
 ipcMain.on("reload-for-update", () => {
   farewellDone = true;
   app.relaunch();
