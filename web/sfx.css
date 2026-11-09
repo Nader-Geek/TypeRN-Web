@@ -59,7 +59,7 @@
 .obar .sfx__family { min-width: 120px; max-width: 160px; }
 .obar .sfx__pair { display: inline-flex; align-items: center; gap: 5px; }
 .obar .sfx__acts { display: inline-flex; gap: 4px; }
-.obar .sfx__acts .btn.is-on { background: var(--blue-dark); color: #fff; }
+.obar .sfx__acts .btn.is-on { background: var(--blue-dark); color: var(--on-blue); }
 .obar .sfx__letter-name { cursor: help; }
 .icon-btn .sfx-dot { fill: currentColor; stroke: none; }
 .obar .sfx__preset { max-width: 140px; }
@@ -92,7 +92,7 @@ html.touch .pane--sfx { display: none; }
 .sfxg__knob { fill: var(--blue); stroke: #fff; stroke-width: 0.7; }
 .sfxg__stem { stroke: var(--blue); stroke-width: 0.8; }
 .sfxg__box { fill: none; stroke: var(--blue); stroke-width: 1; }
-.sfxg__typed { fill: rgba(40, 142, 223, 0.35); }
+.sfxg__typed { fill: rgb(var(--blue-rgb) / 0.35); }
 .sfxg__bubble { fill: #fff; stroke: #111; stroke-width: 1.2; }
 .sfxg__ptr { fill: #111; stroke: #fff; stroke-width: 0.9; stroke-linejoin: round; }
 .sfxg__press { fill: rgba(240, 160, 32, 0.45); }

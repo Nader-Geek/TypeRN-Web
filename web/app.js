@@ -9585,7 +9585,7 @@
 
   // The app's greys and blue, from a theme's colours. Photoshop's theme is the app's own.
   const STORE_THEME = "typer.web.theme";
-  const THEME_PROPERTIES = ["--ui", "--ui-2", "--ui-3", "--ui-4", "--ui-dark", "--ui-darker", "--line", "--text", "--muted", "--blue", "--blue-dark", "--blue-darker", "--strong", "--stage", "--tabbar", "--gap"];
+  const THEME_PROPERTIES = ["--ui", "--ui-2", "--ui-3", "--ui-4", "--ui-dark", "--ui-darker", "--line", "--text", "--muted", "--blue", "--blue-dark", "--blue-darker", "--strong", "--stage", "--tabbar", "--gap", "--blue-rgb", "--blue-text", "--blue-text-rgb", "--on-blue", "--tint-rgb", "--disabled"];
   const paletteOf = (colours) => {
     const surface = parseColour(colours.surface);
     if (!surface) return null;
@@ -9596,6 +9596,16 @@
     const accent = over(parseColour(colours.accent) || { r: 40, g: 142, b: 223, a: 1 }, surface);
     const muted = over(parseColour(colours.muted) || mix(text, panel, 0.35), panel);
     const black = { r: 0, g: 0, b: 0 };
+    const white = { r: 255, g: 255, b: 255 };
+    const blueDark = mix(accent, black, 0.12);
+    // The text on the accent: the theme's own, or whichever of white and its darkest grey reads best
+    const accentText = parseColour(colours.accentText);
+    const onBlue = accentText && accentText.a >= 1 ? accentText : lightness(blueDark) > 0.55 ? mix(surface, black, 0.3) : white;
+    // Light text in the accent's colour (a section's title, a tool turned on)
+    const blueText = light ? mix(accent, black, 0.2) : mix(accent, white, 0.35);
+    const triplet = ({ r, g, b }) => [r, g, b].map((n) => Math.round(n)).join(" ");
+    // A black theme has nothing darker for its lines: they are a little lighter than it
+    const line = light ? mix(panel, text, 0.2) : lightness(surface) < 0.03 ? mix(surface, text, 0.14) : mix(surface, black, 0.25);
     return {
       mode: light ? "light" : "dark",
       properties: {
@@ -9604,17 +9614,23 @@
         "--ui-3": colourText(mix(panel, text, 0.16)),
         "--ui-dark": colourText(input),
         "--ui-darker": colourText(surface),
-        "--line": colourText(light ? mix(panel, text, 0.2) : mix(surface, black, 0.25)),
+        "--line": colourText(line),
         "--text": colourText(text),
         "--muted": colourText(muted),
         "--blue": colourText(accent),
-        "--blue-dark": colourText(mix(accent, black, 0.12)),
+        "--blue-dark": colourText(blueDark),
         "--strong": light ? colourText(text) : "#fff",
         "--ui-4": colourText(mix(panel, text, 0.24)),
         "--blue-darker": colourText(mix(accent, black, 0.22)),
         "--stage": colourText(light ? mix(panel, text, 0.22) : mix(surface, black, 0.12)),
         "--tabbar": colourText(mix(surface, panel, 0.5)),
         "--gap": colourText(light ? mix(panel, text, 0.3) : mix(surface, black, 0.3)),
+        "--blue-rgb": triplet(accent),
+        "--blue-text": colourText(blueText),
+        "--blue-text-rgb": triplet(blueText),
+        "--on-blue": colourText(onBlue),
+        "--tint-rgb": light ? "0 0 0" : "255 255 255",
+        "--disabled": colourText(mix(muted, panel, 0.4)),
       },
     };
   };
@@ -9628,6 +9644,8 @@
     }
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.content = palette ? palette.properties["--ui-darker"] : "#232121";
+    // On Windows, the window's own buttons sit on the menu bar: they take its colours
+    if (window.TypeRDesktop && window.TypeRDesktop.setTitleBar) window.TypeRDesktop.setTitleBar(palette ? palette.properties["--ui-darker"] : "#232121", palette ? palette.properties["--text"] : "#e3e4e4");
     // Read again before the app's own stylesheet, at the next start (index.html)
     try {
       if (palette) window.localStorage.setItem(STORE_THEME, JSON.stringify(palette));
@@ -9649,7 +9667,7 @@
     }
     const style = doc.defaultView.getComputedStyle(html);
     const colours = {};
-    ["surface", "panel", "input", "text", "muted", "accent"].forEach((key) => { colours[key] = style.getPropertyValue(`--editor-${key}`).trim(); });
+    ["surface", "panel", "input", "text", "muted", "accent", "accentText"].forEach((key) => { colours[key] = style.getPropertyValue(`--editor-${key}`).trim(); });
     if (id === IMAGE_THEME) {
       const storage = readPanelStorage() || {};
       Object.assign(colours, IMAGE_BASES[storage.backgroundImage && storage.backgroundImage.mode === "light" ? "light" : "dark"]);

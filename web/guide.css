@@ -3,7 +3,7 @@
 /* The lessons */
 .guide-hub { display: flex; flex-direction: column; width: min(760px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 32px)); }
 .guide-hub:not([open]) { display: none; }
-.guide-hub__head { display: grid; gap: 8px; padding: 18px 20px 12px; background: linear-gradient(135deg, rgba(40, 142, 223, 0.18), rgba(240, 160, 32, 0.08)); border-bottom: 1px solid var(--line); }
+.guide-hub__head { display: grid; gap: 8px; padding: 18px 20px 12px; background: linear-gradient(135deg, rgb(var(--blue-rgb) / 0.18), rgba(240, 160, 32, 0.08)); border-bottom: 1px solid var(--line); }
 .guide-hub__title { margin: 0; font-size: 18px; font-weight: 700; }
 .guide-hub__lead { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; max-width: 62ch; }
 .guide-hub__progress { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
@@ -15,7 +15,7 @@
 .guide-lesson:hover { background: var(--ui-2); border-color: var(--ui-3); transform: translateY(-1px); }
 .guide-lesson:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
 .guide-lesson.is-next { border-color: var(--blue); box-shadow: inset 3px 0 0 var(--blue); }
-.guide-lesson__icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; background: rgba(40, 142, 223, 0.16); color: #6cb6f0; }
+.guide-lesson__icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; background: rgb(var(--blue-rgb) / 0.16); color: var(--blue-text); }
 .guide-lesson.is-done .guide-lesson__icon { background: rgba(63, 185, 80, 0.16); color: #3fb950; }
 .guide-lesson__words { display: grid; gap: 3px; min-width: 0; }
 .guide-lesson__words strong { font-size: 13px; }
