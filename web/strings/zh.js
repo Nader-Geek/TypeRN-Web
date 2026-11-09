@@ -935,5 +935,9 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Subtract from Sample": "从取样中减去",
     "Click the page or the preview to pick a colour. Shift adds to the sample, Alt takes it away.": "单击页面或预览以拾取颜色。Shift 添加到取样，Alt 从中减去。",
     "No pixels are more than 50% selected: the selection stays as it was.": "没有像素的选择程度超过 50%：选区保持不变。",
+    "About TypeR Studio…": "关于 TypeR Studio…",
+    "About TypeR Studio": "关于 TypeR Studio",
+    "Thanks": "致谢",
+    "Miller, for the help and the API behind automatic text detection.": "Miller：感谢其帮助，以及自动文字检测背后的 API。",
   },
 });

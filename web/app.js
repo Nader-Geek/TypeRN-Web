@@ -10962,6 +10962,7 @@
       { label: "Report a Problem", action: () => window.open("https://github.com/ScanR/TypeR/issues/new", "_blank", "noopener") },
       { label: "Discord Server", action: () => window.open(DISCORD, "_blank", "noopener") },
       { label: "Support the Project", action: () => window.open(KOFI, "_blank", "noopener") },
+      { label: "About TypeR Studio…", action: () => showAbout() },
       ...(DESKTOP ? [] : [{ label: "Back to the Site", action: () => { window.location.href = "../"; } }]),
     ]],
   ];
@@ -11625,6 +11626,21 @@
   };
 
   const showShortcuts = () => showSettings("shortcuts");
+  // Help > About TypeR Studio: the people to thank
+  const showAbout = () => {
+    const body = document.createElement("div");
+    body.className = "about";
+    const name = document.createElement("p");
+    name.className = "about__name";
+    name.textContent = "TypeR Studio";
+    const head = document.createElement("p");
+    head.className = "about__head";
+    head.textContent = T("Thanks");
+    const miller = document.createElement("p");
+    miller.textContent = T("Miller, for the help and the API behind automatic text detection.");
+    body.append(name, head, miller);
+    dialog({ title: T("About TypeR Studio"), body, cancel: false });
+  };
 
   // A right click: the commands of the menus that can act here and now, and only those
   let contextMenu = null;

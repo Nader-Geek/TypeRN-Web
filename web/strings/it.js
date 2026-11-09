@@ -935,5 +935,9 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Subtract from Sample": "Sottrai dal campione",
     "Click the page or the preview to pick a colour. Shift adds to the sample, Alt takes it away.": "Fai clic sulla pagina o sull’anteprima per prelevare un colore. Maiusc lo aggiunge al campione, Alt lo toglie.",
     "No pixels are more than 50% selected: the selection stays as it was.": "Nessun pixel è selezionato per più del 50%: la selezione resta com’era.",
+    "About TypeR Studio…": "Informazioni su TypeR Studio…",
+    "About TypeR Studio": "Informazioni su TypeR Studio",
+    "Thanks": "Ringraziamenti",
+    "Miller, for the help and the API behind automatic text detection.": "Miller, per l’aiuto e l’API dietro il rilevamento automatico del testo.",
   },
 });

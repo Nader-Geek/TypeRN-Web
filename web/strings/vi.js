@@ -935,5 +935,9 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Subtract from Sample": "Bớt khỏi mẫu",
     "Click the page or the preview to pick a colour. Shift adds to the sample, Alt takes it away.": "Nhấp vào trang hoặc bản xem trước để lấy màu. Shift thêm vào mẫu, Alt bớt đi.",
     "No pixels are more than 50% selected: the selection stays as it was.": "Không có pixel nào được chọn quá 50%: vùng chọn giữ nguyên.",
+    "About TypeR Studio…": "Giới thiệu TypeR Studio…",
+    "About TypeR Studio": "Giới thiệu TypeR Studio",
+    "Thanks": "Lời cảm ơn",
+    "Miller, for the help and the API behind automatic text detection.": "Miller, vì sự giúp đỡ và API đứng sau tính năng tự động nhận diện chữ.",
   },
 });
