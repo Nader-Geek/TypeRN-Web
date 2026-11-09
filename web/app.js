@@ -4390,8 +4390,9 @@
       default: return T("The text detection didn't go through.") + (detail || ` (${String((error && error.message) || error)})`);
     }
   };
-  // The selection's areas, each told whether it lies on a plain background
-  const selectionAreas = (doc, full, page) => Mask.split(full, doc.width, doc.height, textLink(doc)).map((area) => Object.assign(area, Mask.plainOf(area, page.data, doc.width, doc.height, full)));
+  // The selection's areas, each told whether it lies on a plain background (one colour or a
+  // smooth shading), which TypeR paints over itself, without the model
+  const selectionAreas = (doc, full, page) => Mask.areasOf(full, page.data, doc.width, doc.height, textLink(doc), textGrow(doc));
   // While the text is looked for, a small note at the bottom left of the page: nothing waits on it
   const selectText = async () => {
     if (!TextMask || textFind.running || textFind.landing || pixelsOnly()) return;
@@ -4452,9 +4453,10 @@
     taskBarKey = "";
     schedule(false);
   };
-  // Remove Text: the selection split into its areas. Those on a plain background are filled
-  // with that colour at once, on TypeR Clean, in one step; those over the art are redrawn by
-  // Generative Fill with its model, each on its own layer in a "Text removed" folder.
+  // Remove Text: the selection split into its areas. Those on a plain background are painted
+  // over with it at once (one colour or a shading), on TypeR Clean, in one step; those over the
+  // art are redrawn by Generative Fill with its model, each on its own layer in a "Text removed"
+  // folder.
   // `which`: "all", "art" (over the art only) or "plain" (plain backgrounds only).
   const removeText = async (which = "all") => {
     if (!TextMask || pixelsOnly()) return;

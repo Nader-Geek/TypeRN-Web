@@ -1,7 +1,8 @@
 // Detect Text and Remove Text: the page, without its texts, goes to a text detection model
 // (Temizle, by Safi Çizgi), which answers with where the letters are. That becomes a selection;
-// Remove Text then splits it into its areas, fills those on a plain background with that colour
-// and has Generative Fill redraw those over the art (app.js does the asking and the showing).
+// Remove Text then splits it into its areas, paints those on a plain background (one colour or a
+// smooth shading) back itself and has Generative Fill redraw only those over the art (app.js does
+// the asking and the showing).
 //
 // No key: each install gets its own anonymous token from the service (/v1/device), so each
 // person has their own limit. On for everyone: `typer.web.textmask` in localStorage can hold
@@ -213,8 +214,9 @@
 
   // The areas of `mask`: the parts no further than `link` pixels apart go together (the letters
   // of a balloon, of a sound effect). Each is { left, top, width, height, data, count }, its
-  // `data` one byte a pixel over its bounds, from `mask` only.
-  const split = (mask, w, h, link) => {
+  // `data` one byte a pixel over its bounds, from `mask` only. Parts of fewer than `least`
+  // pixels are left out: nothing a person would call text.
+  const split = (mask, w, h, link, least = 12) => {
     const grouped = link > 0 ? dilate(mask, w, h, link) : mask;
     const labels = new Int32Array(w * h);
     const stack = new Int32Array(w * h);
@@ -248,8 +250,7 @@
     const areas = [];
     for (let label = 1; label <= next; label++) {
       const box = boxes[label];
-      // A speck: nothing a person would call text
-      if (box.count < 12) continue;
+      if (box.count < least) continue;
       const width = box.right - box.left + 1;
       const height = box.bottom - box.top + 1;
       const data = new Uint8Array(width * height);
@@ -264,51 +265,430 @@
     return areas;
   };
 
-  // Whether `area` lies on a plain background: what surrounds it (a band of `band` pixels, the
-  // other letters left out) is nearly all one colour. { plain, colour: { r, g, b } }
-  const plainOf = (area, rgba, w, h, all, band = 6) => {
+  /* ------------------ what can be painted over without the model ------------------ */
+
+  // How far, on each channel, a pixel may be from the background and still be the background
+  // (the grain of a scan, of a JPEG)
+  const TOLERANCE = 20;
+  // The pixels this close to the letters are the ones the paint will meet: nearly all of them
+  // must be the background
+  const NEAR = 2;
+
+  // Least squares: the six numbers of a smooth shading (1, u, v, u², uv, v²) for each channel,
+  // from the samples `use` keeps. Null when they can't be told apart (too few, all in a line).
+  const fitShading = (count, us, vs, colours, use) => {
+    const ata = new Float64Array(36);
+    const aty = new Float64Array(18);
+    const t = new Float64Array(6);
+    let n = 0;
+    for (let s = 0; s < count; s++) {
+      if (!use[s]) continue;
+      n++;
+      const u = us[s];
+      const v = vs[s];
+      t[0] = 1; t[1] = u; t[2] = v; t[3] = u * u; t[4] = u * v; t[5] = v * v;
+      for (let i = 0; i < 6; i++) {
+        for (let j = i; j < 6; j++) ata[i * 6 + j] += t[i] * t[j];
+        for (let c = 0; c < 3; c++) aty[i * 3 + c] += t[i] * colours[s * 3 + c];
+      }
+    }
+    if (n < 12) return null;
+    for (let i = 0; i < 6; i++) for (let j = 0; j < i; j++) ata[i * 6 + j] = ata[j * 6 + i];
+    // A touch of ridge, so a shading the samples barely tell stays flat rather than wild
+    for (let i = 0; i < 6; i++) ata[i * 6 + i] += n * (i ? 1e-3 : 1e-9);
+    // Gaussian elimination, the three channels at once
+    for (let col = 0; col < 6; col++) {
+      let pivot = col;
+      for (let row = col + 1; row < 6; row++) if (Math.abs(ata[row * 6 + col]) > Math.abs(ata[pivot * 6 + col])) pivot = row;
+      if (Math.abs(ata[pivot * 6 + col]) < 1e-12) return null;
+      if (pivot !== col) {
+        for (let k = 0; k < 6; k++) [ata[col * 6 + k], ata[pivot * 6 + k]] = [ata[pivot * 6 + k], ata[col * 6 + k]];
+        for (let c = 0; c < 3; c++) [aty[col * 3 + c], aty[pivot * 3 + c]] = [aty[pivot * 3 + c], aty[col * 3 + c]];
+      }
+      for (let row = 0; row < 6; row++) {
+        if (row === col) continue;
+        const f = ata[row * 6 + col] / ata[col * 6 + col];
+        if (!f) continue;
+        for (let k = col; k < 6; k++) ata[row * 6 + k] -= f * ata[col * 6 + k];
+        for (let c = 0; c < 3; c++) aty[row * 3 + c] -= f * aty[col * 3 + c];
+      }
+    }
+    const coef = new Float64Array(18);
+    for (let i = 0; i < 6; i++) for (let c = 0; c < 3; c++) coef[i * 3 + c] = aty[i * 3 + c] / ata[i * 6 + i];
+    return (u, v, c) => coef[c] + coef[3 + c] * u + coef[6 + c] * v + coef[9 + c] * u * u + coef[12 + c] * u * v + coef[15 + c] * v * v;
+  };
+
+  // What is known of a field (three numbers a pixel, where `known`), carried smoothly into the
+  // rest: averaged on coarser and coarser grids, then brought back down (push-pull)
+  const carry = (values, known, w, h) => {
+    const levels = [{ w, h, sum: values, weight: Float32Array.from(known) }];
+    for (let i = 0; i < w * h; i++) if (!known[i]) values[i * 3] = values[i * 3 + 1] = values[i * 3 + 2] = 0;
+    while (levels[levels.length - 1].w > 1 || levels[levels.length - 1].h > 1) {
+      const fine = levels[levels.length - 1];
+      const cw = Math.ceil(fine.w / 2);
+      const ch = Math.ceil(fine.h / 2);
+      const sum = new Float32Array(cw * ch * 3);
+      const weight = new Float32Array(cw * ch);
+      for (let y = 0; y < fine.h; y++) {
+        for (let x = 0; x < fine.w; x++) {
+          const i = y * fine.w + x;
+          if (!fine.weight[i]) continue;
+          const j = (y >> 1) * cw + (x >> 1);
+          weight[j] += fine.weight[i];
+          for (let c = 0; c < 3; c++) sum[j * 3 + c] += fine.sum[i * 3 + c];
+        }
+      }
+      levels.push({ w: cw, h: ch, sum, weight });
+    }
+    // Back down: where a grid knew nothing, the coarser one's answer, blended between its cells
+    let above = null;
+    for (let n = levels.length - 1; n >= 0; n--) {
+      const level = levels[n];
+      const out = new Float32Array(level.w * level.h * 3);
+      for (let y = 0; y < level.h; y++) {
+        for (let x = 0; x < level.w; x++) {
+          const i = y * level.w + x;
+          if (level.weight[i]) {
+            for (let c = 0; c < 3; c++) out[i * 3 + c] = level.sum[i * 3 + c] / level.weight[i];
+            continue;
+          }
+          if (!above) continue;
+          const coarse = levels[n + 1];
+          const fx = Math.max(0, Math.min(coarse.w - 1, (x + 0.5) / 2 - 0.5));
+          const fy = Math.max(0, Math.min(coarse.h - 1, (y + 0.5) / 2 - 0.5));
+          const x0 = Math.floor(fx);
+          const y0 = Math.floor(fy);
+          const x1 = Math.min(coarse.w - 1, x0 + 1);
+          const y1 = Math.min(coarse.h - 1, y0 + 1);
+          const tx = fx - x0;
+          const ty = fy - y0;
+          for (let c = 0; c < 3; c++) {
+            const top = above[(y0 * coarse.w + x0) * 3 + c] * (1 - tx) + above[(y0 * coarse.w + x1) * 3 + c] * tx;
+            const bottom = above[(y1 * coarse.w + x0) * 3 + c] * (1 - tx) + above[(y1 * coarse.w + x1) * 3 + c] * tx;
+            out[i * 3 + c] = top * (1 - ty) + bottom * ty;
+          }
+        }
+      }
+      above = out;
+    }
+    return above;
+  };
+
+  // Whether `area` lies on a plain background, one that paint can give back exactly: one colour
+  // (a white, a black, a pink balloon) or a smooth shading (a gradient balloon, a sky). Read from
+  // a band of `band` pixels around it, the other letters (`all`) left out: most of what is near
+  // the letters must be that background. Lines may come up to the area, as a balloon's outline
+  // does when the letters are close to it: they are left as they are, unpainted, if they stop
+  // within its edge (`margin` pixels deep, how far the letters' area was grown). One that goes
+  // further runs under the letters (the art), and only the model can draw it on.
+  // { plain, colour: { r, g, b }, data }, `data` the pixels to paint over the area's bounds; a
+  // shading also gives `pixels`, RGBA over the area's bounds, the colour to paint at each.
+  const plainOf = (area, rgba, w, h, all, band = 6, margin = band) => {
+    const no = { plain: false, colour: null };
     const left = Math.max(0, area.left - band);
     const top = Math.max(0, area.top - band);
     const right = Math.min(w, area.left + area.width + band);
     const bottom = Math.min(h, area.top + area.height + band);
     const bw = right - left;
     const bh = bottom - top;
-    const local = new Uint8Array(bw * bh);
+    const ax = area.left - left;
+    const ay = area.top - top;
+    // How far each pixel of the window is from the area (ON on it, 0 further than `band`)
+    const ON = 255;
+    const dist = new Uint8Array(bw * bh);
+    const queue = new Int32Array(bw * bh);
+    let tail = 0;
     for (let y = 0; y < area.height; y++) {
       for (let x = 0; x < area.width; x++) {
-        if (area.data[y * area.width + x]) local[(area.top - top + y) * bw + area.left - left + x] = 1;
+        if (!area.data[y * area.width + x]) continue;
+        const i = (ay + y) * bw + ax + x;
+        dist[i] = ON;
+        queue[tail++] = i;
       }
     }
-    const around = dilate(local, bw, bh, band);
-    const hist = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
-    const ring = [];
-    for (let y = 0; y < bh; y++) {
-      for (let x = 0; x < bw; x++) {
-        const i = y * bw + x;
-        if (!around[i] || local[i]) continue;
-        const page = (top + y) * w + left + x;
-        if (all && all[page]) continue;
-        const o = page * 4;
-        hist[0][rgba[o]]++;
-        hist[1][rgba[o + 1]]++;
-        hist[2][rgba[o + 2]]++;
-        ring.push(o);
+    const inArea = tail;
+    for (let head = 0; head < tail; head++) {
+      const i = queue[head];
+      const d = dist[i] === ON ? 0 : dist[i];
+      if (d >= band) continue;
+      const x = i % bw;
+      const y = (i - x) / bw;
+      for (let ny = Math.max(0, y - 1); ny <= Math.min(bh - 1, y + 1); ny++) {
+        for (let nx = Math.max(0, x - 1); nx <= Math.min(bw - 1, x + 1); nx++) {
+          const n = ny * bw + nx;
+          if (dist[n]) continue;
+          dist[n] = d + 1;
+          queue[tail++] = n;
+        }
       }
     }
-    if (ring.length < 20) return { plain: false, colour: null };
-    const median = hist.map((counts) => {
-      let seen = 0;
-      for (let v = 0; v < 256; v++) {
-        seen += counts[v];
-        if (seen * 2 >= ring.length) return v;
+    // The samples: where they are (u, v around the area's middle), how far, their colour
+    const cx = area.left + area.width / 2;
+    const cy = area.top + area.height / 2;
+    const scale = Math.max(area.width, area.height) / 2 + band;
+    const count0 = tail - inArea;
+    const at = new Int32Array(count0);
+    const us = new Float32Array(count0);
+    const vs = new Float32Array(count0);
+    const ds = new Uint8Array(count0);
+    const colours = new Float32Array(count0 * 3);
+    let count = 0;
+    for (let k = inArea; k < tail; k++) {
+      const i = queue[k];
+      const x = i % bw;
+      const y = (i - x) / bw;
+      const page = (top + y) * w + left + x;
+      if (all && all[page]) continue;
+      at[count] = i;
+      us[count] = (left + x - cx) / scale;
+      vs[count] = (top + y - cy) / scale;
+      ds[count] = dist[i];
+      colours[count * 3] = rgba[page * 4];
+      colours[count * 3 + 1] = rgba[page * 4 + 1];
+      colours[count * 3 + 2] = rgba[page * 4 + 2];
+      count++;
+    }
+    const use = new Uint8Array(count);
+    let nearCount = 0;
+    for (let s = 0; s < count; s++) if (ds[s] <= NEAR) { use[s] = 1; nearCount++; }
+    if (nearCount < 12) return no;
+    // How well a background explains the samples: the share of those near the letters, and of
+    // the whole band, it explains, and how closely it explains those near the letters. Those it
+    // explains (no further off than `tolerance`) are marked in `use`.
+    const judge = (bg, tolerance = TOLERANCE) => {
+      let near = 0, nearIn = 0, inBand = 0, error = 0;
+      for (let s = 0; s < count; s++) {
+        let worst = 0;
+        for (let c = 0; c < 3; c++) worst = Math.max(worst, Math.abs(colours[s * 3 + c] - bg(us[s], vs[s], c)));
+        use[s] = worst <= tolerance ? 1 : 0;
+        const fits = worst <= TOLERANCE;
+        if (fits) inBand++;
+        if (ds[s] <= NEAR) {
+          near++;
+          if (fits) {
+            nearIn++;
+            error += worst;
+          }
+        }
       }
-      return 255;
+      const result = { near: nearIn / near, band: inBand / count, error: nearIn ? error / nearIn : TOLERANCE };
+      result.ok = result.near >= 0.85 && result.band >= 0.6 && result.error <= 7;
+      return result;
+    };
+    // One colour: the middle of what is near the letters
+    const median = [0, 1, 2].map((c) => {
+      const values = [];
+      for (let s = 0; s < count; s++) if (ds[s] <= NEAR) values.push(colours[s * 3 + c]);
+      values.sort((a, b) => a - b);
+      return values[values.length >> 1];
     });
-    let close = 0;
-    ring.forEach((o) => {
-      if (Math.abs(rgba[o] - median[0]) <= 24 && Math.abs(rgba[o + 1] - median[1]) <= 24 && Math.abs(rgba[o + 2] - median[2]) <= 24) close++;
+    const flatAt = (u, v, c) => median[c];
+    const flat = judge(flatAt);
+    // A shading: fitted to what is near the letters, then again and again to what it explains
+    // all around, more and more closely, so an outline or the art beside the balloon soon has no
+    // say in it
+    for (let s = 0; s < count; s++) use[s] = ds[s] <= NEAR ? 1 : 0;
+    let shading = null;
+    let smooth = null;
+    for (const tolerance of [TOLERANCE * 4, TOLERANCE * 2, TOLERANCE, TOLERANCE]) {
+      const fitted = fitShading(count, us, vs, colours, use);
+      if (!fitted) break;
+      shading = fitted;
+      smooth = judge(shading, tolerance);
+    }
+    // The shading over the area: if it barely changes, one colour does as well
+    let spread = 0;
+    if (smooth && smooth.ok) {
+      const low = [255, 255, 255];
+      const high = [0, 0, 0];
+      for (let y = 0; y < area.height; y++) {
+        for (let x = 0; x < area.width; x++) {
+          if (!area.data[y * area.width + x]) continue;
+          const u = (area.left + x - cx) / scale;
+          const v = (area.top + y - cy) / scale;
+          for (let c = 0; c < 3; c++) {
+            const value = shading(u, v, c);
+            if (value < low[c]) low[c] = value;
+            if (value > high[c]) high[c] = value;
+          }
+        }
+      }
+      spread = Math.max(high[0] - low[0], high[1] - low[1], high[2] - low[2]);
+      // A shading that strays far from every colour around it is guessing, not giving back
+      for (let c = 0; c < 3 && smooth.ok; c++) {
+        let least = 255;
+        let most = 0;
+        for (let s = 0; s < count; s++) {
+          if (!use[s]) continue;
+          least = Math.min(least, colours[s * 3 + c]);
+          most = Math.max(most, colours[s * 3 + c]);
+        }
+        if (low[c] < least - TOLERANCE || high[c] > most + TOLERANCE) smooth.ok = false;
+      }
+    }
+    let bg = null;
+    if (flat.ok && (!smooth || !smooth.ok || spread <= 6 || flat.error <= smooth.error + 1)) bg = flatAt;
+    else if (smooth && smooth.ok) bg = shading;
+    if (!bg) return no;
+    // Which samples it explains, in `use`
+    judge(bg);
+    // What comes up to the area without being the background (`use` tells, for the chosen one):
+    // followed into the area through the pixels that aren't the background either, no deeper
+    // than its edge. The area's pixels, each with how deep in it it is.
+    const depth = new Uint8Array(bw * bh);
+    const limit = margin + 1;
+    tail = 0;
+    for (let k = 0; k < inArea; k++) {
+      const i = queue[k];
+      const x = i % bw;
+      const y = (i - x) / bw;
+      if (x === 0 || y === 0 || x === bw - 1 || y === bh - 1 || dist[i - 1] !== ON || dist[i + 1] !== ON || dist[i - bw] !== ON || dist[i + bw] !== ON) {
+        depth[i] = 1;
+        queue[tail++] = i;
+      }
+    }
+    for (let head = 0; head < tail; head++) {
+      const i = queue[head];
+      if (depth[i] > limit) continue;
+      const x = i % bw;
+      const y = (i - x) / bw;
+      for (let ny = Math.max(0, y - 1); ny <= Math.min(bh - 1, y + 1); ny++) {
+        for (let nx = Math.max(0, x - 1); nx <= Math.min(bw - 1, x + 1); nx++) {
+          const n = ny * bw + nx;
+          if (dist[n] !== ON || depth[n]) continue;
+          depth[n] = depth[i] + 1;
+          queue[tail++] = n;
+        }
+      }
+    }
+    const off = (i) => {
+      const x = i % bw;
+      const y = (i - x) / bw;
+      const page = ((top + y) * w + left + x) * 4;
+      const u = (left + x - cx) / scale;
+      const v = (top + y - cy) / scale;
+      for (let c = 0; c < 3; c++) if (Math.abs(rgba[page + c] - bg(u, v, c)) > TOLERANCE) return true;
+      return false;
+    };
+    const kept = new Uint8Array(bw * bh);
+    tail = 0;
+    for (let s = 0; s < count; s++) {
+      if (ds[s] !== 1 || use[s]) continue;
+      kept[at[s]] = 2;
+      queue[tail++] = at[s];
+    }
+    for (let head = 0; head < tail; head++) {
+      const i = queue[head];
+      const x = i % bw;
+      const y = (i - x) / bw;
+      for (let ny = Math.max(0, y - 1); ny <= Math.min(bh - 1, y + 1); ny++) {
+        for (let nx = Math.max(0, x - 1); nx <= Math.min(bw - 1, x + 1); nx++) {
+          const n = ny * bw + nx;
+          if (dist[n] !== ON || kept[n] || !off(n)) continue;
+          // Deeper than the edge: it runs under the letters
+          if (!depth[n] || depth[n] > limit) return no;
+          kept[n] = 1;
+          queue[tail++] = n;
+        }
+      }
+    }
+    // A shading meets the page exactly at the area's edge: what it misses of the background
+    // there is carried in, smoothly, so no seam shows
+    let misses = null;
+    if (bg === shading) {
+      const values = new Float32Array(bw * bh * 3);
+      const known = new Uint8Array(bw * bh);
+      for (let s = 0; s < count; s++) {
+        if (!use[s]) continue;
+        known[at[s]] = 1;
+        for (let c = 0; c < 3; c++) values[at[s] * 3 + c] = colours[s * 3 + c] - shading(us[s], vs[s], c);
+      }
+      misses = carry(values, known, bw, bh);
+    }
+    // What gets painted: the area, but for what was kept
+    const data = new Uint8Array(area.data.length);
+    const pixels = misses ? new Uint8ClampedArray(area.width * area.height * 4) : null;
+    let painted = 0;
+    for (let y = 0; y < area.height; y++) {
+      for (let x = 0; x < area.width; x++) {
+        const j = y * area.width + x;
+        if (!area.data[j] || kept[(ay + y) * bw + ax + x] === 1) continue;
+        data[j] = 1;
+        painted++;
+        if (!pixels) continue;
+        const u = (area.left + x - cx) / scale;
+        const v = (area.top + y - cy) / scale;
+        const k = ((ay + y) * bw + ax + x) * 3;
+        for (let c = 0; c < 3; c++) pixels[j * 4 + c] = Math.round(shading(u, v, c) + misses[k + c]);
+        pixels[j * 4 + 3] = 255;
+      }
+    }
+    if (!painted) return no;
+    const result = { plain: true, colour: { r: median[0], g: median[1], b: median[2] }, data };
+    if (pixels) result.pixels = pixels;
+    return result;
+  };
+
+  // The areas of the selection `full` (see split), each told whether it lies on a plain
+  // background (see plainOf). `grow`: how far the letters' areas were grown. One that doesn't is
+  // looked at again in smaller parts, since two balloons side by side, or a balloon and a word
+  // over the art beside it, may have come together: its parts on a plain background are still
+  // painted, and only the rest, as one area, is left to the model.
+  const areasOf = (full, rgba, w, h, link, grow = 4) => {
+    const band = Math.max(6, grow + 3);
+    const judge = (area) => {
+      const whole = area.data;
+      Object.assign(area, plainOf(area, rgba, w, h, full, band, grow + 1));
+      area.whole = whole;
+      return area;
+    };
+    const areas = [];
+    split(full, w, h, link).forEach((area) => {
+      judge(area);
+      const parts = area.plain ? [] : split(area.data, area.width, area.height, Math.max(1, Math.round(link / 3)), 1);
+      parts.forEach((part) => {
+        part.left += area.left;
+        part.top += area.top;
+        judge(part);
+      });
+      const plain = parts.filter((part) => part.plain);
+      if (parts.length < 2 || !plain.length) {
+        areas.push(area);
+        return;
+      }
+      areas.push(...plain);
+      // The rest, as one area
+      const rest = area.data.slice();
+      plain.forEach((part) => {
+        for (let y = 0; y < part.height; y++) {
+          for (let x = 0; x < part.width; x++) {
+            if (part.whole[y * part.width + x]) rest[(part.top - area.top + y) * area.width + part.left - area.left + x] = 0;
+          }
+        }
+      });
+      let x0 = area.width;
+      let y0 = area.height;
+      let x1 = -1;
+      let y1 = -1;
+      let count = 0;
+      for (let y = 0; y < area.height; y++) {
+        for (let x = 0; x < area.width; x++) {
+          if (!rest[y * area.width + x]) continue;
+          count++;
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+      }
+      if (!count) return;
+      const width = x1 - x0 + 1;
+      const height = y1 - y0 + 1;
+      const data = new Uint8Array(width * height);
+      for (let y = 0; y < height; y++) data.set(rest.subarray((y0 + y) * area.width + x0, (y0 + y) * area.width + x0 + width), y * width);
+      areas.push({ left: area.left + x0, top: area.top + y0, width, height, data, whole: data, count, plain: false, colour: null });
     });
-    return { plain: close / ring.length >= 0.9, colour: { r: median[0], g: median[1], b: median[2] } };
+    return areas;
   };
 
   /* ------------------------- whether the service is up ------------------------- */
@@ -384,5 +764,5 @@
   // False only once the service has missed several times in a row
   const available = () => health !== "down";
 
-  window.TypeRTextMask = { API, load, enabled, available, watch, detect, dilate, split, plainOf, TextMaskError };
+  window.TypeRTextMask = { API, load, enabled, available, watch, detect, dilate, split, plainOf, areasOf, TextMaskError };
 })();

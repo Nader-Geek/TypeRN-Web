@@ -7389,9 +7389,10 @@
     maskSelection(mask, width, height, left, top, source) {
       return makeSelection({ source: source || "mask", mask, boxW: width, boxH: height, left, top });
     },
-    // Remove Text: letters on a plain background painted over with that background's colour, on
-    // TypeR Clean, in one step. `pieces`: [{ left, top, width, height, data, colour: { r, g, b } }],
-    // `data` one byte a pixel over the piece, 1 where it's painted.
+    // Remove Text: letters on a plain background painted over with that background, on TypeR
+    // Clean, in one step. `pieces`: [{ left, top, width, height, data, colour: { r, g, b },
+    // pixels }], `data` one byte a pixel over the piece, 1 where it's painted, in `colour` or,
+    // for a shaded background, in the colours of `pixels` (RGBA over the piece).
     fillPlain(doc, pieces, name) {
       if (!doc || !app.docs.includes(doc) || !pieces.length) return null;
       let layers = doc.state.layers;
@@ -7400,11 +7401,12 @@
         const ctx = canvas.getContext("2d");
         const image = ctx.createImageData(piece.width, piece.height);
         const { r, g, b } = piece.colour;
+        const shaded = piece.pixels;
         for (let i = 0; i < piece.data.length; i++) {
           if (!piece.data[i]) continue;
-          image.data[i * 4] = r;
-          image.data[i * 4 + 1] = g;
-          image.data[i * 4 + 2] = b;
+          image.data[i * 4] = shaded ? shaded[i * 4] : r;
+          image.data[i * 4 + 1] = shaded ? shaded[i * 4 + 1] : g;
+          image.data[i * 4 + 2] = shaded ? shaded[i * 4 + 2] : b;
           image.data[i * 4 + 3] = 255;
         }
         ctx.putImageData(image, 0, 0);
