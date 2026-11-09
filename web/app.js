@@ -9983,7 +9983,11 @@
     event.target.value = "";
   });
 
+  // The folders opened or dropped here: Batch Save finds in them where the open pages are
+  const openedFolders = [];
   const filesOfFolder = async (folder) => {
+    if (!openedFolders.includes(folder)) openedFolders.unshift(folder);
+    openedFolders.length = Math.min(openedFolders.length, 20);
     const entries = [];
     for await (const handle of folder.values()) {
       if (handle.kind === "file" && OPENABLE.test(handle.name)) entries.push({ file: await handle.getFile(), handle });
@@ -11240,7 +11244,7 @@
   const askBatchSave = () => new Promise((resolve) => {
     const settings = batchSettings();
     const toFolder = canPickFolder();
-    const state = { sourceFolder: null, sourceName: "", items: null, scanning: false, targetFolder: null };
+    const state = { sourceFolder: null, sourceName: "", items: null, scanning: false, targetFolder: null, docsFolder: null };
     if (!app.docs.length) settings.source = "folder";
     const make = (tag, className, parent, text) => {
       const node = document.createElement(tag);
@@ -11347,10 +11351,28 @@
 
     // 2. Where they go
     const two = step("2", T("Save to"));
-    const syncTarget = toFolder ? segmented(two, [["same", T("Next to the images")], ["other", T("Another folder")]], () => (settings.source === "folder" ? settings.target : "other"), (value) => { settings.target = value; }) : () => {};
+    // Next to the open documents: when they all are in a folder opened or dropped here
+    const canSame = () => (settings.source === "folder" ? !(!state.sourceFolder && pickedFiles) : Boolean(state.docsFolder));
+    const syncTarget = toFolder ? segmented(two, [["same", T("Next to the images")], ["other", T("Another folder")]], () => (canSame() ? settings.target : "other"), (value) => { settings.target = value; }) : () => {};
+    // The browser never says which folder a file is in, but its picker can open there: in the
+    // folder of the images, one click from choosing it
+    const imagesPlace = () => {
+      if (settings.source === "folder") return state.sourceFolder;
+      const docs = [app.doc, ...app.docs];
+      const doc = docs.find((one) => one && one.handle && one.handle.kind === "file");
+      return doc ? doc.handle : null;
+    };
     const target = toFolder ? folderRow(two, async () => {
+      const options = { id: "typer-batch-save", mode: "readwrite" };
+      const near = imagesPlace();
       try {
-        state.targetFolder = await window.showDirectoryPicker({ id: "typer-batch-save", mode: "readwrite" });
+        try {
+          state.targetFolder = await window.showDirectoryPicker(near ? Object.assign({ startIn: near }, options) : options);
+        } catch (error) {
+          // A file moved or deleted since it was opened: the picker opens where it last did
+          if (!near || error.name === "AbortError") throw error;
+          state.targetFolder = await window.showDirectoryPicker(options);
+        }
         render();
       } catch (error) {
         if (error.name !== "AbortError") toast(fill(T("Could not save: {error}"), { error: error.message || error }), true);
@@ -11419,10 +11441,11 @@
     });
 
     let okButton = null;
-    const sameFolder = () => settings.source === "folder" && settings.target === "same" && toFolder;
+    const sameFolder = () => toFolder && settings.target === "same" && canSame();
+    const sameRoot = () => (settings.source === "folder" ? state.sourceFolder : state.docsFolder && state.docsFolder.folder);
     const ready = () => {
       const images = settings.source === "open" ? app.docs.length > 0 : Boolean(state.items && state.items.length) && !state.scanning;
-      const place = !toFolder || (sameFolder() ? Boolean(state.sourceFolder) : Boolean(state.targetFolder));
+      const place = !toFolder || (sameFolder() ? Boolean(sameRoot()) : Boolean(state.targetFolder));
       return images && place && BATCH_FORMATS.some((format) => settings.formats[format.id]);
     };
     function render() {
@@ -11437,10 +11460,10 @@
       else if (!state.sourceName) source.said.textContent = T("No folder chosen yet.");
       else if (state.items && !state.items.length) source.said.textContent = `${state.sourceName} · ${T("There is no PSD, PNG, JPEG or WebP in this folder.")}`;
       else source.said.textContent = `${state.sourceName} · ${fill(T("{count} images"), { count: state.items ? state.items.length : 0 })}`;
-      // Next to the images: only a folder has a place of its own
+      // Next to the images: only a folder known here has a place of its own
       if (toFolder) {
         const segment = two.querySelector(".bsave__seg");
-        segment.querySelector("button").disabled = !fromFolder || (!state.sourceFolder && Boolean(pickedFiles));
+        segment.querySelector("button").disabled = !canSame();
         target.row.hidden = sameFolder();
         target.said.classList.toggle("is-empty", !state.targetFolder);
         target.said.textContent = state.targetFolder ? state.targetFolder.name : T("No folder chosen yet.");
@@ -11457,7 +11480,9 @@
       if (okButton) okButton.disabled = !ready();
     }
 
+    let showing = true;
     dialog({ title: T("Batch Save"), body, ok: T("Save") }).then((answer) => {
+      showing = false;
       if (!answer) {
         resolve(null);
         return;
@@ -11473,17 +11498,41 @@
         console.warn("TypeR web: could not keep the batch save settings", error);
       }
       const fromFolder = settings.source === "folder";
+      const same = sameFolder();
+      const inFolder = (doc) => (same && state.docsFolder && state.docsFolder.paths.get(doc)) || [];
       resolve({
         settings,
-        items: fromFolder ? state.items : app.docs.map((doc) => ({ doc, name: doc.name, path: [] })),
-        root: !toFolder ? null : sameFolder() ? state.sourceFolder : state.targetFolder,
-        keepTree: fromFolder && settings.subfolders && settings.keepTree,
+        items: fromFolder ? state.items : app.docs.map((doc) => ({ doc, name: doc.name, path: inFolder(doc) })),
+        root: !toFolder ? null : same ? sameRoot() : state.targetFolder,
+        // Next to open documents in subfolders: each one's PNG/, PSD/… is in its subfolder's place
+        keepTree: fromFolder ? settings.subfolders && settings.keepTree : same,
       });
     });
     ui.modal.classList.add("modal--batch");
     okButton = ui.modal.querySelector(".modal__foot .btn--main");
     render();
+    if (toFolder) folderOfDocs().then((found) => {
+      state.docsFolder = found;
+      if (showing) render();
+    });
   });
+
+  // The folder opened or dropped here that holds every open document, and where each one is in
+  // it, or null. A browser never says which folder a file is in: only one it was given can.
+  const folderOfDocs = async () => {
+    const docs = app.docs.slice();
+    if (!docs.length || docs.some((doc) => !doc.handle || doc.handle.kind !== "file")) return null;
+    for (const folder of openedFolders) {
+      const paths = new Map();
+      for (const doc of docs) {
+        const path = await folder.resolve(doc.handle).catch(() => null);
+        if (!path) break;
+        paths.set(doc, path.slice(0, -1));
+      }
+      if (paths.size === docs.length) return { folder, paths };
+    }
+    return null;
+  };
 
   // Every image in every format chosen. One that fails doesn't stop the others.
   let batchSaving = false;
@@ -11504,6 +11553,8 @@
     const choice = await askBatchSave();
     if (!choice) return;
     const { settings, items, root, keepTree } = choice;
+    // A dropped folder can be read, not yet written to
+    if (root && root.queryPermission && (await root.queryPermission({ mode: "readwrite" })) !== "granted" && (await root.requestPermission({ mode: "readwrite" })) !== "granted") return;
     const formats = BATCH_FORMATS.filter((format) => settings.formats[format.id]);
     // Two images can end up with one file name: two 01.psd from two folders, put together
     const taken = new Set();
