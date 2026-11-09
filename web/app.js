@@ -1043,7 +1043,8 @@
     textGroup = null;
     taskBarBox = null;
     const turning = transformOf();
-    if (turning) drawTransform(turning);
+    // Free Transform: while it's dragged, neither frame nor handles, as for a move
+    if (turning && !(gesture && gesture.kind === "transform" && gesture.mode === "move" && gesture.moved)) drawTransform(turning);
     drawSmartLines();
     drawStampMark();
     if (window.TypeRRetouch) window.TypeRRetouch.drawOverlay(ui.handles, gesture);
@@ -1086,6 +1087,9 @@
       bottom = Math.max(bottom, b.bottom);
     });
     if (!isFinite(left)) return;
+    // While it's dragged, with the transform controls showing, neither frame nor handles:
+    // nothing in the way of the bubble it's being placed in
+    if (live && (settings.transformControls || typing || Shell.touch)) return;
     const shift = live ? [live.dx, live.dy] : [0, 0];
     // A text's frame stands a little off its letters: its handles stay clear of them, and the
     // text can be seen whole to centre it in its bubble
