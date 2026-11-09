@@ -90,22 +90,27 @@ const DEMOS = {
     r.encode(OUT);
   },
   async 'generative-fill'(page) {
-    await setup(page, `${PAGES}/11.psd`, [120, 700, 780, 1200], 'lasso');
+    await setup(page, `${PAGES}/11.psd`, [120, 712, 780, 1214], 'lasso');
     const r = new Rec(page, 'generative-fill', { clip: CLIP, x: 640, y: 360 });
     await r.cursor(); await r.shot(); r.hold(0.6);
-    // The girl, whole: her hair, her arms, her dress and her legs down to her feet
-    const pts = [[440, 758], [468, 780], [488, 810], [484, 850], [488, 900], [504, 956], [518, 998], [502, 1018], [476, 1010], [474, 1062], [468, 1130], [462, 1196],
-      [354, 1196], [358, 1120], [364, 1050], [362, 1008], [352, 978], [372, 930], [380, 880], [382, 840], [380, 804], [402, 778], [440, 758]];
+    // The girl, whole, with a margin: the white halo around her, her hair and its strand, her
+    // arms and her hand, the shadow under her dress and the one at her feet
+    const pts = [[440, 758], [458, 762], [472, 790], [484, 808], [478, 832], [486, 856], [490, 880], [492, 920], [498, 950], [510, 988], [510, 1016],
+      [480, 1018], [466, 1008], [466, 1040], [465, 1080], [468, 1140], [464, 1178], [454, 1202], [400, 1204], [350, 1200], [348, 1176], [358, 1150],
+      [361, 1120], [368, 1060], [374, 1012], [356, 994], [352, 972], [366, 946], [380, 912], [378, 880], [378, 856], [382, 834], [374, 812],
+      [388, 790], [418, 770], [440, 758]];
     const screen = []; for (const [x, y] of pts) screen.push(await docToScreen(page, x, y));
     await r.drag(screen, 54);
     r.hold(0.4);
     await r.moveTo(...(await center(page, '.ctxbar__gen')));
     await r.click();
-    // No prompt: the model redraws what the selection hides
-    r.hold(0.5);
+    r.hold(0.2);
+    // The prompt, typed
+    for (const ch of 'Remove the girl, continue the stairs') { await page.keyboard.type(ch); await r.shot(); }
+    r.hold(0.4);
     await r.moveTo(...(await center(page, '.ctxbar .btn--main')));
     await r.click();
-    await r.moveTo(700, 470, 18);
+    await r.moveTo(800, 330, 18);
     await r.film(() => page.evaluate(() => { const t = document.querySelector('.gentray'); return Boolean(t && /Done/.test(t.innerText)); }), { every: 150, keep: 2, max: 120000 });
     await sleep(400);
     await page.evaluate(() => window.TypeRPhotoshop.ops.deselect());
