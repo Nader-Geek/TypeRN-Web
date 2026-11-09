@@ -4146,51 +4146,61 @@
     const selection = doc && doc.state.selection;
     if (!selection || doc.state.quickMask) return;
     let account = Gen.load();
-    // Nothing to describe: the parts of the selection on a plain background are filled with
-    // that colour at once, as the Bubble Cleaner does, and only the rest goes to the model
+    // Each separate part of the selection gets its own generation, on its own layer, as Remove
+    // Text does: the model sees one place at a time. Nothing to describe: the parts on a plain
+    // background are filled with that colour at once, as the Bubble Cleaner does, and only the
+    // rest goes to the model.
     let plain = [];
-    let target = selection;
-    if (Mask && !(Gen.takesPrompt(account) && gen.prompt.trim())) {
+    let targets = [selection];
+    if (Mask) {
+      const described = Gen.takesPrompt(account) && gen.prompt.trim();
       const full = ops.selectionFullMask(selection);
-      const areas = selectionAreas(doc, full, ops.reshapePage());
+      const areas = described ? Mask.split(full, doc.width, doc.height, textLink(doc)) : selectionAreas(doc, full, ops.reshapePage());
       plain = areas.filter((area) => area.plain);
-      if (plain.length && plain.length === areas.length) {
+      const art = areas.filter((area) => !area.plain);
+      if (plain.length && !art.length) {
         fillPlainAreas(doc, plain, "Generative Fill");
         ops.deselect();
         schedule(false);
         return;
       }
-      if (plain.length) {
-        const rest = new Uint8Array(full.length);
-        areas.filter((area) => !area.plain).forEach((area) => {
-          for (let y = 0; y < area.height; y++) {
-            const row = (area.top + y) * doc.width + area.left;
-            for (let x = 0; x < area.width; x++) if (area.data[y * area.width + x]) rest[row + x] = 1;
-          }
-        });
-        target = ops.fullMaskSelection(rest, "mask");
-      }
+      // A single part keeps the selection as it was drawn
+      if (art.length > 1 || plain.length) targets = art.map((area) => ops.maskSelection(area.data, area.width, area.height, area.left, area.top, "mask"));
     }
     if (!Gen.ready(account)) {
       account = await generativeSettings();
       if (!account || !Gen.ready(account) || app.doc !== doc || doc.state.selection !== selection) return;
     }
     if (!(await agreeToDownload(account)) || app.doc !== doc || doc.state.selection !== selection) return;
+    // A paid model, several parts: what it will cost, asked first
+    const price = Gen.priceOf(account, account.service, Gen.modelOf(account));
+    if (targets.length > 1 && price && !price.free && price.usd > 0) {
+      const answer = await dialog({
+        title: T("Generative Fill"),
+        body: fill(T("{count} separate areas will each get their own generation with {model}, for about {total} billed by {service}."), { count: targets.length, model: modelName(account), total: money(price.usd * targets.length), service: serviceName(account.service) }),
+        ok: T("Generate"),
+      });
+      if (!answer || app.doc !== doc || doc.state.selection !== selection) return;
+    }
     if (plain.length) {
       fillPlainAreas(doc, plain, "Generative Fill");
       ops.deselect();
     }
-    genJobs.push({
-      id: ++genJobCount,
-      doc,
-      selection: target,
-      activeIds: doc.state.activeIds.slice(),
-      size: [doc.width, doc.height],
-      prompt: Gen.takesPrompt(account) ? gen.prompt.trim() : "",
-      account,
-      state: "waiting",
-      percent: 0,
-      controller: new AbortController(),
+    const activeIds = doc.state.activeIds.slice();
+    const prompt = Gen.takesPrompt(account) ? gen.prompt.trim() : "";
+    targets.forEach((target) => {
+      genJobs.push({
+        id: ++genJobCount,
+        doc,
+        selection: target,
+        activeIds,
+        size: [doc.width, doc.height],
+        prompt,
+        account,
+        state: "waiting",
+        percent: 0,
+        controller: new AbortController(),
+      });
     });
     genTrayOpen = true;
     startJobs();

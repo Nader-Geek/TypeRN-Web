@@ -798,6 +798,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "No text over the art in the selection.": "Aucun texte sur le dessin dans la sélection.",
     "No text on a plain background in the selection.": "Aucun texte sur fond uni dans la sélection.",
     "The text of {name} is found: choose Detect Text again on it.": "Le texte de {name} est trouvé : choisissez de nouveau Détecter le texte sur cette page.",
+    "{count} separate areas will each get their own generation with {model}, for about {total} billed by {service}.": "{count} zones séparées seront générées chacune à part avec {model}, pour environ {total} facturés par {service}.",
     "{count} areas over the art will be redrawn with {model}, for about {total} billed by {service}.": "{count} zones sur le dessin seront redessinées avec {model}, pour environ {total} facturés par {service}.",
     "The text detection couldn't be reached.": "La détection du texte est injoignable.",
     "The text detection refused the request.": "La détection du texte a refusé la demande.",
