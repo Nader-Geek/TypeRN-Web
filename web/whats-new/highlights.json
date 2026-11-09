@@ -21,10 +21,10 @@
       "id": "generative-fill-local",
       "at": "2026-11-09T12:00:00+01:00",
       "icon": "sparkles",
-      "title": { "en": "Generative Fill on your computer", "fr": "Remplissage génératif sur votre ordinateur" },
+      "title": { "en": "Generative Fill, with or without a key", "fr": "Remplissage génératif, avec ou sans clé" },
       "text": {
-        "en": "No key, no bill: LaMa Manga redraws the selection right on your device. The desktop app adds FLUX.2 Klein 4B and FLUX 3 Klein, which also follow a prompt.",
-        "fr": "Sans clé ni facture : LaMa Manga redessine la sélection directement sur votre appareil. L’app de bureau ajoute FLUX.2 Klein 4B et FLUX 3 Klein, qui suivent aussi un prompt."
+        "en": "Select, say what you want, Generate: Nano Banana 2.1 redraws it with your fal.ai or Google key. Without a key, LaMa Manga runs right on your device, and the desktop app adds FLUX.2 Klein 4B and FLUX 3 Klein.",
+        "fr": "Sélectionnez, dites ce que vous voulez, Générer : Nano Banana 2.1 le redessine avec votre clé fal.ai ou Google. Sans clé, LaMa Manga tourne directement sur votre appareil, et l’app de bureau ajoute FLUX.2 Klein 4B et FLUX 3 Klein."
       },
       "where": { "en": "Select, then Generative Fill", "fr": "Sélection, puis Remplissage génératif" },
       "demo": "generative-fill.mp4",

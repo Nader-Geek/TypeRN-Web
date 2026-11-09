@@ -5,8 +5,9 @@
 //   node scripts/whats-new-demos/demos.js [name,name]     all of them by default
 //
 // Needs Google Chrome, ffmpeg and cwebp, desktop/node_modules (npm install in desktop/), and the
-// pages of chapter 104 (PAGES, ~/Downloads/104 by default). Text detection and LaMa Manga go
-// through the network the first time. OUT writes the files elsewhere than web/whats-new/.
+// pages of chapter 104 (PAGES, ~/Downloads/104 by default). Text detection goes through the
+// network; generative-fill uses Nano Banana 2.1 on fal.ai, with a key in FAL_KEY (a few cents).
+// OUT writes the files elsewhere than web/whats-new/.
 const { boot, openFile, sleep } = require('./harness');
 const { Rec, frameDoc, docToScreen, center } = require('./rec');
 const path = require('path');
@@ -39,6 +40,12 @@ const toEnglish = (page) => page.evaluate((english) => {
 // The last frames without the bars at the bottom of the page
 const tidy = (page) => page.evaluate(() => document.querySelectorAll('.gentray, .ctxbar, #toast').forEach((e) => { e.style.display = 'none'; }));
 const LAMA = { 'typer.web.generative': JSON.stringify({ service: 'local', models: { local: 'lama-manga' } }) };
+// Generative Fill's demo: Nano Banana 2.1 on fal.ai, with the key given in FAL_KEY (never kept)
+const NANO_BANANA = () => {
+  if (!process.env.FAL_KEY) throw new Error('generative-fill needs a fal.ai key in FAL_KEY');
+  return { 'typer.web.generative': JSON.stringify({ service: 'fal', keys: { fal: process.env.FAL_KEY }, models: { fal: 'google/nano-banana-2.1/edit' } }) };
+};
+const STORAGE = { 'generative-fill': NANO_BANANA };
 
 // A page, its texts flattened into its pixels, the panels hidden: only the tools and the page
 async function setup(page, file, rect, tool) {
@@ -83,20 +90,25 @@ const DEMOS = {
     r.encode(OUT);
   },
   async 'generative-fill'(page) {
-    await setup(page, `${PAGES}/11.psd`, [150, 620, 750, 1060], 'lasso');
+    await setup(page, `${PAGES}/11.psd`, [120, 700, 780, 1200], 'lasso');
     const r = new Rec(page, 'generative-fill', { clip: CLIP, x: 640, y: 360 });
     await r.cursor(); await r.shot(); r.hold(0.6);
-    const pts = [[372, 760], [440, 745], [500, 790], [505, 900], [495, 1050], [372, 1052], [360, 900], [372, 760]];
+    // The girl, whole: her hair, her arms, her dress and her legs down to her feet
+    const pts = [[440, 762], [466, 784], [484, 812], [480, 850], [484, 900], [500, 958], [514, 998], [500, 1014], [470, 1004], [462, 1062], [452, 1130], [448, 1192],
+      [364, 1192], [370, 1120], [374, 1050], [368, 1004], [358, 978], [376, 932], [384, 880], [386, 840], [384, 806], [404, 782], [440, 762]];
     const screen = []; for (const [x, y] of pts) screen.push(await docToScreen(page, x, y));
-    await r.drag(screen, 40);
+    await r.drag(screen, 54);
     r.hold(0.4);
     await r.moveTo(...(await center(page, '.ctxbar__gen')));
     await r.click();
-    r.hold(0.3);
+    r.hold(0.2);
+    // The prompt, typed
+    for (const ch of 'Remove the girl, continue the stairs') { await page.keyboard.type(ch); await r.shot(); }
+    r.hold(0.4);
     await r.moveTo(...(await center(page, '.ctxbar .btn--main')));
     await r.click();
     await r.moveTo(700, 470, 18);
-    await r.film(() => page.evaluate(() => { const t = document.querySelector('.gentray'); return Boolean(t && /Done/.test(t.innerText)); }), { every: 150, keep: 2, max: 90000 });
+    await r.film(() => page.evaluate(() => { const t = document.querySelector('.gentray'); return Boolean(t && /Done/.test(t.innerText)); }), { every: 150, keep: 2, max: 120000 });
     await sleep(400);
     await page.evaluate(() => window.TypeRPhotoshop.ops.deselect());
     await tidy(page);
@@ -144,7 +156,7 @@ const DEMOS = {
 (async () => {
   for (const [name, run] of Object.entries(DEMOS)) {
     if (wanted.length && !wanted.includes(name)) continue;
-    const { browser, server, page } = await boot({ w: W, h: H, storage: LAMA });
+    const { browser, server, page } = await boot({ w: W, h: H, storage: STORAGE[name] ? STORAGE[name]() : LAMA });
     try { await run(page); } catch (e) { console.log(name, 'failed', e); process.exitCode = 1; }
     await browser.close(); server.close();
   }
