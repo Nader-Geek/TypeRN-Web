@@ -9534,22 +9534,22 @@
   // [id, name (or the panel's word for it), mode, background, panels, text, accent]
   const THEMES = [
     ["system", "Photoshop", "dark", "#232121", "#3a3838", "#e3e4e4", "#288edf"],
-    ["editor-dark", "Dark+", "dark", "#1e1e1e", "#2d2d30", "#d4d4d4", "#007acc"],
-    ["pure-dark", "settingsThemePureDark", "dark", "#000000", "#0a0a0a", "#f2f2f2", "#4dabf7"],
-    ["editor-light", "Light+", "light", "#ffffff", "#e8e8e8", "#1f1f1f", "#006ab1"],
-    ["monokai", "Monokai", "dark", "#272822", "#3e3d32", "#f8f8f2", "#a6e22e"],
-    ["solarized-dark", "Solarized Dark", "dark", "#002b36", "#0b3a45", "#eee8d5", "#2aa198"],
-    ["abyss", "Abyss", "dark", "#000c18", "#0b2440", "#d7ecff", "#00aaff"],
-    ["one-dark", "One Dark Pro", "dark", "#282c34", "#2f343e", "#abb2bf", "#61afef"],
-    ["dracula", "Dracula", "dark", "#282a36", "#343746", "#f8f8f2", "#bd93f9"],
-    ["nord", "Nord", "dark", "#2e3440", "#3b4252", "#eceff4", "#88c0d0"],
+    ["editor-dark", "Dark+", "dark", "#1f1f1f", "#292929", "#d6d6d6", "#3a7fd2"],
+    ["pure-dark", "settingsThemePureDark", "dark", "#000000", "#0d0d0d", "#ededed", "#5aa9f0"],
+    ["editor-light", "Light+", "light", "#ffffff", "#f5f5f5", "#1f1f1f", "#1e6fd0"],
+    ["monokai", "Monokai", "dark", "#272822", "#32332d", "#f2f2ec", "#a9dc76"],
+    ["solarized-dark", "Solarized Dark", "dark", "#002b36", "#0d353e", "#e4dfcf", "#2a85c9"],
+    ["abyss", "Abyss", "dark", "#000c18", "#0b1824", "#cfe2f5", "#4ea4f2"],
+    ["one-dark", "One Dark Pro", "dark", "#282c34", "#31353d", "#c3c8d1", "#61afef"],
+    ["dracula", "Dracula", "dark", "#282a36", "#333540", "#f4f4ef", "#bd93f9"],
+    ["nord", "Nord", "dark", "#2e3440", "#383e4a", "#e5e9f0", "#88c0d0"],
   ];
   const IMAGE_THEME = "custom-image";
   // The picture's theme makes TypeR's surfaces see-through, over the picture: the app keeps the
   // solid palette it's made from
   const IMAGE_BASES = {
-    dark: { surface: "#1e1e1e", panel: "#2d2d30", input: "#1b1b1b", inputAlt: "#333333", text: "#d4d4d4", muted: "#8f8f8f", accent: "#007acc" },
-    light: { surface: "#ffffff", panel: "#e8e8e8", input: "#ffffff", inputAlt: "#f5f5f5", text: "#1f1f1f", muted: "#616161", accent: "#006ab1" },
+    dark: { surface: "#1f1f1f", panel: "#292929", input: "#191919", inputAlt: "#2f2f2f", text: "#d6d6d6", muted: "#949494", accent: "#3a7fd2" },
+    light: { surface: "#ffffff", panel: "#f5f5f5", input: "#ffffff", inputAlt: "#fbfbfb", text: "#1f1f1f", muted: "#797979", accent: "#1e6fd0" },
   };
   // The themes there are: TypeR's, then those made in TypeR, then its picture
   const themeChoices = () => {
@@ -9618,8 +9618,8 @@
     // Light text in the accent's colour (a section's title, a tool turned on)
     const blueText = light ? mix(accent, black, 0.2) : mix(accent, white, 0.35);
     const triplet = ({ r, g, b }) => [r, g, b].map((n) => Math.round(n)).join(" ");
-    // A black theme has nothing darker for its lines: they are a little lighter than it
-    const line = light ? mix(panel, text, 0.2) : lightness(surface) < 0.03 ? mix(surface, text, 0.14) : mix(surface, black, 0.25);
+    // Hairlines a shade off the panels, rather than dark grooves between them
+    const line = mix(panel, text, light ? 0.11 : 0.075);
     return {
       mode: light ? "light" : "dark",
       properties: {
@@ -9636,9 +9636,9 @@
         "--strong": light ? colourText(text) : "#fff",
         "--ui-4": colourText(mix(panel, text, 0.24)),
         "--blue-darker": colourText(mix(accent, black, 0.22)),
-        "--stage": colourText(light ? mix(panel, text, 0.22) : mix(surface, black, 0.12)),
+        "--stage": colourText(light ? mix(panel, text, 0.1) : mix(surface, black, 0.18)),
         "--tabbar": colourText(mix(surface, panel, 0.5)),
-        "--gap": colourText(light ? mix(panel, text, 0.3) : mix(surface, black, 0.3)),
+        "--gap": colourText(light ? mix(panel, text, 0.08) : mix(surface, black, 0.12)),
         "--blue-rgb": triplet(accent),
         "--blue-text": colourText(blueText),
         "--blue-text-rgb": triplet(blueText),
