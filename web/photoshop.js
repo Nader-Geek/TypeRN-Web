@@ -2249,6 +2249,15 @@
 
   const BLENDS = { normal: "source-over", "pass through": "source-over", dissolve: "source-over", multiply: "multiply", screen: "screen", overlay: "overlay", darken: "darken", lighten: "lighten", "color dodge": "color-dodge", "color burn": "color-burn", "linear dodge": "lighter", "hard light": "hard-light", "soft light": "soft-light", difference: "difference", exclusion: "exclusion", hue: "hue", saturation: "saturation", color: "color", luminosity: "luminosity" };
 
+  // A text's lines as they show, for TextShapeR to learn from: a point text's own returns, a
+  // paragraph's lines as its box sets them (Photoshop turns it into point text for this), once
+  // its fonts are in, since they decide where its lines end
+  const linesReady = (layers) => Fonts.ready(layers.flatMap(({ params }) => params.layerText.textStyleRange.map((range) => range.textStyle.fontPostScriptName)));
+  const shownLines = (lt, resolution) => {
+    if (!boxShape(lt)) return lt.textKey || "";
+    return relativeLayout(lt, resolution).wrapped.map((runs) => runs.map((run) => run.text).join("").replace(/\s+$/, "")).join("\r");
+  };
+
   // A layer is shown only if all its folders are, and takes their opacity
   const chainOf = (layer, byId) => {
     let opacity = 1;
@@ -8941,15 +8950,30 @@
       const item = Object.assign({ shiftKey: app.keys.shift, documentKey: key }, b);
       return JSON.stringify(Object.assign({ multiSelection: [item] }, item));
     },
-    getRenderedTextLines() {
-      const layer = activeTextLayer();
+    // TextShapeR's star: the text as it shows, a paragraph's lines as its box sets them
+    async getRenderedTextLines() {
+      const doc = app.doc;
+      const layer = activeTextLayer(doc);
       if (!layer) return JSON.stringify({ error: "layer" });
-      return JSON.stringify({ text: layer.params.layerText.textKey || "" });
+      await linesReady([layer]);
+      return JSON.stringify({ text: shownLines(layer.params.layerText, doc.resolution) });
     },
-    getAllRenderedTextLines() {
+    // Ctrl or Alt + the star: every text layer that shows, its folders included
+    async getAllRenderedTextLines() {
       const doc = app.doc;
       if (!doc) return JSON.stringify({ error: "document" });
-      return JSON.stringify({ entries: doc.state.layers.filter((layer) => layer.kind === "text" && layer.visible !== false).map((layer) => ({ layerId: layer.id, text: layer.params.layerText.textKey || "" })) });
+      const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
+      const layers = doc.state.layers.filter((layer) => layer.kind === "text" && chainOf(layer, byId).visible);
+      await linesReady(layers);
+      const entries = [];
+      layers.forEach((layer) => {
+        try {
+          entries.push({ layerId: layer.id, text: shownLines(layer.params.layerText, doc.resolution) });
+        } catch (readError) {
+          // A text that can't be laid out teaches nothing
+        }
+      });
+      return JSON.stringify({ entries });
     },
     // TextShapeR learns from the line breaks of finished pages: each text layer as it shows,
     // a paragraph's lines as its box sets them (Photoshop turns it into point text for this).
@@ -8982,16 +9006,11 @@
           if (open) fromDoc(open);
           else ({ resolution, layers } = await window.TypeRPSD.readText(await file.arrayBuffer()));
         }
-        // A paragraph's lines depend on its fonts' widths
-        await Fonts.ready(layers.flatMap(({ params }) => params.layerText.textStyleRange.map((range) => range.textStyle.fontPostScriptName)));
-        const shownText = (lt) => {
-          if (!boxShape(lt)) return lt.textKey || "";
-          return relativeLayout(lt, resolution).wrapped.map((runs) => runs.map((run) => run.text).join("").replace(/\s+$/, "")).join("\r");
-        };
+        await linesReady(layers);
         const entries = layers.map((layer, index) => {
           const entry = { layerId: layer.layerId || index + 1, name: layer.name, layerPath: layer.path, visible: layer.visible !== false, text: "" };
           try {
-            entry.text = shownText(layer.params.layerText);
+            entry.text = shownLines(layer.params.layerText, resolution);
           } catch (readError) {
             entry.error = "readFailed";
           }
