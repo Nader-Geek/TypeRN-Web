@@ -216,6 +216,9 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .tab span:first-child { overflow: hidden; text-overflow: ellipsis; }
 .tab:hover { color: var(--text); }
 .tab.is-on { max-width: var(--tab-on-cap, var(--tab-cap, 320px)); background: var(--ui); color: var(--text); }
+/* Picked with Cmd or Shift + click, for what is done to several pages at once: underlined in blue */
+.tab.is-picked { color: var(--text); box-shadow: inset 0 -2px 0 var(--blue); }
+.tab.is-picked:not(.is-on) { background: var(--ui-dark); }
 /* Dragged to another place in the strip: it follows the pointer above the others */
 .tab.is-dragging { position: relative; z-index: 1; background: var(--ui-dark); color: var(--text); box-shadow: 0 0 0 1px var(--line), 0 2px 8px rgba(0, 0, 0, 0.45); cursor: grabbing; }
 .tab.is-on.is-dragging { background: var(--ui); }
@@ -439,6 +442,7 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .tbatch__all { font-weight: 600; }
 .tbatch__pages { display: grid; gap: 2px; max-height: 180px; padding: 6px 8px; overflow-y: auto; background: var(--ui-dark); border: 1px solid var(--line); border-radius: 4px; }
 .tbatch__page span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbatch__add { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (prefers-reduced-motion: reduce) { .ctxbar { animation: none; } }
 
 /* no document yet */

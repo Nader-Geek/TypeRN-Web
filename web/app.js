@@ -4579,21 +4579,14 @@
     });
     return modelPick;
   };
-  // Remove Text in the selection's bar, its menu for the part to take
-  const removeTextButton = () => {
-    const main = document.createElement("button");
-    main.type = "button";
-    main.className = "ctxbar__gen";
-    main.innerHTML = ICON.clean;
-    main.append(T("Remove Text"));
-    main.title = T("Plain backgrounds are filled at once, the art is redrawn by Generative Fill");
-    main.addEventListener("click", () => removeText("all"));
+  // The ▾ beside a button of the bar, its menu below it; a second click closes it
+  const moreButton = (title, entries) => {
     const more = document.createElement("button");
     more.type = "button";
     more.className = "ctxbar__model ctxbar__more";
     more.innerHTML = ICON.chevronDown;
-    more.title = T("Remove Text options");
-    more.setAttribute("aria-label", more.title);
+    more.title = title;
+    more.setAttribute("aria-label", title);
     more.setAttribute("aria-haspopup", "menu");
     let menuWasOpen = false;
     more.addEventListener("pointerdown", () => { menuWasOpen = Boolean(contextMenu); });
@@ -4604,14 +4597,35 @@
         return;
       }
       const box = more.getBoundingClientRect();
-      openContextMenu(box.left, box.bottom + 4, [
-        { label: "Remove All Text", action: () => removeText("all") },
-        { label: "Only Over the Art (Generative Fill)", action: () => removeText("art") },
-        { label: "Only on Plain Backgrounds", action: () => removeText("plain") },
-        null,
-        { label: "Remove Text on Several Pages…", action: startTextBatch },
-      ]);
+      openContextMenu(box.left, box.bottom + 4, entries());
+      if (event.detail === 0 && contextMenu) {
+        const row = contextMenu.querySelector(".menu__item");
+        if (row) row.focus();
+      }
     });
+    return more;
+  };
+  // Remove Text on Several Pages, said with their number once some are picked in the tabs
+  const batchItem = () => {
+    const count = pickedDocs().length;
+    return { label: "Remove Text on Several Pages…", title: () => (count ? fill(T("Remove Text on {count} Pages…"), { count }) : "Remove Text on Several Pages…"), action: () => startTextBatch() };
+  };
+  // Remove Text in the selection's bar, its menu for the part to take
+  const removeTextButton = () => {
+    const main = document.createElement("button");
+    main.type = "button";
+    main.className = "ctxbar__gen";
+    main.innerHTML = ICON.clean;
+    main.append(T("Remove Text"));
+    main.title = T("Plain backgrounds are filled at once, the art is redrawn by Generative Fill");
+    main.addEventListener("click", () => removeText("all"));
+    const more = moreButton(T("Remove Text options"), () => [
+      { label: "Remove All Text", action: () => removeText("all") },
+      { label: "Only Over the Art (Generative Fill)", action: () => removeText("art") },
+      { label: "Only on Plain Backgrounds", action: () => removeText("plain") },
+      null,
+      batchItem(),
+    ]);
     return [main, more];
   };
   // With nothing selected and no text picked, the bar offers Detect Text, under the page
@@ -4621,7 +4635,8 @@
   const TEXT_BAR_TOOLS = new Set(["clean", "heal", "stamp", "brush", "eraser", "magicEraser", "lasso", "polygon", "wand"]);
   const placeTextBar = (doc) => {
     const several = app.docs.length > 1;
-    const key = JSON.stringify(["text", textFind.running, several]);
+    const picked = several ? pickedDocs() : [];
+    const key = JSON.stringify(["text", textFind.running, app.docs.length, picked.length]);
     if (key !== taskBarKey) {
       taskBarKey = key;
       taskBar.textContent = "";
@@ -4638,17 +4653,11 @@
       const hide = iconButton("close", T("Hide the contextual task bar"), false, () => setTaskBar(false));
       hide.classList.add("ctxbar__hide");
       taskBar.append(taskBarGrip(), find);
-      // Several pages open: Remove Text on all of them, with or without a look at each first
-      if (several) {
-        const all = document.createElement("button");
-        all.type = "button";
-        all.className = "ctxbar__gen";
-        all.innerHTML = ICON.clean;
-        all.append(T("Remove Text on Several Pages…"));
-        all.addEventListener("click", () => startTextBatch());
-        taskBar.append(all);
-      }
-      taskBar.append(line, hide);
+      // Detect Text's ▾: Remove Text on several pages, the open ones, those picked in the tabs, or
+      // more added from its window, with or without a look at each first
+      const more = moreButton(`${T("Detect Text options")} · ${fill(T("{key} or Shift + click the tabs to pick the pages"), { key: IS_MAC ? "Cmd" : "Ctrl" })}`, () => [batchItem()]);
+      more.disabled = textFind.running;
+      taskBar.append(more, line, hide);
     }
     taskBar.hidden = false;
     const [x0, y0] = toScreen(0, 0);
@@ -5038,8 +5047,31 @@
     const price = Gen.priceOf(account, account.service, Gen.modelOf(account));
     return price && !price.free && price.usd > 0 ? fill(T("About {price} for each text over the art, billed by {service}."), { price: money(price.usd), service: serviceName(account.service) }) : "";
   };
+  // Files picked for the batch, not yet opened; none if cancelled
+  const pickBatchFiles = async () => {
+    if (!canPickFiles) {
+      return new Promise((resolve) => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.multiple = true;
+        input.accept = ".psd,.psb,.png,.jpg,.jpeg,.webp";
+        input.addEventListener("change", () => resolve(Array.from(input.files)));
+        input.addEventListener("cancel", () => resolve([]));
+        input.click();
+      });
+    }
+    try {
+      const handles = await window.showOpenFilePicker({ id: "typer-open-pages", multiple: true, types: PAGE_TYPES });
+      const entries = [];
+      for (const handle of handles) entries.push({ file: await handle.getFile(), handle });
+      return entries;
+    } catch (error) {
+      if (error.name !== "AbortError") toast(fill(T("{name} can't be read: {error}"), { name: T("Add Pages…"), error: error.message || error }), true);
+      return [];
+    }
+  };
   // The pages, what to remove and with which model; resolves with the choice, or null
-  const askTextBatch = () => new Promise((resolve) => {
+  const askTextBatch = (preset) => new Promise((resolve) => {
     const saved = textBatchSaved();
     const account = Gen ? Gen.load() : null;
     const body = document.createElement("div");
@@ -5055,20 +5087,63 @@
     head.append(all, allText);
     const list = document.createElement("div");
     list.className = "tbatch__pages";
-    const pages = app.docs.map((doc) => {
+    const pages = [];
+    const addRow = (doc, checked) => {
       const row = document.createElement("label");
       row.className = "tbatch__page";
       const box = document.createElement("input");
       box.type = "checkbox";
-      box.checked = true;
+      box.checked = checked;
       const name = document.createElement("span");
       name.textContent = doc.name;
       name.title = doc.name;
       row.append(box, name);
       list.appendChild(row);
-      return { doc, box };
-    });
-    body.append(intro, head, list);
+      pages.push({ doc, box });
+    };
+    app.docs.forEach((doc) => addRow(doc, !preset || preset.includes(doc)));
+    // More pages, from here: opened in their tabs and ticked. The chapter's pages wait in the
+    // pager, closed: they can all be opened at once.
+    const adding = document.createElement("div");
+    adding.className = "tbatch__add";
+    const addOpened = async (open) => {
+      const before = new Set(app.docs);
+      adding.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+      try {
+        await open();
+      } finally {
+        app.docs.forEach((doc) => { if (!before.has(doc) && !pages.some((one) => one.doc === doc)) addRow(doc, true); });
+        list.scrollTop = list.scrollHeight;
+        syncAdding();
+        sync();
+      }
+    };
+    const addFiles = document.createElement("button");
+    addFiles.type = "button";
+    addFiles.className = "btn btn--small";
+    addFiles.textContent = T("Add Pages…");
+    addFiles.addEventListener("click", () => addOpened(async () => {
+      const entries = await pickBatchFiles();
+      if (entries.length) await openFiles(entries);
+    }));
+    const addChapter = document.createElement("button");
+    addChapter.type = "button";
+    addChapter.className = "btn btn--small";
+    const closedPages = () => (chapter ? chapter.pages.filter((page) => !app.docs.some((doc) => doc.path === pageKey(page))) : []);
+    addChapter.addEventListener("click", () => addOpened(async () => {
+      const entries = [];
+      for (const page of closedPages()) entries.push({ file: page.handle ? await page.handle.getFile() : app.files.get(pageKey(page)) || page.file, handle: page.handle });
+      if (entries.length) await openFiles(entries);
+    }));
+    const syncAdding = () => {
+      const closed = closedPages().length;
+      addChapter.hidden = !closed;
+      addChapter.textContent = fill(T("Add the Chapter's Pages ({count})"), { count: closed });
+      addFiles.disabled = addChapter.disabled = false;
+    };
+    syncAdding();
+    adding.append(addFiles, addChapter);
+    body.append(intro, head, list, adding);
     let inputs = null;
     let buttons = [];
     const sync = () => {
@@ -5118,8 +5193,10 @@
     buttons = Array.from(ui.modal.querySelectorAll(".modal__foot .btn:not(:first-child)"));
     sync();
   });
-  const startTextBatch = async () => {
+  // For these pages, those picked in the tabs, or any of the open ones
+  const startTextBatch = async (only) => {
     if (!TextMask || !Mask || pixelsOnly()) return;
+    const preset = Array.isArray(only) ? only : pickedDocs();
     if (textBatch) {
       if (textBatch.review) backToReview();
       else toast(T("Remove Text on several pages is already under way."));
@@ -5130,7 +5207,7 @@
       toast(T("Detect Text isn't available for the moment. Try again later."));
       return;
     }
-    const choice = await askTextBatch();
+    const choice = await askTextBatch(preset.length ? preset : null);
     if (!choice || textBatch) return;
     let account = null;
     if (Gen && choice.which !== "plain") {
@@ -5158,6 +5235,8 @@
       mode: app.selectionMode,
     };
     textBatch = batch;
+    // The pages are under way: the tabs are ordinary again
+    if (tabPicks.size) setTabPicks([]);
     if (batch.review) {
       app.selectionMode = "add";
       if (app.doc !== docs[0]) switchDoc(docs[0]);
@@ -9424,6 +9503,50 @@
   const tabThumb = $("tabs-thumb");
   const tabsMore = $("tabs-more");
   const tabRoom = () => tabBar.clientWidth - ($("pager").hidden ? 0 : $("pager").offsetWidth);
+  // Pages picked in the tabs with Cmd or Shift + click, as layers are, for what is done to several
+  // at once. The page on screen is always one of them; going to a page outside them lets them go.
+  const tabPicks = new Set();
+  // Where Shift + click starts from: the last tab picked, or the page on screen
+  let tabAnchor = null;
+  const pickedDocs = () => {
+    if (!app.doc || !tabPicks.has(app.doc)) tabPicks.clear();
+    tabPicks.forEach((doc) => { if (!app.docs.includes(doc)) tabPicks.delete(doc); });
+    return tabPicks.size > 1 ? app.docs.filter((doc) => tabPicks.has(doc)) : [];
+  };
+  const setTabPicks = (docs) => {
+    tabPicks.clear();
+    docs.forEach((doc) => tabPicks.add(doc));
+    renderTabs();
+    taskBarKey = "";
+    schedule(false);
+  };
+  const pickTab = (doc, range) => {
+    if (!app.doc) return;
+    const picked = pickedDocs();
+    if (range) {
+      const anchor = picked.includes(tabAnchor) ? tabAnchor : app.doc;
+      const from = app.docs.indexOf(anchor);
+      const to = app.docs.indexOf(doc);
+      // The page on screen stays one of them
+      setTabPicks(app.docs.filter((one, at) => one === app.doc || (at >= Math.min(from, to) && at <= Math.max(from, to))));
+    } else if (doc !== app.doc) {
+      const next = picked.length ? picked : [app.doc];
+      tabAnchor = doc;
+      setTabPicks(next.includes(doc) ? next.filter((one) => one !== doc) : next.concat(doc));
+    }
+  };
+  // The tab's menu: for the pages picked if it's one of them, or for itself
+  const tabMenu = (event, doc) => {
+    event.preventDefault();
+    const picked = pickedDocs();
+    const docs = picked.includes(doc) ? picked : [doc];
+    const count = docs.length;
+    openContextMenu(event.clientX, event.clientY, [
+      ...(TextMask ? [{ label: "Remove Text on Several Pages…", title: () => (count > 1 ? fill(T("Remove Text on {count} Pages…"), { count }) : "Remove Text on Several Pages…"), enabled: () => !pixelsOnly(), action: () => startTextBatch(count > 1 ? docs : app.docs.slice()) }, null] : []),
+      { label: "Close", title: () => (count > 1 ? fill(T("Close {count} Pages"), { count }) : "Close"), action: () => closeDocs(docs) },
+      { label: "Close Other Pages", enabled: () => app.docs.length > count, action: () => closeDocs(app.docs.filter((one) => !docs.includes(one))) },
+    ]);
+  };
   tabsMore.innerHTML = SVG('<path d="m6 7 5 5-5 5M13 7l5 5-5 5"/>');
   tabsMore.title = T("Open Documents");
   tabsMore.setAttribute("aria-label", T("Open Documents"));
@@ -9557,17 +9680,18 @@
   const renderTabs = () => {
     // A touch screen has its pages elsewhere (touch.js)
     if (Shell.touch || tabDrag) return;
-    const key = JSON.stringify([app.docs.map((doc) => [doc.id, doc.name, PS.isDirty(doc)]), app.doc ? app.doc.id : 0]);
+    const picked = pickedDocs();
+    const key = JSON.stringify([app.docs.map((doc) => [doc.id, doc.name, PS.isDirty(doc)]), app.doc ? app.doc.id : 0, picked.map((doc) => doc.id)]);
     if (ui.tabs.dataset.key === key) return;
     ui.tabs.dataset.key = key;
     const scroll = ui.tabs.scrollLeft;
     ui.tabs.textContent = "";
     app.docs.forEach((doc) => {
       const tab = document.createElement("div");
-      tab.className = "tab" + (doc === app.doc ? " is-on" : "");
+      tab.className = "tab" + (doc === app.doc ? " is-on" : "") + (picked.includes(doc) ? " is-picked" : "");
       tab.dataset.id = String(doc.id);
       tab.setAttribute("role", "tab");
-      tab.setAttribute("aria-selected", String(doc === app.doc));
+      tab.setAttribute("aria-selected", String(doc === app.doc || picked.includes(doc)));
       tab.title = doc.name;
       const label = document.createElement("span");
       label.textContent = tabLabel(doc);
@@ -9581,10 +9705,16 @@
         closeDoc(doc);
       });
       tab.append(label, close);
-      tab.addEventListener("click", () => {
+      tab.addEventListener("click", (event) => {
         if (tabDragged) return;
+        if (event.shiftKey || (IS_MAC ? event.metaKey : event.ctrlKey)) {
+          pickTab(doc, event.shiftKey);
+          return;
+        }
+        if (picked.length) setTabPicks([]);
         if (doc !== app.doc) switchDoc(doc);
       });
+      tab.addEventListener("contextmenu", (event) => tabMenu(event, doc));
       tab.addEventListener("pointerdown", (event) => dragTab(event, tab, doc));
       // A middle click closes it, as in a browser; without the scrolling it starts on Windows
       tab.addEventListener("mousedown", (event) => {
@@ -10130,13 +10260,15 @@
     rows.slice(0, 6).forEach((row) => host.appendChild(recentButton(row)));
   };
 
-  const closeAllDocs = async () => {
-    for (const doc of app.docs.slice()) {
+  const closeDocs = async (docs) => {
+    for (const doc of docs.slice()) {
+      if (!app.docs.includes(doc)) continue;
       await closeDoc(doc);
       // Cancelled: the rest stays open
       if (app.docs.includes(doc)) return;
     }
   };
+  const closeAllDocs = () => closeDocs(app.docs);
   const stepDoc = (direction) => {
     const at = app.docs.indexOf(app.doc);
     if (app.docs.length > 1) switchDoc(app.docs[(at + direction + app.docs.length) % app.docs.length]);
