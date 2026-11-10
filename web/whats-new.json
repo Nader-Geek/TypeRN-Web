@@ -1,4 +1,5 @@
 {"notes": [
+  {"id":"f74fc3a2b4f3","at":"2026-11-10T12:28:53+01:00","kind":"feat","text":"TypeR Studio can be downloaded for Linux (AppImage and .deb)","lang":{"fr":"TypeR Studio se télécharge aussi pour Linux (AppImage et .deb)"}},
   {"id":"c96726be49eb","at":"2026-11-10T10:26:15+01:00","kind":"feat","text":"Generative Fill can use your Adobe account: Firefly, GPT Image and Gemini (desktop app)","lang":{"fr":"Le Remplissage génératif peut utiliser votre compte Adobe : Firefly, GPT Image et Gemini (app de bureau)"}},
   {"id":"a6ac3d9c86f1","at":"2026-11-10T10:26:05+01:00","kind":"fix","text":"\"Match the page's tones\" no longer grays out or darkens what Generative Fill draws","lang":{"fr":"« Harmoniser avec les tons de la page » ne grise ni n'assombrit plus le Remplissage génératif"}},
   {"id":"cc2937c31c85","at":"2026-11-10T10:26:05+01:00","kind":"fix","text":"Smart Paste in a bubble left open puts the text around your click","lang":{"fr":"Le Collage intelligent dans une bulle ouverte place le texte autour du clic"}},
