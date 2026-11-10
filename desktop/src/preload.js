@@ -9,12 +9,12 @@ const { contextBridge, ipcRenderer, webFrame } = require("electron");
 webFrame.setVisualZoomLevelLimits(1, 1);
 
 contextBridge.exposeInMainWorld("TypeRDesktop", {
-  platform: process.platform === "darwin" ? "mac" : "windows",
+  platform: { darwin: "mac", win32: "windows" }[process.platform] || "linux",
   alive: () => ipcRenderer.send("page-alive"),
   ready: () => ipcRenderer.send("page-ready"),
   setMenu: (model) => ipcRenderer.send("set-menu", model),
   setStrings: (strings) => ipcRenderer.send("set-strings", strings),
-  // The theme's colors for the window's own buttons on Windows (web/theme.js)
+  // The theme's colors for the window's own buttons on Windows and Linux (web/theme.js)
   setTitleBar: (color, symbolColor) => ipcRenderer.send("set-title-bar", color, symbolColor),
   onMenuAction: (listener) => ipcRenderer.on("menu-action", (event, id) => listener(id)),
   onMenuKey: (listener) => ipcRenderer.on("menu-key", (event, command) => listener(command)),

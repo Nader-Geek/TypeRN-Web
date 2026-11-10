@@ -160,7 +160,8 @@ const takeRequest = async () => {
 // Where this copy of the app is, for TypeR for Photoshop to know it's installed, even outside
 // the folders its installers use
 const noteWhereStudioIs = async () => {
-  const place = isMac ? path.resolve(process.execPath, "..", "..", "..") : process.execPath;
+  // An AppImage runs from a folder that goes away when it closes: its own file is the place
+  const place = isMac ? path.resolve(process.execPath, "..", "..", "..") : process.env.APPIMAGE || process.execPath;
   const file = path.join(exchangeFolder(), "app.json");
   try {
     await fs.promises.mkdir(path.dirname(file), { recursive: true });
@@ -448,7 +449,7 @@ const pluginFolders = () => {
   const appData = app.getPath("appData");
   const folders = [path.join(appData, "TypeR", "UXP"), path.join(appData, "Adobe", "CEP", "extensions", "typertools")];
   if (isMac) folders.push("/Library/Application Support/Adobe/CEP/extensions/typertools");
-  else {
+  else if (process.platform === "win32") {
     folders.push(path.join(app.getPath("home"), "AppData", "Roaming", "Adobe", "CEP", "extensions", "typertools"));
     [process.env["CommonProgramFiles(x86)"], process.env.CommonProgramFiles].filter(Boolean)
       .forEach((common) => folders.push(path.join(common, "Adobe", "CEP", "extensions", "typertools")));
@@ -590,13 +591,15 @@ ipcMain.on("local-ai-cancel", (event, id) => {
 // The Font FindeR's fonts, installed for this user only, as TypeR for Photoshop does: no admin
 // rights. Only font files, under a plain name, in the user's own font folder. On a Mac CoreText
 // watches that folder; on Windows the font is also registered under HKCU and announced to the
-// running apps.
+// running apps; on Linux fontconfig is asked to look at the folder again.
 const FONT_FILE_LIMIT = 50 * 1024 * 1024;
 const FONT_KIND = { OTTO: ".otf", ttcf: ".ttc", true: ".ttf", "\u0000\u0001\u0000\u0000": ".ttf" };
 // Tests install into a folder of their own
 const fontFolder = () => (isTest && process.env.TYPER_TEST_FONTS) || (isMac
   ? path.join(app.getPath("home"), "Library", "Fonts")
-  : path.join(process.env.LOCALAPPDATA || path.join(app.getPath("home"), "AppData", "Local"), "Microsoft", "Windows", "Fonts"));
+  : process.platform === "win32"
+    ? path.join(process.env.LOCALAPPDATA || path.join(app.getPath("home"), "AppData", "Local"), "Microsoft", "Windows", "Fonts")
+    : path.join(process.env.XDG_DATA_HOME || path.join(app.getPath("home"), ".local", "share"), "fonts"));
 const psQuote = (value) => `'${String(value).replace(/'/g, "''")}'`;
 const registerWindowsFonts = (entries) => new Promise((resolve, reject) => {
   const script = [
@@ -615,9 +618,14 @@ const registerWindowsFonts = (entries) => new Promise((resolve, reject) => {
   const { execFile } = require("child_process");
   execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")], { windowsHide: true }, (error) => (error ? reject(error) : resolve()));
 });
+// fontconfig finds the new files by itself after a while; fc-cache makes it now. Without it the
+// fonts are still there at the next start.
+const refreshLinuxFonts = (folder) => new Promise((resolve) => {
+  const { execFile } = require("child_process");
+  execFile("fc-cache", ["-f", folder], { timeout: 60000 }, () => resolve());
+});
 const installFonts = async (fonts) => {
   if (!Array.isArray(fonts) || !fonts.length || fonts.length > 200) throw new Error("Bad request.");
-  if (!isMac && process.platform !== "win32") return 0;
   const files = fonts.map((font) => {
     const bytes = font && font.bytes;
     if (!(bytes instanceof Uint8Array) || bytes.length < 12 || bytes.length > FONT_FILE_LIMIT) throw new Error("Not a font file.");
@@ -636,6 +644,7 @@ const installFonts = async (fonts) => {
     entries.push({ path: target, registryName: file.registryName });
   }
   if (process.platform === "win32") await registerWindowsFonts(entries);
+  else if (process.platform === "linux") await refreshLinuxFonts(folder);
   return entries.length;
 };
 ipcMain.handle("install-fonts", async (event, fonts) => {

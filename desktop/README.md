@@ -1,6 +1,6 @@
 # TypeR Studio
 
-L'application de bureau de TypeR, pour Mac et Windows. Elle embarque le même code que la version
+L'application de bureau de TypeR, pour Mac, Windows et Linux. Elle embarque le même code que la version
 web (`web/`) et ajoute ce qu'un onglet ne peut pas faire : barre de menus du Mac, raccourcis de
 Photoshop, ouverture depuis le système, hors-ligne dès le premier lancement, mises à jour signées.
 
@@ -150,6 +150,28 @@ npm run dist:win     # fonctionne aussi depuis un Mac
 
 Sans certificat de signature, Windows affiche l'avertissement SmartScreen à l'installation.
 
+### Linux
+
+```sh
+npm run dist:linux   # fonctionne aussi depuis un Mac
+```
+
+Deux fichiers, pour x64 : `TypeR-Studio-x86_64.AppImage` (toutes les distributions, se met à jour
+toute seule) et `TypeR-Studio-amd64.deb` (Ubuntu, Debian ; se met à jour en redemandant le mot de
+passe administrateur).
+
+- Le `.deb` s'installe dans `/opt/TypeR-Studio`, sans espace : le script passe
+  `-c.productName=TypeR-Studio` pour ça. Avec une espace dans ce chemin, Chromium coupe le chemin
+  au démarrage et l'app ne s'ouvre pas sur les systèmes qui utilisent le bac à sable SUID (Electron
+  #41066). Le nom de l'app, son dossier de réglages et le raccourci restent « TypeR Studio ».
+- Pas de Photoshop sous Linux : « Ouvrir dans Photoshop » ne trouve rien, et les réglages du
+  plugin ne sont pas cherchés. Les polices du Font FindeR vont dans `~/.local/share/fonts`.
+- Le Remplissage génératif local n'est pas proposé : le moteur Linux de stable-diffusion.cpp est
+  compilé pour Ubuntu 26.04 et ne s'ouvrirait pas sur les distributions plus anciennes.
+- Pour essayer sur un Mac à puce Apple, Docker (colima) lance l'app dans Ubuntu, avec un `.deb`
+  `--arm64` : l'émulation x64 ne démarre pas Chromium. Le bac à sable ne marche pas dans un
+  conteneur : y lancer l'app avec `--no-sandbox`.
+
 ### Publier l'app elle-même
 
 Les installateurs dépassent la limite de 100 Mo par fichier de GitHub : ils vont dans les Releases de
@@ -159,7 +181,11 @@ de dépôt `ScanR/TypeR-Web`, sinon ces apps ne trouveraient plus leurs mises à
 
 ```sh
 GH_TOKEN=... CSC_NAME="Adrien Devoe (4A2K68QQ82)" APPLE_KEYCHAIN_PROFILE=typer-studio npx electron-builder --mac --win --publish always
+GH_TOKEN=... npx electron-builder --linux --x64 -c.productName=TypeR-Studio --publish always
 ```
+
+Linux à part, pour son nom de dossier sans espace (voir plus haut). Les deux commandes remplissent
+la même Release.
 
 Sur Mac, la mise à jour automatique de l'app ne marche que si elle est signée.
 

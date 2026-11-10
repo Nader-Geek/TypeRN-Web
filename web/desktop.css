@@ -13,8 +13,9 @@
 .desktop--mac .mbar { padding-left: 74px; }
 .desktop--mac .mbar__menus { display: none; }
 
-/* Windows' buttons take the right end of the bar */
-.desktop--windows .mbar { padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 8px); }
+/* Windows' and Linux's buttons take the right end of the bar */
+.desktop--windows .mbar,
+.desktop--linux .mbar { padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 8px); }
 
 /* A new version is ready (desktop.js): restart now, or keep going */
 .update-note { position: fixed; right: 16px; bottom: 40px; z-index: 65; display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 32px); padding: 10px 10px 10px 14px; background: var(--ui-darker); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }

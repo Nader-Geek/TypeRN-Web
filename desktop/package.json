@@ -4,6 +4,8 @@
   "version": "0.1.2",
   "minContentShell": "0.1.0",
   "description": "TypeR's Photoshop-like workspace for manga and comics typesetters, as a desktop app.",
+  "homepage": "https://typer.hayasaku.fr",
+  "desktopName": "typer-studio.desktop",
   "author": "ScanR",
   "license": "UNLICENSED",
   "private": true,
@@ -16,7 +18,8 @@
     "publish-web": "node scripts/publish-web.js",
     "dist": "npm run content && electron-builder",
     "dist:mac": "npm run content && electron-builder --mac --arm64 --x64",
-    "dist:win": "npm run content && electron-builder --win --x64"
+    "dist:win": "npm run content && electron-builder --win --x64",
+    "dist:linux": "npm run content && electron-builder --linux --x64 -c.productName=TypeR-Studio"
   },
   "dependencies": {
     "electron-updater": "^6.6.2"
@@ -137,6 +140,44 @@
       "include": "build/installer.nsh",
       "differentialPackage": false,
       "artifactName": "TypeR-Studio-Setup.${ext}"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Graphics",
+      "synopsis": "Photoshop-like workspace for manga and comics typesetters",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "mimeTypes": [
+        "image/vnd.adobe.photoshop",
+        "image/png",
+        "image/jpeg",
+        "image/webp"
+      ],
+      "maintainer": "ScanR",
+      "artifactName": "TypeR-Studio-${arch}.${ext}",
+      "syncDesktopName": true,
+      "desktop": {
+        "entry": {
+          "Name": "TypeR Studio"
+        }
+      }
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libasound2t64 | libasound2",
+        "libgbm1"
+      ]
     },
     "publish": [
       {
