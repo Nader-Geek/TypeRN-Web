@@ -273,6 +273,17 @@
   // The pixels this close to the letters are the ones the paint will meet: nearly all of them
   // must be the background
   const NEAR = 2;
+  // A line the selection comes up to beside the letters (a panel's border, a caption's box, a
+  // balloon's outline) covers a long stretch of what is near them, in one piece; the grain of a
+  // tone or a hatching across it, only short bits. A piece this long (in pixels) is a line, not
+  // the art: it isn't held against the background, as long as such lines cover no more than
+  // LINE_SHARE of what is near the letters. Whether it runs on under them is told afterwards.
+  // Its length counts in bands (the band follows the page's size, as lines and grain do).
+  const LINE = 4;
+  const LINE_SHARE = 0.5;
+  // What comes from outside the area (an outline) may go deeper in than its edge, as long as it
+  // keeps at least this many pixels from the letters
+  const CLEAR = 3;
 
   // Least squares: the six numbers of a smooth shading (1, u, v, u², uv, v²) for each channel,
   // from the samples `use` keeps. Null when they can't be told apart (too few, all in a line).
@@ -379,8 +390,9 @@
   // a band of `band` pixels around it, the other letters (`all`) left out: most of what is near
   // the letters must be that background. Lines may come up to the area, as a balloon's outline
   // does when the letters are close to it: they are left as they are, unpainted, if they stop
-  // within its edge (`margin` pixels deep, how far the letters' area was grown). One that goes
-  // further runs under the letters (the art), and only the model can draw it on.
+  // within its edge (`margin` pixels deep, how far the letters' area was grown), or go deeper
+  // while keeping clear of the letters. One that comes up to them runs under them (the art), and
+  // only the model can draw it on.
   // { plain, colour: { r, g, b }, data }, `data` the pixels to paint over the area's bounds; a
   // shading also gives `pixels`, RGBA over the area's bounds, the colour to paint at each.
   const plainOf = (area, rgba, w, h, all, band = 6, margin = band) => {
@@ -452,16 +464,23 @@
     let nearCount = 0;
     for (let s = 0; s < count; s++) if (ds[s] <= NEAR) { use[s] = 1; nearCount++; }
     if (nearCount < 12) return no;
+    // The samples on a line along the letters (see LINE), left out of the judging
+    const line = new Uint8Array(count);
     // How well a background explains the samples: the share of those near the letters, and of
     // the whole band, it explains, and how closely it explains those near the letters. Those it
     // explains (no further off than `tolerance`) are marked in `use`.
     const judge = (bg, tolerance = TOLERANCE) => {
-      let near = 0, nearIn = 0, inBand = 0, error = 0;
+      let near = 0, nearIn = 0, all = 0, inBand = 0, error = 0;
       for (let s = 0; s < count; s++) {
+        if (line[s]) {
+          use[s] = 0;
+          continue;
+        }
         let worst = 0;
         for (let c = 0; c < 3; c++) worst = Math.max(worst, Math.abs(colours[s * 3 + c] - bg(us[s], vs[s], c)));
         use[s] = worst <= tolerance ? 1 : 0;
         const fits = worst <= TOLERANCE;
+        all++;
         if (fits) inBand++;
         if (ds[s] <= NEAR) {
           near++;
@@ -471,8 +490,10 @@
           }
         }
       }
-      const result = { near: nearIn / near, band: inBand / count, error: nearIn ? error / nearIn : TOLERANCE };
-      result.ok = result.near >= 0.85 && result.band >= 0.6 && result.error <= 7;
+      const result = { near: near ? nearIn / near : 0, band: all ? inBand / all : 0, error: nearIn ? error / nearIn : TOLERANCE };
+      // The grain of a scan, of a JPEG, of a page made bigger or smaller stays well within 5 levels
+      // on average; a screentone that a smaller or softer page has blurred into a grey doesn't
+      result.ok = result.near >= 0.85 && result.band >= 0.6 && result.error <= 5;
       return result;
     };
     // One colour: the middle of what is near the letters
@@ -482,12 +503,47 @@
       values.sort((a, b) => a - b);
       return values[values.length >> 1];
     });
+    // What is near the letters without being that colour, in pieces: the long ones are lines
+    const sampleAt = new Int32Array(bw * bh).fill(-1);
+    for (let s = 0; s < count; s++) {
+      if (ds[s] > NEAR) continue;
+      let worst = 0;
+      for (let c = 0; c < 3; c++) worst = Math.max(worst, Math.abs(colours[s * 3 + c] - median[c]));
+      if (worst > TOLERANCE) sampleAt[at[s]] = s;
+    }
+    const piece = new Int32Array(nearCount);
+    let lined = 0;
+    for (let s = 0; s < count; s++) {
+      if (sampleAt[at[s]] !== s || line[s]) continue;
+      // Marked 2 while its piece is gathered, then 1 if it is long enough, 3 if not
+      let size = 0;
+      line[s] = 2;
+      piece[size++] = s;
+      for (let head = 0; head < size; head++) {
+        const i = at[piece[head]];
+        const x = i % bw;
+        const y = (i - x) / bw;
+        for (let ny = Math.max(0, y - 1); ny <= Math.min(bh - 1, y + 1); ny++) {
+          for (let nx = Math.max(0, x - 1); nx <= Math.min(bw - 1, x + 1); nx++) {
+            const n = sampleAt[ny * bw + nx];
+            if (n < 0 || line[n]) continue;
+            line[n] = 2;
+            piece[size++] = n;
+          }
+        }
+      }
+      const long = size >= LINE * band;
+      for (let k = 0; k < size; k++) line[piece[k]] = long ? 1 : 3;
+      if (long) lined += size;
+    }
+    // Only the lines are left marked, and none if they are too much of it
+    for (let s = 0; s < count; s++) if (line[s] !== 1 || lined > nearCount * LINE_SHARE) line[s] = 0;
     const flatAt = (u, v, c) => median[c];
     const flat = judge(flatAt);
     // A shading: fitted to what is near the letters, then again and again to what it explains
     // all around, more and more closely, so an outline or the art beside the balloon soon has no
     // say in it
-    for (let s = 0; s < count; s++) use[s] = ds[s] <= NEAR ? 1 : 0;
+    for (let s = 0; s < count; s++) use[s] = ds[s] <= NEAR && !line[s] ? 1 : 0;
     let shading = null;
     let smooth = null;
     for (const tolerance of [TOLERANCE * 4, TOLERANCE * 2, TOLERANCE, TOLERANCE]) {
@@ -534,8 +590,8 @@
     judge(bg);
     // What comes up to the area without being the background (`use` tells, for the chosen one):
     // followed into the area through the pixels that aren't the background either, no deeper
-    // than its edge. The area's pixels, each with how deep in it it is.
-    const depth = new Uint8Array(bw * bh);
+    // than its edge (but see below). The area's pixels, each with how deep in it it is.
+    const depth = new Uint16Array(bw * bh);
     const limit = margin + 1;
     tail = 0;
     for (let k = 0; k < inArea; k++) {
@@ -549,7 +605,6 @@
     }
     for (let head = 0; head < tail; head++) {
       const i = queue[head];
-      if (depth[i] > limit) continue;
       const x = i % bw;
       const y = (i - x) / bw;
       for (let ny = Math.max(0, y - 1); ny <= Math.min(bh - 1, y + 1); ny++) {
@@ -571,6 +626,7 @@
       return false;
     };
     const kept = new Uint8Array(bw * bh);
+    let deepest = 0;
     tail = 0;
     for (let s = 0; s < count; s++) {
       if (ds[s] !== 1 || use[s]) continue;
@@ -585,12 +641,50 @@
         for (let nx = Math.max(0, x - 1); nx <= Math.min(bw - 1, x + 1); nx++) {
           const n = ny * bw + nx;
           if (dist[n] !== ON || kept[n] || !off(n)) continue;
-          // Deeper than the edge: it runs under the letters
-          if (!depth[n] || depth[n] > limit) return no;
           kept[n] = 1;
+          if (depth[n] > deepest) deepest = depth[n];
           queue[tail++] = n;
         }
       }
+    }
+    // Deeper than the edge, it runs under the letters, unless it keeps CLEAR of them and stays
+    // shallower than those around where it goes deep: then it's an outline the letters come
+    // close to, the selection reaching past it (the detection's mask has a margin of its own
+    // around the strokes). The letters: what isn't the background without coming from outside
+    // the area. None around, it may be the letters themselves that touch it; one that ends
+    // against them may go on under them: the model's work.
+    if (deepest > limit) {
+      const near = new Uint16Array(bw * bh);
+      tail = 0;
+      for (let i = 0; i < bw * bh; i++) {
+        if (kept[i] !== 1 || depth[i] <= limit) continue;
+        near[i] = 1;
+        queue[tail++] = i;
+      }
+      const reach = band * 2;
+      let letters = Infinity;
+      let apart = Infinity;
+      for (let head = 0; head < tail; head++) {
+        const i = queue[head];
+        // The first met is the nearest. A speck within the edge isn't one of the letters, which
+        // lie deeper than that, but it must be kept clear of all the same.
+        if (dist[i] === ON && !kept[i] && off(i)) {
+          if (apart === Infinity) apart = near[i] - 1;
+          if (depth[i] > limit && depth[i] < letters) letters = depth[i];
+        }
+        if (near[i] > reach) continue;
+        const x = i % bw;
+        const y = (i - x) / bw;
+        for (let ny = Math.max(0, y - 1); ny <= Math.min(bh - 1, y + 1); ny++) {
+          for (let nx = Math.max(0, x - 1); nx <= Math.min(bw - 1, x + 1); nx++) {
+            const n = ny * bw + nx;
+            if (near[n]) continue;
+            near[n] = near[i] + 1;
+            queue[tail++] = n;
+          }
+        }
+      }
+      if (letters === Infinity || deepest >= letters || apart < CLEAR) return no;
     }
     // A shading meets the page exactly at the area's edge: what it misses of the background
     // there is carried in, smoothly, so no seam shows
@@ -633,7 +727,9 @@
   // background (see plainOf). `grow`: how far the letters' areas were grown. One that doesn't is
   // looked at again in smaller parts, since two balloons side by side, or a balloon and a word
   // over the art beside it, may have come together: its parts on a plain background are still
-  // painted, and only the rest, as one area, is left to the model.
+  // painted, and only the rest, as one area, is left to the model. The parts are taken closer
+  // and closer: first those a third of `link` apart, then, of those still not on a plain
+  // background, those that don't touch (letters a few pixels from a word beside them).
   const areasOf = (full, rgba, w, h, link, grow = 4) => {
     const band = Math.max(6, grow + 3);
     const judge = (area) => {
@@ -642,17 +738,33 @@
       area.whole = whole;
       return area;
     };
+    const links = [...new Set([Math.max(1, Math.round(link / 3)), 1])];
     const areas = [];
     split(full, w, h, link).forEach((area) => {
       judge(area);
-      const parts = area.plain ? [] : split(area.data, area.width, area.height, Math.max(1, Math.round(link / 3)), 1);
-      parts.forEach((part) => {
-        part.left += area.left;
-        part.top += area.top;
-        judge(part);
+      if (area.plain) {
+        areas.push(area);
+        return;
+      }
+      const plain = [];
+      let left = [area];
+      links.forEach((near) => {
+        const next = [];
+        left.forEach((piece) => {
+          const parts = split(piece.whole, piece.width, piece.height, near, 1);
+          if (parts.length < 2) {
+            next.push(piece);
+            return;
+          }
+          parts.forEach((part) => {
+            part.left += piece.left;
+            part.top += piece.top;
+            (judge(part).plain ? plain : next).push(part);
+          });
+        });
+        left = next;
       });
-      const plain = parts.filter((part) => part.plain);
-      if (parts.length < 2 || !plain.length) {
+      if (!plain.length) {
         areas.push(area);
         return;
       }
