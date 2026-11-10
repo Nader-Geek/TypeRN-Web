@@ -13164,15 +13164,18 @@
       body.appendChild(box);
       return anchors;
     };
-    const [appleChip, intel, windows] = option("TypeR Studio", T("A lightweight, Photoshop-like experience made for typesetters. The same as the web version, as an app."), [
+    const [appleChip, intel, windows, linux] = option("TypeR Studio", T("A lightweight, Photoshop-like experience made for typesetters. The same as the web version, as an app."), [
       [T("Mac (Apple chip)"), `${STUDIO_RELEASE}TypeR-Studio-arm64.dmg`],
       ["Mac (Intel)", `${STUDIO_RELEASE}TypeR-Studio-x64.dmg`],
       ["Windows", `${STUDIO_RELEASE}TypeR-Studio-Setup.exe`],
+      ["Linux (AppImage)", `${STUDIO_RELEASE}TypeR-Studio-x86_64.AppImage`],
+      ["Linux (.deb)", `${STUDIO_RELEASE}TypeR-Studio-amd64.deb`],
     ]);
     const [extension] = option(T("TypeR extension for Photoshop"), "", [[T("Download the .zip"), EXTENSION_ZIP]]);
     extension.classList.add("btn--main");
     // This computer's own download stands out, when the browser can tell which it is
     if (/win/i.test(navigator.platform || "")) windows.classList.add("btn--main");
+    else if (/linux/i.test(navigator.platform || "") && !/android/i.test(navigator.userAgent)) linux.classList.add("btn--main");
     else if (IS_MAC) {
       appleChip.classList.add("btn--main");
       if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
