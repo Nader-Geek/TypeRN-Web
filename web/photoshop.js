@@ -9401,15 +9401,36 @@
         height: doc.height,
         resolution: doc.resolution,
         selectionBounds: { left: b.left, top: b.top, right: b.right, bottom: b.bottom },
-        histograms: selectionHistograms(doc, selection),
+        histograms: [],
         rawPath: null,
         activeTextSize: null,
       };
+      // A click whose selection leaks into the page, as in TypeR's Legacy host: the panel is
+      // told so, and asks again with the polygon of a disc around the click (data.local) for
+      // the outline of the selection inside it. The text then goes around the click.
+      const trigger = data && data.trigger;
+      const clicked = !!trigger && ((trigger.source === "wand" && typeof trigger.x === "number") ||
+        (trigger.source === "manual" && trigger.lastSource === "wand" && !!trigger.lastClick));
+      const local = data && Array.isArray(data.local) && data.local.length >= 3 ? data.local : null;
+      const sw = b.right - b.left;
+      const sh = b.bottom - b.top;
+      const leak = (sw >= doc.width * 0.94 && sh >= Math.min(doc.width * 0.7, doc.height * 0.6)) || (sh >= doc.height * 0.96 && sw >= doc.width * 0.6);
+      if (!local && clicked && trigger.source !== "rectangle" && leak) {
+        result.leak = true;
+        return JSON.stringify(result);
+      }
+      let read = selection;
+      if (local) {
+        const disc = polygonSelection(doc, local);
+        read = disc ? combineSelections(doc, selection, disc, "intersect") : null;
+        if (!read) return JSON.stringify({ error: "shape" });
+      }
+      result.histograms = selectionHistograms(doc, read);
       if (data && data.keepSize) {
         const layer = activeTextLayer(doc);
         if (layer) result.activeTextSize = layer.params.layerText.textStyleRange[0].textStyle.size;
       }
-      if (!data || !data.trigger || data.trigger.source !== "rectangle") result.rawPath = ringsToPath(selection.rings);
+      if (!data || !data.trigger || data.trigger.source !== "rectangle") result.rawPath = ringsToPath(read.rings);
       return JSON.stringify(result);
     },
     smartPasteMeasure(data) {
