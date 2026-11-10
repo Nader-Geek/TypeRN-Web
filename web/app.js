@@ -9277,6 +9277,81 @@
   // Leading as Photoshop sets it: Auto, a number typed, or one from the list. The arrows on
   // Auto go to the nearest number above or below what Auto gives.
   const LEADING_PRESETS = [6, 8, 9, 10, 11, 12, 14, 16, 18, 24, 30, 36, 48, 60, 72, 150, 300];
+  let leadingMenu = null;
+  const closeLeadingMenu = (refocus) => {
+    if (!leadingMenu) return;
+    const { list, opener } = leadingMenu;
+    leadingMenu = null;
+    list.remove();
+    opener.setAttribute("aria-expanded", "false");
+    if (refocus && opener.isConnected) opener.focus();
+  };
+  const openLeadingMenu = (opener, current, pick, byKeys) => {
+    closeLeadingMenu();
+    const list = document.createElement("div");
+    list.className = "menu__list menu__list--context blend-menu";
+    list.setAttribute("role", "listbox");
+    list.setAttribute("aria-label", T("Leading"));
+    if (lang === "ar") list.dir = "rtl";
+    const items = [];
+    const add = (value, text) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.tabIndex = -1;
+      item.className = "menu__item" + (value === current ? " is-current" : "");
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", String(value === current));
+      item.textContent = text;
+      item.addEventListener("click", () => {
+        closeLeadingMenu();
+        pick(value);
+      });
+      items.push(item);
+      list.appendChild(item);
+    };
+    add("auto", T("Auto"));
+    const sep = document.createElement("div");
+    sep.className = "menu__sep";
+    list.appendChild(sep);
+    LEADING_PRESETS.forEach((value) => add(String(value), String(value)));
+    // A click in the list doesn't take the focus from the text being typed
+    list.addEventListener("pointerdown", (event) => event.preventDefault());
+    document.body.appendChild(list);
+    const rect = (opener.parentNode || opener).getBoundingClientRect();
+    list.style.minWidth = `${Math.round(rect.width)}px`;
+    const below = rect.bottom + 2;
+    const top = below + list.offsetHeight > window.innerHeight - 8 ? Math.max(8, rect.top - 2 - list.offsetHeight) : below;
+    list.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - list.offsetWidth - 8))}px`;
+    list.style.top = `${top}px`;
+    opener.setAttribute("aria-expanded", "true");
+    leadingMenu = { list, opener, items };
+    const hot = items.find((item) => item.classList.contains("is-current"));
+    if (hot) hot.scrollIntoView({ block: "nearest" });
+    if (byKeys) (hot || items[0]).focus();
+  };
+  // While open, the arrows go through the list, Enter picks, Escape closes
+  document.addEventListener("keydown", (event) => {
+    if (!leadingMenu) return;
+    const { items } = leadingMenu;
+    const at = items.indexOf(document.activeElement);
+    if (event.key === "Escape") closeLeadingMenu(at >= 0);
+    else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      const from = at >= 0 ? at : items.findIndex((item) => item.classList.contains("is-current"));
+      const next = from < 0 ? 0 : Math.max(0, Math.min(items.length - 1, from + (event.key === "ArrowDown" ? 1 : -1)));
+      items[next].focus();
+    } else if ((event.key === "Enter" || event.key === " ") && at >= 0) items[at].click();
+    else {
+      if (event.key === "Tab") closeLeadingMenu();
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+  document.addEventListener("pointerdown", (event) => {
+    if (leadingMenu && !leadingMenu.list.contains(event.target) && !leadingMenu.opener.contains(event.target)) closeLeadingMenu();
+  }, true);
+  window.addEventListener("blur", () => closeLeadingMenu());
+  window.addEventListener("resize", () => closeLeadingMenu());
   const leadingField = (layer, style) => {
     const manual = style.autoLeading === false && style.leading > 0;
     const shown = (value) => String(Math.round(value * 100) / 100);
@@ -9330,23 +9405,32 @@
       event.preventDefault();
       step(event.key === "ArrowUp" ? 1 : -1, event.shiftKey);
     });
-    const list = document.createElement("select");
-    list.title = T("Leading");
-    list.setAttribute("aria-label", T("Leading"));
-    const option = (value, text) => {
-      const item = document.createElement("option");
-      item.value = value;
-      item.textContent = text;
-      list.appendChild(item);
+    // The list is the page's own: the system's, opened from so small a field, showed far from it
+    // or closed at once
+    const opener = document.createElement("button");
+    opener.type = "button";
+    opener.className = "combo__open";
+    opener.title = T("Leading");
+    opener.setAttribute("aria-label", T("Leading"));
+    opener.setAttribute("aria-haspopup", "listbox");
+    opener.setAttribute("aria-expanded", "false");
+    const open = (byKeys) => {
+      const value = read();
+      openLeadingMenu(opener, value === null ? null : String(value), (chosen) => apply(chosen === "auto" ? "auto" : Number(chosen)), byKeys);
     };
-    option("auto", T("Auto"));
-    list.appendChild(document.createElement("hr"));
-    LEADING_PRESETS.forEach((value) => option(String(value), String(value)));
-    if (!manual) list.value = "auto";
-    else if (LEADING_PRESETS.includes(Math.round(style.leading * 100) / 100)) list.value = String(Math.round(style.leading * 100) / 100);
-    else list.selectedIndex = -1;
-    list.addEventListener("change", () => apply(list.value === "auto" ? "auto" : Number(list.value)));
-    box.append(input, list);
+    // Pressed, the button leaves the focus where it is: in the text being typed, too
+    opener.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      if (leadingMenu && leadingMenu.opener === opener) closeLeadingMenu();
+      else open(false);
+    });
+    opener.addEventListener("keydown", (event) => {
+      if (leadingMenu || !(event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ")) return;
+      event.preventDefault();
+      open(true);
+    });
+    box.append(input, opener);
     return { box, input, step };
   };
 
@@ -9359,6 +9443,7 @@
     const key = layer ? JSON.stringify([layer.id, styleShown(layer), layer.params.layerText.paragraphStyleRange[0], layer.params.layerText.antiAlias, layer.params.layerText.textShape, Boolean(layer.warp), layer.stroke, Fonts.generation]) : "none";
     if (key === characterKey) return;
     characterKey = key;
+    closeLeadingMenu();
     host.textContent = "";
     if (!layer) {
       const empty = document.createElement("p");
