@@ -12,6 +12,60 @@ npm start            # lance l'app depuis les sources
 npm test             # 41 vérifications sur l'app réelle, sans connexion
 ```
 
+### Adobe Firefly, connexion expérimentale
+
+Dans cette version de bureau lancée depuis les sources, ouvrir **Paramètres →
+Remplissage génératif**, choisir **Adobe Firefly**, puis **Se connecter à Adobe**.
+La fenêtre Firefly permet de se connecter au compte habituel. Une fois connecté,
+enregistrer les réglages, sélectionner une zone et lancer le Remplissage génératif.
+Photoshop n'a pas besoin d'être ouvert. Les droits et les crédits sont ceux du compte Adobe.
+
+La carte Adobe affiche les **crédits restants / total**, une jauge et la **prochaine
+réinitialisation** lorsque cette date est fournie par Adobe. Le solde est relu à
+la connexion, à l'ouverture des réglages (cache d'une minute maximum), après chaque
+tentative de génération et avec **Actualiser les crédits**. Il inclut l'utilisation
+du compte dans les autres applications Adobe. Un échec de lecture affiche un solde
+indisponible, sans empêcher de générer ni afficher un faux zéro.
+
+Le choix **Firefly Image 5** utilise explicitement le modèle `image5` d'Adobe.
+Il retouche l'image selon la consigne ; sans consigne, TypeR lui demande d'effacer
+le lettrage. TypeR aligne le résultat et ne le réinsère que dans la sélection.
+Ce modèle utilise les crédits premium Adobe. **Firefly Fill & Expand** reste un
+choix distinct, avec son masque et son protocole. Aucun échec ne déclenche de
+bascule automatique vers un autre modèle.
+
+La même connexion donne aussi accès aux modèles partenaires **GPT Image 2**,
+**GPT Image 2.5 Flare / Sunburst**, **GPT Image 2.6 Flare / Sunburst**,
+**Gemini Nano Banana 2.1**, **Gemini 3.1 (Nano Banana 2)** et
+**Gemini 3.0 (Nano Banana Pro)**, selon les droits du compte Adobe. Ils utilisent
+les crédits premium Adobe et le même alignement dans la sélection. Les modèles
+GPT reçoivent également le masque de sélection. Firefly Image 4 et HUMAIN Image 1
+ne sont pas proposés ici : leur protocole actuel ne fournit pas la retouche
+d'une image source nécessaire à ce remplissage.
+
+La session Adobe est isolée de l'éditeur. Le bouton **Déconnecter Adobe** annule les
+travaux en cours et efface la session locale. Les images et masques vont directement
+à Adobe ; les jetons ne sont pas exposés à l'éditeur ni stockés dans ses réglages.
+Cette connexion utilise l'interface interne de Firefly web, susceptible de changer.
+Le fournisseur n'apparaît pas dans la version navigateur ni dans les anciennes
+versions de bureau qui n'embarquent pas le connecteur.
+
+Validation du connecteur :
+
+```sh
+node --test scripts/test-firefly.js scripts/test-firefly-credits.js
+npm run content
+node scripts/test-firefly-e2e.js --login
+```
+
+Les tests de génération utilisent un transport simulé, y compris pour Image 5 et
+les modèles partenaires ; ils vérifient les requêtes distinctes, les liens Adobe
+de suivi des générations, le décodage JPEG, le respect de la sélection et
+l'annulation. `--login` vérifie aussi le
+chargement réel de la fenêtre Adobe et l'annulation de la connexion. Ils ne prouvent
+pas qu'un compte dispose des droits requis ni qu'une génération Adobe a réussi.
+Voir [le protocole et l'état de validation](../docs/research/firefly-personal-account.md).
+
 `npm start` et `npm test` copient d'abord les fichiers du site dans `content/`. Git décide de ce
 qui est copié : les polices commerciales ignorées restent donc hors de l'app.
 

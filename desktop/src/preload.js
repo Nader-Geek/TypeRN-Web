@@ -52,6 +52,20 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
     available: () => ipcRenderer.invoke("discord-available"),
     set: (activity) => ipcRenderer.send("discord-activity", activity),
   },
+  // Firefly's account lives in a separate session owned by the main process.
+  firefly: {
+    status: () => ipcRenderer.invoke("firefly-status"),
+    credits: () => ipcRenderer.invoke("firefly-credits"),
+    connect: () => ipcRenderer.invoke("firefly-connect"),
+    disconnect: () => ipcRenderer.invoke("firefly-disconnect"),
+    generate: (id, request) => ipcRenderer.invoke("firefly-generate", id, request),
+    cancel: (id) => ipcRenderer.send("firefly-cancel", id),
+    onState: (listener) => {
+      const receive = (_event, state) => listener(state);
+      ipcRenderer.on("firefly-state", receive);
+      return () => ipcRenderer.removeListener("firefly-state", receive);
+    },
+  },
   // Generative Fill with FLUX on this computer: nothing is downloaded until a model is installed
   localAI: {
     status: () => ipcRenderer.invoke("local-ai-status"),

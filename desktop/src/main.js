@@ -7,6 +7,7 @@ const { app, BrowserWindow, dialog, ipcMain, Menu, protocol, screen, session, sh
 const content = require("./content");
 const localAI = require("./local-ai");
 const discord = require("./discord");
+const { createFirefly } = require("./firefly");
 
 const SCHEME = "typer";
 const HOST = "app";
@@ -322,6 +323,7 @@ const createWindow = () => {
     }, FAREWELL_WAIT);
   });
   win.on("closed", () => {
+    firefly.close();
     win = null;
     pageAlive = false;
     pageReady = false;
@@ -544,6 +546,18 @@ ipcMain.handle("photoshop-settings", () => findPhotoshopSettings().catch((error)
 // Generative Fill with FLUX on this computer (local-ai.js). Only this window may ask, only for a
 // model the app knows; downloads and fills can be stopped by the id the page gave them.
 const fromPage = (event) => Boolean(win) && event.sender === win.webContents;
+const fromEditor = (event) => fromPage(event) && event.senderFrame === win.webContents.mainFrame && event.senderFrame.url.startsWith(START_URL);
+const firefly = createFirefly({
+  parent: () => win,
+  changed: (state) => { if (win && !win.isDestroyed()) win.webContents.send("firefly-state", state); },
+});
+ipcMain.handle("firefly-status", (event) => fromEditor(event) ? firefly.status() : null);
+ipcMain.handle("firefly-credits", (event) => fromEditor(event) ? firefly.credits() : null);
+ipcMain.handle("firefly-connect", (event) => fromEditor(event) ? firefly.connect() : null);
+ipcMain.handle("firefly-disconnect", (event) => fromEditor(event) ? firefly.disconnect() : null);
+ipcMain.handle("firefly-generate", (event, id, request) => fromEditor(event) ? firefly.generate(id, request) : null);
+ipcMain.on("firefly-cancel", (event, id) => { if (fromEditor(event)) firefly.cancel(id); });
+app.on("before-quit", () => firefly.close());
 const localJobs = new Map();
 const localJob = async (event, id, run) => {
   if (!fromPage(event)) throw new Error("Not allowed.");
