@@ -429,9 +429,14 @@
         overflow = true;
         return;
       }
+      // As in Photoshop, the spaces that end a line are left out of its width: in "Un \rcygne ?",
+      // centred, "Un" is centred on its letters (measured on real PSDs)
+      const lineText = runs.map((run) => run.text).join("");
+      const spaces = /[ \t]*$/.exec(lineText)[0].length;
+      const shown = spaces ? measureRuns(sliceRuns(runs, 0, lineText.length - spaces), resolution) : m;
       // Roman Hanging Punctuation: what hangs is left out of the line's width
-      const [hangLeft, hangRight] = paragraph.hangingRoman ? hangsOf(m) : [0, 0];
-      const set = m.advance - hangLeft - hangRight;
+      const [hangLeft, hangRight] = paragraph.hangingRoman ? hangsOf(shown) : [0, 0];
+      const set = shown.advance - hangLeft - hangRight;
       let x;
       if (frame) x = align === "left" ? 0 : align === "right" ? frame.width - set : (frame.width - set) / 2;
       else x = align === "left" ? 0 : align === "right" ? -set : -set / 2;
