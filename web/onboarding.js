@@ -504,7 +504,23 @@
         };
         // Free and ready without a key comes first
         const services = Object.keys(Gen.SERVICES).sort((a, b) => Number(Gen.isLocal(b)) - Number(Gen.isLocal(a)));
-        const list = services.map((service) => (Gen.isLocal(service)
+        const adobeAccount = (words) => {
+          const status = el("p", "onboard__meta", words, T("Connect your Adobe account to use Firefly."));
+          const button = el("button", "btn btn--small", words, T("Connect to Adobe"));
+          button.type = "button";
+          button.addEventListener("click", async (event) => {
+            event.preventDefault();
+            button.disabled = true;
+            try {
+              const result = await Gen.adobeConnect();
+              status.textContent = T(result?.ok ? "Connected to Adobe Firefly" : "Adobe connection could not be completed. Try again.");
+            } catch { status.textContent = T("Adobe connection could not be completed. Try again."); }
+            finally { button.disabled = false; }
+          });
+        };
+        const list = services.map((service) => (Gen.SERVICES[service].account
+          ? { id: service, title: Gen.SERVICES[service].name, text: T("Uses your Adobe plan's generative credits. Photoshop can stay closed. Experimental connection to Firefly web."), extra: adobeAccount }
+          : Gen.isLocal(service)
           ? { id: service, title: `${setup.serviceName(service)} · ${T("Free of charge")}`, extra: localModel(service) }
           : { id: service, title: Gen.SERVICES[service].name, text: fill(T("Follows a prompt. Your key stays on this device and goes only to {service}, which bills you."), { service: Gen.SERVICES[service].name }), extra: keyed(service) }));
         list.push({ id: "later", title: T("Later"), text: T("Generative Fill asks for it the first time you use it.") });

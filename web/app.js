@@ -3311,6 +3311,7 @@
         { id: "sizeStep", label: T("Text size step"), value: settings.sizeStep, type: "number", min: 0.1, step: "any", hint: () => T("How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.") },
       ],
     });
+    if (generative) generative.dispose();
     if (!answer) return;
     settings.wheel = answer.wheel;
     settings.zoomSpeed = answer.zoomSpeed;
@@ -3787,6 +3788,7 @@
   // Settings > Generative Fill: both services' keys, the model used, and models added by their
   // slug. Nothing is kept until the dialog's Save.
   const generativePane = () => {
+    const listeners = new AbortController();
     const saved = Gen.load();
     const keys = Object.assign({}, saved.keys);
     const models = Object.assign({}, saved.models);
@@ -3848,7 +3850,11 @@
         options(qualitySelect, qualities.map(([value, usd]) => [value, `${QUALITY_NAMES[value] || value} · ${money(usd)}`]));
         qualitySelect.value = Gen.qualityOf({ quality }, service, model);
       }
-      if (one && one.free && Gen.isFlux(model)) {
+      if (service === "adobe") {
+        price.textContent = model !== "firefly-fill"
+          ? fill(T("{model} edits the image from your prompt; TypeR keeps the result inside your selection. With no prompt, it removes lettering. Uses Adobe premium generative credits. Photoshop can stay closed."), { model: modelName({ service, custom }, model) })
+          : T("Uses your Adobe plan's generative credits. Photoshop can stay closed. Experimental connection to Firefly web.");
+      } else if (one && one.free && Gen.isFlux(model)) {
         // FLUX on this computer: what it is, then a way to free its room once it's here (its size,
         // and whether it's downloaded, are in the list of models)
         const named = modelName({ custom, service }, model);
@@ -3947,7 +3953,77 @@
     Gen.refreshPrices(saved).then((changed) => { if (changed && pane.isConnected) showModels(); });
     const used = card();
     used.append(field(T("Service"), serviceSelect), field(T("Model"), modelSelect), price, qualityField, total);
-    pane.append(hint(T("Generative Fill sends the selection, with what surrounds it, to an image model. Use your own key: it stays on this device and goes only to the service it belongs to, which bills you.")), used);
+    pane.append(hint(T("Generative Fill sends the selection and its surroundings to the service you choose. Connect your account or enter that service's API key below.")), used);
+    let adobeButton = null;
+    if (Gen.SERVICES.adobe) {
+      const account = card();
+      const status = hint(T("Checking Adobe connection…"));
+      status.setAttribute("role", "status");
+      adobeButton = document.createElement("button");
+      adobeButton.type = "button";
+      adobeButton.className = "btn btn--small";
+      adobeButton.textContent = T("Connect to Adobe");
+      const disconnect = document.createElement("button");
+      disconnect.type = "button";
+      disconnect.className = "btn btn--small";
+      disconnect.textContent = T("Disconnect Adobe");
+      disconnect.hidden = true;
+      const credits = document.createElement("div");
+      credits.className = "gensettings__credits";
+      credits.hidden = true;
+      const creditLabel = document.createElement("strong");
+      creditLabel.setAttribute("role", "status");
+      const creditMeter = document.createElement("progress");
+      creditMeter.setAttribute("aria-label", T("Adobe generative credits remaining"));
+      const resetDate = hint("");
+      const refreshCredits = document.createElement("button");
+      refreshCredits.type = "button";
+      refreshCredits.className = "btn btn--small";
+      refreshCredits.textContent = T("Refresh credits");
+      const showCredits = balance => {
+        const ready = balance?.status === "ready";
+        const lang = window.TYPER_I18N?.lang || undefined;
+        creditLabel.textContent = ready
+          ? fill(T("Credits remaining: {remaining}/{total}"), { remaining: balance.remaining.toLocaleString(lang), total: balance.total.toLocaleString(lang) })
+          : T(balance?.status === "loading" ? "Checking Adobe credits…" : "Adobe credit balance is unavailable.");
+        creditMeter.hidden = !ready || balance.total <= 0;
+        if (ready) { creditMeter.max = Math.max(1, balance.total); creditMeter.value = balance.remaining; }
+        resetDate.hidden = !ready || !balance.resetAt;
+        resetDate.textContent = ready && balance.resetAt
+          ? fill(T("Next reset: {date}"), { date: new Date(balance.resetAt).toLocaleDateString(lang, { day: "numeric", month: "long", year: "numeric" }) }) : "";
+        refreshCredits.disabled = balance?.status === "loading";
+      };
+      refreshCredits.addEventListener("click", () => { void Gen.adobeCredits(true); });
+      window.addEventListener("typer-firefly-credits", event => showCredits(event.detail), { signal: listeners.signal });
+      credits.append(creditLabel, creditMeter, resetDate, refreshCredits);
+      const showAccount = (now) => {
+        status.textContent = T(now?.connected ? "Connected to Adobe Firefly" : now?.connecting ? "Finish signing in in the Adobe window." : "Connect your Adobe account to use Firefly.");
+        adobeButton.hidden = Boolean(now?.connected);
+        disconnect.hidden = !now?.connected;
+        credits.hidden = !now?.connected;
+        if (now?.connected) Gen.adobeCredits().then(showCredits);
+      };
+      window.addEventListener("typer-firefly-state", (event) => showAccount(event.detail), { signal: listeners.signal });
+      adobeButton.addEventListener("click", async () => {
+        adobeButton.disabled = true;
+        status.textContent = T("Finish signing in in the Adobe window.");
+        try {
+          const result = await Gen.adobeConnect();
+          showAccount(await Gen.adobeStatus());
+          if (!result?.ok && result?.kind !== "cancelled") status.textContent = T("Adobe connection could not be completed. Try again.");
+        } catch { status.textContent = T("Adobe connection could not be completed. Try again."); }
+        finally { adobeButton.disabled = false; }
+      });
+      disconnect.addEventListener("click", async () => {
+        disconnect.disabled = true;
+        try { showAccount(await Gen.adobeDisconnect()); }
+        catch { status.textContent = T("Adobe connection could not be completed. Try again."); }
+        finally { disconnect.disabled = false; }
+      });
+      Gen.adobeStatus().then(showAccount).catch(() => showAccount(null));
+      account.append(status, credits, adobeButton, disconnect, hint(T("Your Adobe session stays on this device. Images and selections go directly to Adobe. No API key is needed.")));
+      pane.append(heading("Adobe Firefly"), account);
+    }
     // What comes back brought to the brightness of the page around it
     const tonesSwitch = document.createElement("input");
     tonesSwitch.type = "checkbox";
@@ -3970,7 +4046,7 @@
     const keysCard = card();
     pane.append(heading(T("API keys")), keysCard);
     const keyInputs = {};
-    Object.keys(Gen.SERVICES).filter((name) => !Gen.isLocal(name)).forEach((name) => {
+    Object.keys(Gen.SERVICES).filter((name) => !Gen.isLocal(name) && !Gen.SERVICES[name].account).forEach((name) => {
       const one = Gen.SERVICES[name];
       const box = document.createElement("span");
       box.className = "gensettings__key";
@@ -4023,7 +4099,7 @@
     const adder = document.createElement("div");
     adder.className = "gensettings__add";
     const addService = document.createElement("select");
-    options(addService, Object.keys(Gen.SERVICES).filter((name) => !Gen.isLocal(name)).map((name) => [name, Gen.SERVICES[name].name]));
+    options(addService, Object.keys(Gen.SERVICES).filter((name) => !Gen.isLocal(name) && !Gen.SERVICES[name].account).map((name) => [name, Gen.SERVICES[name].name]));
     addService.value = "fal";
     const slugInput = document.createElement("input");
     slugInput.type = "text";
@@ -4073,7 +4149,9 @@
     otherCard.append(list, adder, problem, hint(T("An image-editing model, by its slug: on fal.ai, the end of its page's address (fal-ai/flux-pro/kontext); at Google, its model id (gemini-3-pro-image).")));
     return {
       pane,
+      dispose: () => listeners.abort(),
       focusKey: () => {
+        if (service === "adobe" && adobeButton && !adobeButton.hidden) adobeButton.focus();
         const input = keyInputs[service];
         if (input && !input.value) input.focus();
       },
@@ -4093,6 +4171,8 @@
     const service = serviceName(settings.service);
     const detail = error && error.detail ? ` (${error.detail})` : "";
     switch (error && error.kind) {
+      case "adobeauth": return T("Reconnect to Adobe in Generative Fill settings.");
+      case "adobeaccess": return T("Adobe refused access to Firefly. Check your plan and account on the Firefly website.") + detail;
       case "download": return fill(T("{model} couldn't be downloaded. Check the connection and try again."), { model: modelName(settings) }) + detail;
       case "local": return (Gen.isFlux(Gen.modelOf(settings)) ? fill(T("{model} couldn't run on this computer."), { model: modelName(settings) }) : T("LaMa Manga couldn't run in this browser.")) + detail;
       case "key": return fill(T("{service} refused the key. Check it in Generative Fill's settings."), { service }) + detail;
@@ -4783,7 +4863,7 @@
         const actions = document.createElement("span");
         actions.className = "gentray__actions";
         if (job.state === "failed") {
-          if (job.kind === "key" || job.kind === "nokey") actions.appendChild(iconButton("key", T("Generative Fill settings"), false, () => generativeSettings()));
+          if (job.kind === "key" || job.kind === "nokey" || job.kind === "adobeauth") actions.appendChild(iconButton("key", T("Generative Fill settings"), false, () => generativeSettings()));
           if (app.docs.includes(job.doc)) {
             actions.appendChild(iconButton("redo", T("Try again"), false, () => {
               Object.assign(job, { state: "waiting", message: "", kind: "", cost: null, started: 0, ended: 0, percent: 0, download: null, controller: new AbortController(), account: Gen.load() });
@@ -5044,6 +5124,7 @@
     return account;
   };
   const removalPrice = (account) => {
+    if (account.service === "adobe") return T("Uses your Adobe plan's generative credits. Photoshop can stay closed. Experimental connection to Firefly web.");
     if (Gen.isLocal(account.service)) return fill(T("{model} runs on this device: nothing to pay."), { model: modelName(account) });
     if (!Gen.ready(account)) return fill(T("{service} needs its key: Generative Fill's settings open before it starts."), { service: serviceName(account.service) });
     const price = Gen.priceOf(account, account.service, Gen.modelOf(account));

@@ -6,6 +6,52 @@
   "use strict";
 
   const STORE = "typer.web.generative";
+  const adobe = window.TypeRDesktop && window.TypeRDesktop.firefly;
+  let adobeState = { connected: false, connecting: false };
+  let adobeBalance = { status: "signedout" };
+  let balanceRequest = 0;
+  let balancePending = null;
+  const showAdobeBalance = value => {
+    adobeBalance = value;
+    window.dispatchEvent(new CustomEvent("typer-firefly-credits", { detail: value }));
+    return value;
+  };
+  const adobeCredits = (force = false) => {
+    if (!adobeState.connected || !adobe?.credits) return Promise.resolve(adobeBalance);
+    if (!force && balancePending) return balancePending;
+    if (!force && adobeBalance.status === "ready" && Date.now() - adobeBalance.updatedAt < 60000) return Promise.resolve(adobeBalance);
+    const request = ++balanceRequest;
+    showAdobeBalance({ status: "loading" });
+    const pending = Promise.resolve().then(() => adobe.credits()).catch(() => ({ status: "unavailable" })).then(value => {
+      if (request !== balanceRequest || !adobeState.connected) return adobeBalance;
+      return showAdobeBalance(value || { status: "unavailable" });
+    }).finally(() => { if (balancePending === pending) balancePending = null; });
+    balancePending = pending;
+    return pending;
+  };
+  const setAdobeState = (state) => {
+    const wasConnected = adobeState.connected;
+    adobeState = state || { connected: false, connecting: false };
+    if (!adobeState.connected) {
+      balanceRequest++;
+      balancePending = null;
+      showAdobeBalance({ status: "signedout" });
+    }
+    window.dispatchEvent(new CustomEvent("typer-firefly-state", { detail: adobeState }));
+    if (!wasConnected && adobeState.connected) void adobeCredits();
+    return adobeState;
+  };
+  const adobeStatus = async () => setAdobeState(adobe ? await adobe.status() : null);
+  const adobeConnect = async () => {
+    const result = adobe && await adobe.connect();
+    await adobeStatus();
+    return result;
+  };
+  const adobeDisconnect = async () => setAdobeState(adobe ? await adobe.disconnect() : null);
+  if (adobe) {
+    adobe.onState(setAdobeState);
+    adobeStatus().catch(() => {});
+  }
 
   // What an empty prompt asks: a page cleaned for lettering, the art behind the letters redrawn
   const DEFAULT_PROMPT = "Erase only the lettering in this comic image: the words inside speech balloons and captions, and the sound effects drawn over the art. Keep every speech balloon, its outline and tail, and every panel border exactly where they are, just empty. Where a letter covered artwork, screentone or a background, redraw what was behind it so it continues what is around it. Change nothing else: same framing, scale, line art, screentone, tones and paper white.";
@@ -46,6 +92,18 @@
     },
   };
   // What the local models draw: a square of this many pixels, nothing else
+  if (adobe) SERVICES.adobe = { name: "Adobe Firefly", account: true, models: [
+    ["firefly-image-5", "Firefly Image 5"],
+    ["firefly-fill", "Firefly Fill & Expand"],
+    ["gpt-image-2", "GPT Image 2"],
+    ["gpt-image-2.5-flare", "GPT Image 2.5 Flare"],
+    ["gpt-image-2.5-sunburst", "GPT Image 2.5 Sunburst"],
+    ["gpt-image-2.6-flare", "GPT Image 2.6 Flare"],
+    ["gpt-image-2.6-sunburst", "GPT Image 2.6 Sunburst"],
+    ["gemini-nano-banana-2.1", "Gemini Nano Banana 2.1"],
+    ["gemini-3.1-flash-image", "Gemini 3.1 (Nano Banana 2)"],
+    ["gemini-3-pro-image", "Gemini 3.0 (Nano Banana Pro)"],
+  ] };
   const LOCAL_SIZE = 512;
   // LaMa Manga's download, in bytes: its three files, as lama-worker.js fetches them
   const LAMA_SIZE = 234e6;
@@ -112,13 +170,13 @@
   // The service's models, then those added by their slug
   const modelsOf = (settings, service = settings.service) => SERVICES[service].models.concat(((settings.custom && settings.custom[service]) || []).map((slug) => [slug, slug]));
   const modelOf = (settings, service = settings.service) => {
-    const wanted = settings.models[service];
+    const wanted = settings.models?.[service];
     return wanted && modelsOf(settings, service).some(([id]) => id === wanted) ? wanted : SERVICES[service].models[0][0];
   };
   // A model as people find it: fal.ai's page address or its slug ("fal-ai/flux-pro/kontext"),
   // Google's id ("gemini-3-pro-image", or "models/…"). Null when it can't be one.
   const slugOf = (service, text) => {
-    if (isLocal(service)) return null;
+    if (isLocal(service) || service === "adobe") return null;
     let slug = String(text || "").trim();
     if (service === "fal") {
       slug = slug.replace(/^https?:\/\/(www\.)?fal\.ai\/models\//, "").replace(/^https?:\/\/(queue\.)?fal\.run\//, "").replace(/[?#].*$/, "").replace(/\/(api|playground|llms\.txt)\/?$/, "").replace(/^\/+|\/+$/g, "");
@@ -231,13 +289,13 @@
       // Nothing kept anyway
     }
   };
-  const ready = (settings) => isLocal(settings.service) || Boolean((settings.keys[settings.service] || "").trim());
+  const ready = (settings) => settings.service === "adobe" ? adobeState.connected : isLocal(settings.service) || Boolean((settings.keys[settings.service] || "").trim());
   // A local model takes no prompt: it redraws the selection from what surrounds it
   const takesPrompt = (settings) => !isLocal(settings.service) || isFlux(modelOf(settings));
   // The size a model draws at, when it's a fixed square: the area sent is chosen for it
   const fixedSize = (settings) => (isLocal(settings.service) && !isFlux(modelOf(settings)) ? LOCAL_SIZE : 0);
   // The local models draw in place, pixel for pixel: their picture needs no aligning
-  const drawsInPlace = (settings) => isLocal(settings.service);
+  const drawsInPlace = (settings) => isLocal(settings.service) || (settings.service === "adobe" && modelOf(settings) === "firefly-fill");
   // FLUX on this computer: its time grows faster than the area, so the area goes no bigger than
   // this (a 600 × 900 area took 166 s on an M4, 560 × 560 about 55 s)
   const longestFor = (settings) => (isLocal(settings.service) && isFlux(modelOf(settings)) ? 768 : 0);
@@ -444,6 +502,12 @@
   // one). Resolves with the model's picture, as an ImageBitmap; `onCost` hears what it cost.
   const generate = async ({ settings, prompt, canvas, mask, ratio, size, signal, onCost, onProgress }) => {
     const service = settings.service;
+    if (service === "adobe") {
+      const model = modelOf(settings);
+      const words = String(prompt || "").trim();
+      const asked = model !== "firefly-fill" ? (words ? `${words}\n\n${KEEP_FRAMING}` : DEFAULT_PROMPT) : words;
+      return viaAdobe({ model, canvas, mask, prompt: asked, size, signal });
+    }
     if (isLocal(service)) {
       const model = modelOf(settings);
       if (!isFlux(model)) return viaLocal({ canvas, mask, signal, onProgress });
@@ -658,5 +722,71 @@
     return toBitmap(new Blob([bytes], { type: "image/png" }));
   };
 
-  window.TypeRGenerative = { SERVICES, DEFAULT_PROMPT, LOCAL_SIZE, LAMA_SIZE, load, save, modelOf, modelsOf, slugOf, ready, isLocal, isFlux, takesPrompt, fixedSize, drawsInPlace, longestFor, localReady, localDownload, localStatus, localRemove, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent };
+  let adobeJob = 0;
+  const viaAdobe = async ({ model, canvas, mask, prompt, size, signal }) => {
+    if (!adobe) throw new GenerativeError("adobeauth");
+    if (signal) signal.throwIfAborted();
+    // Image 5 edits a reference image by instruction and may move its contents. Fill &
+    // Expand instead takes an aligned mask and returns pixels in the original positions.
+    const scale = Math.min(1, 1984 / Math.max(canvas.width, canvas.height));
+    const instructionEdit = model !== "firefly-fill";
+    const alphaMask = model.startsWith("gpt-image-");
+    const width = instructionEdit ? Math.max(1, Math.round(canvas.width * scale)) : Math.max(64, Math.ceil(canvas.width * scale / 16) * 16);
+    const height = instructionEdit ? Math.max(1, Math.round(canvas.height * scale)) : Math.max(64, Math.ceil(canvas.height * scale / 16) * 16);
+    const picture = document.createElement("canvas");
+    picture.width = width;
+    picture.height = height;
+    const ctx = picture.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(canvas, 0, 0, width, height);
+    const image = await pngOf(picture);
+    let hole;
+    if (!instructionEdit || (alphaMask && mask)) {
+      const holes = document.createElement("canvas");
+      holes.width = width;
+      holes.height = height;
+      const hctx = holes.getContext("2d", { willReadFrequently: true });
+      hctx.fillStyle = mask ? "#fff" : "#000";
+      hctx.fillRect(0, 0, width, height);
+      hctx.imageSmoothingEnabled = false;
+      if (mask) hctx.drawImage(mask, 0, 0, width, height);
+      const shades = hctx.getImageData(0, 0, width, height);
+      for (let i = 0; i < shades.data.length; i += 4) {
+        // GPT regenerates transparent areas; Fill & Expand uses opaque white there.
+        const alpha = alphaMask ? shades.data[i] : 255;
+        const value = alphaMask ? 255 : 255 - shades.data[i];
+        shades.data[i] = shades.data[i + 1] = shades.data[i + 2] = value;
+        shades.data[i + 3] = alpha;
+      }
+      hctx.putImageData(shades, 0, 0);
+      hole = await pngOf(holes);
+    }
+    if (signal) signal.throwIfAborted();
+    const id = `firefly-${++adobeJob}`;
+    const stop = () => adobe.cancel(id);
+    signal?.addEventListener("abort", stop, { once: true });
+    try {
+      const answer = await adobe.generate(id, { model, image, ...(instructionEdit ? { size: size === "2K" ? "2K" : "1K" } : {}), ...(hole ? { mask: hole } : {}), prompt });
+      if (signal?.aborted || answer?.kind === "cancelled") throw new DOMException("Aborted", "AbortError");
+      if (!answer?.ok) {
+        if (answer?.kind === "adobeauth") setAdobeState(null);
+        throw new GenerativeError(answer?.kind || "other", answer?.message || "");
+      }
+      const result = await toBitmap(new Blob([answer.value]));
+      if (instructionEdit) return result;
+      if (result.width === canvas.width && result.height === canvas.height) return result;
+      picture.width = canvas.width;
+      picture.height = canvas.height;
+      ctx.drawImage(result, 0, 0, picture.width, picture.height);
+      result.close();
+      return createImageBitmap(picture);
+    } finally {
+      signal?.removeEventListener("abort", stop);
+      // Read Adobe's balance even after a failure: refunds can be delayed.
+      void adobeCredits(true);
+    }
+  };
+
+  window.TypeRGenerative = { SERVICES, DEFAULT_PROMPT, LOCAL_SIZE, LAMA_SIZE, load, save, modelOf, modelsOf, slugOf, ready, isLocal, isFlux, takesPrompt, fixedSize, drawsInPlace, longestFor, localReady, localDownload, localStatus, localRemove, ratiosFor, generate, GenerativeError, qualitiesOf, qualityOf, priceOf, costOf, refreshPrices, spent, resetSpent, adobeStatus, adobeConnect, adobeDisconnect, adobeCredits };
 })();

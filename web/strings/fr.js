@@ -1,6 +1,19 @@
 // TypeR: Web Version's interface in this language, by its English wording.
 window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
   fr: {
+    "{model} edits the image from your prompt; TypeR keeps the result inside your selection. With no prompt, it removes lettering. Uses Adobe premium generative credits. Photoshop can stay closed.": "{model} retouche l’image selon votre consigne ; TypeR conserve le résultat dans votre sélection. Sans consigne, il efface le lettrage. Utilise les crédits génératifs premium Adobe. Photoshop peut rester fermé.",
+    "Generative Fill sends the selection and its surroundings to the service you choose. Connect your account or enter that service's API key below.": "Le Remplissage génératif envoie la sélection et ce qui l’entoure au service choisi. Connectez votre compte ou saisissez la clé API de ce service ci-dessous.",
+    "Uses your Adobe plan's generative credits. Photoshop can stay closed. Experimental connection to Firefly web.": "Utilise les crédits génératifs de votre abonnement Adobe. Photoshop peut rester fermé. Connexion expérimentale à Firefly web.",
+    "Checking Adobe connection…": "Vérification de la connexion Adobe…",
+    "Connect to Adobe": "Se connecter à Adobe",
+    "Disconnect Adobe": "Déconnecter Adobe",
+    "Connected to Adobe Firefly": "Connecté à Adobe Firefly",
+    "Finish signing in in the Adobe window.": "Terminez la connexion dans la fenêtre Adobe.",
+    "Connect your Adobe account to use Firefly.": "Connectez votre compte Adobe pour utiliser Firefly.",
+    "Adobe connection could not be completed. Try again.": "La connexion Adobe n’a pas abouti. Réessayez.",
+    "Your Adobe session stays on this device. Images and selections go directly to Adobe. No API key is needed.": "Votre session Adobe reste sur cet appareil. Les images et les sélections sont envoyées directement à Adobe. Aucune clé API n’est nécessaire.",
+    "Reconnect to Adobe in Generative Fill settings.": "Reconnectez-vous à Adobe dans les réglages du Remplissage génératif.",
+    "Adobe refused access to Firefly. Check your plan and account on the Firefly website.": "Adobe a refusé l’accès à Firefly. Vérifiez votre abonnement et votre compte sur le site Firefly.",
     "Diameter": "Diamètre",
     "Hardness": "Dureté",
     "Like Photoshop": "Comme Photoshop",
@@ -1091,5 +1104,11 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "{family} couldn't be installed from Font FindeR.": "{family} n’a pas pu être installée depuis Font FindeR.",
     "{count} of these fonts are on Font FindeR.": "{count} de ces polices sont sur Font FindeR.",
     "Install All": "Tout installer",
+    "Adobe generative credits remaining": "Crédits génératifs Adobe restants",
+    "Refresh credits": "Actualiser les crédits",
+    "Credits remaining: {remaining}/{total}": "Crédits restants : {remaining}/{total}",
+    "Checking Adobe credits…": "Vérification des crédits Adobe…",
+    "Adobe credit balance is unavailable.": "Le solde de crédits Adobe est indisponible.",
+    "Next reset: {date}": "Prochaine réinitialisation : {date}",
   },
 });
