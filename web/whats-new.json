@@ -1,4 +1,5 @@
 {"notes": [
+  {"id":"4573589b6151","at":"2026-11-10T02:42:50+01:00","kind":"fix","text":"Centred text stays centred when a line ends with a space","lang":{"fr":"Un texte centré reste centré quand une ligne se termine par une espace"}},
   {"id":"63ebd8f12b4f","at":"2026-11-09T22:08:49+01:00","kind":"feat","text":"Choose how much Ctrl+Shift+< and > change the text size (Settings > Text size step)","lang":{"fr":"Choisissez de combien Ctrl+Maj+< et > changent la taille du texte (Paramètres > Pas de la taille du texte)"}},
   {"id":"3c9299623cf1","at":"2026-11-09T22:08:49+01:00","kind":"feat","text":"Straight lines with the Brush, Eraser and Clone Stamp: Shift while painting, or Shift+click from the last stroke","lang":{"fr":"Lignes droites au Pinceau, à la Gomme et au Tampon de duplication : Maj en peignant, ou Maj+clic depuis le dernier trait"}},
   {"id":"55580c57a101","at":"2026-11-09T22:08:49+01:00","kind":"feat","text":"Alt+] and Alt+[ go round the layers: past the top one comes the bottom one, as in Photoshop","lang":{"fr":"Alt+] et Alt+[ font le tour des calques : après celui du haut vient celui du bas, comme dans Photoshop"}},
