@@ -2654,6 +2654,8 @@
   /* ---------------------------- the options bar --------------------------- */
 
   const SELECTION_TOOLS = new Set(["rectangle", "ellipse", "lasso", "polygon", "wand"]);
+  // Those whose click, when adding or taking away, leaves out the text found under it
+  const LEAVE_TOOLS = new Set(["rectangle", "ellipse", "lasso"]);
 
   const labelled = (text, control) => {
     const label = document.createElement("label");
@@ -5231,14 +5233,17 @@
       waitUntil: 0,
       waitKind: "",
       controller: new AbortController(),
-      // While reviewing, a drawn selection adds to the text found rather than replacing it
+      // While reviewing, a drawn selection adds to the text found rather than replacing it, and a
+      // click on a text leaves it out: with a selection tool, given back at the end
       mode: app.selectionMode,
+      tool: app.tool,
     };
     textBatch = batch;
     // The pages are under way: the tabs are ordinary again
     if (tabPicks.size) setTabPicks([]);
     if (batch.review) {
       app.selectionMode = "add";
+      if (!SELECTION_TOOLS.has(app.tool)) setTool("lasso");
       if (app.doc !== docs[0]) switchDoc(docs[0]);
       renderOptions();
     }
@@ -5333,6 +5338,7 @@
     batch.controller.abort();
     if (batch.review) {
       app.selectionMode = batch.mode;
+      if (app.tool !== batch.tool && SELECTION_TOOLS.has(app.tool) && !SELECTION_TOOLS.has(batch.tool)) setTool(batch.tool);
       renderOptions();
     }
     if (!stopped) {
@@ -5519,7 +5525,7 @@
     reviewBar.append(count, separator());
     if (page.state === "review") {
       // How to correct it, said on hover: the bar stays short, over as little of the page as can be
-      const hint = T("Draw to add, Alt to take away, ✕ to leave a text");
+      const hint = T("Draw to add, Alt to take away, click a text to leave it");
       const add = iconButton("modeAdd", `${T("Add to selection")} · ${hint}`, app.selectionMode !== "subtract", () => reviewMode("add"));
       const take = iconButton("modeSub", `${T("Subtract from selection")} · ${hint}`, app.selectionMode === "subtract", () => reviewMode("subtract"));
       reviewBar.append(add, take);
@@ -5569,18 +5575,16 @@
     }, 1000);
   };
 
-  // On the page under review, a ✕ at the corner of each text selected: a click leaves that one
-  // out, and only that one
+  // Over a selection made by Detect Text, in the review or not: the text a click would leave out,
+  // outlined under the pointer
   const reviewMarks = document.createElement("div");
   reviewMarks.className = "review-marks";
   reviewMarks.hidden = true;
   ui.stage.appendChild(reviewMarks);
-  ["pointerdown", "dblclick", "contextmenu"].forEach((type) => reviewMarks.addEventListener(type, (event) => {
-    if (event.target.closest("button")) event.stopPropagation();
-  }));
-  let marks = { selection: null, areas: [], buttons: [], hover: null, review: false };
+  let marks = { selection: null, areas: [], hover: null, review: false };
   const markBox = document.createElement("div");
   markBox.className = "review-marks__box";
+  reviewMarks.appendChild(markBox);
   const placeMarkBox = () => {
     const area = marks.hover;
     markBox.hidden = !area;
@@ -5615,8 +5619,8 @@
     marks.hover = area;
     placeMarkBox();
   };
-  // Outside the review too, the areas of a selection made by Detect Text are kept, until it's
-  // changed by hand; only the review gives each a ✕
+  // Outside the review, the areas of a selection made by Detect Text are kept until it's changed
+  // by hand; in the review, whatever is drawn is split into areas too
   const placeReviewMarks = (page) => {
     const doc = page ? page.doc : app.doc;
     const shown = page ? page.state === "review" : textSelection() && !transformOf() && !cropOf() && !warpedLayer();
@@ -5624,43 +5628,15 @@
     if (!selection) {
       reviewMarks.hidden = true;
       // Hidden during a gesture, the same selection keeps its areas
-      if (!page && !(doc && doc.state.selection === marks.selection)) marks = { selection: null, areas: [], buttons: [], hover: null, review: false };
+      if (!page && !(doc && doc.state.selection === marks.selection)) marks = { selection: null, areas: [], hover: null, review: false };
       return;
     }
     if (marks.selection !== selection || marks.review !== Boolean(page)) {
       const full = ops.selectionFullMask(selection);
       const areas = Mask.split(full, doc.width, doc.height, textLink(doc));
-      reviewMarks.textContent = "";
-      const buttons = !page ? [] : areas.map((area) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "review-marks__drop";
-        button.innerHTML = ICON.close;
-        button.title = T("Leave this text: it won't be removed");
-        button.setAttribute("aria-label", button.title);
-        button.addEventListener("click", () => leaveOut(doc, selection, area));
-        button.addEventListener("pointerenter", () => {
-          marks.hover = area;
-          placeMarkBox();
-        });
-        button.addEventListener("pointerleave", () => {
-          marks.hover = null;
-          placeMarkBox();
-        });
-        reviewMarks.appendChild(button);
-        return button;
-      });
-      reviewMarks.appendChild(markBox);
-      marks = { selection, areas, buttons, hover: null, review: Boolean(page) };
+      marks = { selection, areas, hover: null, review: Boolean(page) };
     }
     reviewMarks.hidden = false;
-    marks.buttons.forEach((button, index) => {
-      const area = marks.areas[index];
-      const [x, y] = toScreen(area.left + area.width, area.top);
-      button.hidden = x < -12 || y < -12 || x > stageW + 12 || y > stageH + 12;
-      button.style.left = `${Math.round(x)}px`;
-      button.style.top = `${Math.round(y)}px`;
-    });
     placeMarkBox();
   };
   // What the options bar shows for the Move and Type tools, as a cheap signature: the bar is
@@ -6676,7 +6652,10 @@
       event.preventDefault();
       return;
     }
-    gesture = Object.assign(base, { kind: tool, mode, points: [point] });
+    // Adding or taking away, as the review does: a click on a text found by Detect Text leaves it
+    // out, a drag draws as ever
+    const leaves = LEAVE_TOOLS.has(tool) && !event.shiftKey && !event.altKey && (mode === "add" || mode === "subtract") ? textAreaAt(point) : null;
+    gesture = Object.assign(base, { kind: tool, mode, points: [point], leaves });
     ui.stage.classList.toggle("is-marquee", isMarquee(tool));
     ui.stage.setPointerCapture(event.pointerId);
   });
@@ -6738,10 +6717,11 @@
     if (tool === "reshape" && !gesture && app.doc && window.TypeRReshapeTool) window.TypeRReshapeTool.hover(event, toDoc(event));
     if (tool === "gradient" && !gesture && app.doc && window.TypeRRetouch) window.TypeRRetouch.hover(event, toDoc(event));
     if (!gesture || event.pointerId !== gesture.id) {
-      if (SELECTION_TOOLS.has(tool) && app.doc && !event.shiftKey && !event.altKey && app.selectionMode === "new") {
+      const adding = app.selectionMode === "add" || app.selectionMode === "subtract";
+      if (SELECTION_TOOLS.has(tool) && app.doc && !event.shiftKey && !event.altKey && (app.selectionMode === "new" || (adding && LEAVE_TOOLS.has(tool)))) {
         const [x, y] = toDoc(event);
-        // An outline being drawn takes every click: none moves the selection
-        ui.stage.classList.toggle("is-over-selection", !polygon && ops.selectionContains(x, y));
+        // An outline being drawn takes every click: none moves the selection; nor does adding
+        ui.stage.classList.toggle("is-over-selection", !adding && !polygon && ops.selectionContains(x, y));
         // The text a click would leave out is outlined
         hoverTextArea(polygon ? null : [x, y]);
       } else hoverTextArea(null);
@@ -7093,9 +7073,11 @@
         carryMarquee(current, point);
         const [x0, y0, x1, y1] = marqueeBox(Object.assign({}, current, { last: point }), event);
         ops[kind](x0, y0, x1, y1, mode);
-      } else if (mode === "new") ops.deselect();
+      } else if (current.leaves) leaveOut(app.doc, app.doc.state.selection, current.leaves);
+      else if (mode === "new") ops.deselect();
     } else if (kind === "lasso") {
       if (current.moved) ops.lasso(current.points, mode);
+      else if (current.leaves) leaveOut(app.doc, app.doc.state.selection, current.leaves);
       else if (mode === "new") ops.deselect();
     } else if (kind === "polygonCorner" && polygon) {
       polygon.freehand = false;

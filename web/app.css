@@ -428,10 +428,6 @@ input[type="range"]:disabled::-moz-range-thumb { background: var(--muted); }
 .reviewbar .btn--small:disabled { opacity: 0.5; }
 .review-marks { position: absolute; inset: 0; z-index: 5; overflow: hidden; pointer-events: none; }
 .review-marks[hidden] { display: none; }
-.review-marks__drop { position: absolute; display: grid; place-items: center; width: 18px; height: 18px; margin: -9px 0 0 -9px; padding: 0; background: var(--blue); border: 1px solid rgba(255, 255, 255, 0.85); border-radius: 50%; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); color: #fff; cursor: pointer; pointer-events: auto; }
-.review-marks__drop[hidden] { display: none; }
-.review-marks__drop:hover, .review-marks__drop:focus-visible { background: #d9534f; }
-.review-marks__drop svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; }
 .review-marks__box { position: absolute; background: rgba(217, 83, 79, 0.16); border: 1.5px solid #d9534f; border-radius: 2px; pointer-events: none; }
 .review-marks__box[hidden] { display: none; }
 .modal--tbatch { width: min(480px, calc(100vw - 32px)); }
