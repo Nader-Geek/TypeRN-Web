@@ -8695,8 +8695,26 @@
   // Sizes are in points here, which are pixels only at 72 ppi
   const typeUnitAt = (resolution) => (resolution === 72 ? "pixelsUnit" : "pointsUnit");
 
-  // Photoshop always names the unit, and the style window can't open without one
-  const textProps = (layer, doc) => Object.assign({ typeUnit: typeUnitAt(doc.resolution) }, clone(layer.params));
+  // Photoshop honours the unit a style was saved with: a size in pixels is that many pixels on
+  // every page. What the panel sends is brought to points, the only unit a layer is kept in.
+  const pointsPerTypeUnit = (unit, resolution) => (unit === "pixelsUnit" ? 72 / resolution : unit === "millimetersUnit" ? 72 / 25.4 : 1);
+  const lengthsInPoints = (textStyle, factor) => {
+    if (textStyle && factor !== 1) TEXT_LENGTHS.forEach((field) => {
+      if (typeof textStyle[field] === "number") textStyle[field] *= factor;
+    });
+    return textStyle;
+  };
+  const paramsInPoints = (params, resolution) => {
+    const out = clone(params);
+    const factor = pointsPerTypeUnit(out.typeUnit, resolution);
+    delete out.typeUnit;
+    ((out.layerText && out.layerText.textStyleRange) || []).forEach((range) => lengthsInPoints(range.textStyle, factor));
+    return out;
+  };
+
+  // Photoshop always names the unit, and the style window can't open without one. It is
+  // this model's unit, whatever the style the layer was made from said.
+  const textProps = (layer, doc) => Object.assign(clone(layer.params), { typeUnit: typeUnitAt(doc.resolution) });
 
   // As Photoshop's host: a stroke switched off keeps its settings but isn't applied
   const strokeToApply = (stroke) => {
@@ -8796,9 +8814,12 @@
     return rangesFromStyles(styles, fallback);
   };
 
-  const paramsFromStyle = (style, text, richTextRuns, sizeOverride) => {
+  // resolution: the page's, for a style the panel sends (its sizes are in its own unit).
+  // Without it the sizes are a layer's own, in points already. sizeOverride is in points.
+  const paramsFromStyle = (style, text, richTextRuns, sizeOverride, resolution) => {
     const source = style && style.textProps ? style.textProps : { layerText: {} };
-    const params = clone(source);
+    const params = resolution ? paramsInPoints(source, resolution) : clone(source);
+    const toPoints = resolution ? pointsPerTypeUnit(source.typeUnit, resolution) : 1;
     const lt = params.layerText;
     const base = (lt.textStyleRange && lt.textStyleRange[0] && lt.textStyleRange[0].textStyle) || { fontPostScriptName: "WildjessNormal", fontName: "Wildjess", fontStyleName: "Normal", size: 34, autoLeading: true, color: { red: 0, green: 0, blue: 0 } };
     if (sizeOverride) {
@@ -8814,7 +8835,7 @@
         const length = (run.text || "").length;
         if (!length) return;
         const style = clone(base);
-        if (run.textStyle) Object.assign(style, run.textStyle);
+        if (run.textStyle) Object.assign(style, lengthsInPoints(clone(run.textStyle), toPoints));
         if (run.bold) style.syntheticBold = true;
         if (run.italic) style.syntheticItalic = true;
         ranges.push({ from: at, to: at + length, textStyle: style });
@@ -8854,7 +8875,7 @@
 
   const classicParams = (doc, data, bounds) => {
     const padding = Number(data.padding) || 0;
-    const params = paramsFromStyle(scaleForPunctuation(data.style, data.text), data.text, data.richTextRuns, data.textSizeOverride);
+    const params = paramsFromStyle(scaleForPunctuation(data.style, data.text), data.text, data.richTextRuns, data.textSizeOverride, doc.resolution);
     const base = params.layerText.textStyleRange[0].textStyle;
     // The enlarged text must not wrap in a box sized for the selection
     const enlarged = !data.textSizeOverride && data.style && isPunctuationOnly(data.text) ? Math.max(1, parseFloat(data.style.punctuationOnlyScale) || 1) : 1;
@@ -9105,7 +9126,7 @@
         const text = data.text || layer.params.layerText.textKey;
         const style = data.style ? scaleForPunctuation(data.style, text) : { textProps: layer.params };
         const kept = data.preserveActiveTextSize ? layer.params.layerText.textStyleRange[0].textStyle.size : null;
-        const params = paramsFromStyle(style, text, data.richTextRuns, kept);
+        const params = paramsFromStyle(style, text, data.richTextRuns, kept, data.style ? doc.resolution : 0);
         params.layerText.textClickPoint = clone(layer.params.layerText.textClickPoint);
         if (boxShape(layer.params.layerText)) params.layerText.textShape = clone(layer.params.layerText.textShape);
         else centreLayer(doc, params, null, box.xMid, box.yMid);
@@ -9174,7 +9195,7 @@
         const text = item.text || layer.params.layerText.textKey;
         // As on one layer: the style's stroke, each layer's own size if asked, and its box
         const kept = item.preserveActiveTextSize ? layer.params.layerText.textStyleRange[0].textStyle.size : null;
-        const params = paramsFromStyle(item.style ? scaleForPunctuation(item.style, text) : { textProps: layer.params }, text, item.richTextRuns, kept);
+        const params = paramsFromStyle(item.style ? scaleForPunctuation(item.style, text) : { textProps: layer.params }, text, item.richTextRuns, kept, item.style ? doc.resolution : 0);
         params.layerText.textClickPoint = clone(layer.params.layerText.textClickPoint);
         if (boxShape(layer.params.layerText)) params.layerText.textShape = clone(layer.params.layerText.textShape);
         else centreLayer(doc, params, null, box.xMid, box.yMid);
@@ -9435,7 +9456,10 @@
       result.histograms = selectionHistograms(doc, read);
       if (data && data.keepSize) {
         const layer = activeTextLayer(doc);
-        if (layer) result.activeTextSize = layer.params.layerText.textStyleRange[0].textStyle.size;
+        if (layer) {
+          result.activeTextSize = layer.params.layerText.textStyleRange[0].textStyle.size;
+          result.activeTextUnit = typeUnitAt(doc.resolution);
+        }
       }
       if (!data || !data.trigger || data.trigger.source !== "rectangle") result.rawPath = ringsToPath(read.rings);
       return JSON.stringify(result);
@@ -9445,7 +9469,7 @@
       if (!doc) return JSON.stringify({ error: "doc" });
       const requests = (data && data.requests) || [];
       const measure = () => JSON.stringify(requests.map((request) => {
-        const lt = request.params.layerText;
+        const lt = paramsInPoints(request.params, doc.resolution).layerText;
         const key = String(lt.textKey || "").replace(/\r$/, "");
         const runs = splitLines(Object.assign({}, lt, { textKey: key }))[0] || [];
         const m = measureRuns(runs, doc.resolution);
@@ -9473,7 +9497,7 @@
           const op = { t: "poly", polygon: plan.cleanupPolygon, color: plan.fillRGB || { red: 255, green: 255, blue: 255 }, inset: plan.cleanupInset || 0 };
           layers = paintOnCleanLayer(layers, () => op);
         }
-        const layer = newTextLayer(doc, session.text.params, session.text.stroke, session.layerName);
+        const layer = newTextLayer(doc, paramsInPoints(session.text.params, doc.resolution), session.text.stroke, session.layerName);
         layer.source = session.layerName || "";
         created.push(layer);
         layers = addNewTexts(layers, [layer], spot);
