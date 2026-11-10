@@ -263,42 +263,47 @@
     };
   };
 
+  // A stroke's Position: Photoshop's names, TypeR's
+  const POSITION_IN = { outside: "outer", inside: "inner", center: "center" };
+  const POSITION_OUT = { outer: "outside", inner: "inside", center: "center" };
+
   // A layer style's stroke, drawn around Photoshop's pixels. Two strokes, as TypeR saves a
-  // stroke around the stroke: the narrower one, and the wider one around it
+  // stroke around the stroke: the stroke itself, and a wider one outside, around it
   const strokeFromEffects = (effects) => {
     const usable = ((effects && effects.stroke) || []).slice(0, 2)
-      .filter((stroke) => stroke && stroke.enabled !== false && (!stroke.fillType || stroke.fillType === "color") && stroke.size && stroke.size.value > 0)
-      .sort((a, b) => a.size.value - b.size.value);
-    const stroke = usable[0];
-    if (!stroke) return null;
+      .filter((stroke) => stroke && stroke.enabled !== false && (!stroke.fillType || stroke.fillType === "color") && stroke.size && stroke.size.value > 0);
+    if (!usable.length) return null;
+    const positionOf = (stroke) => POSITION_IN[stroke.position] || "outer";
+    // Both outside: the narrower one is the stroke. Otherwise, the one inside or centred.
+    const [stroke, around] = usable.length < 2 ? usable : usable.slice().sort((a, b) => (positionOf(a) === "outer") - (positionOf(b) === "outer") || a.size.value - b.size.value);
     const rgb = rgbFromPsd;
-    const out = { enabled: true, size: stroke.size.value, opacity: stroke.opacity === undefined ? 100 : stroke.opacity * 100, position: "outer", color: rgb(stroke.color) };
-    const around = usable[1];
-    if (around && around.size.value > stroke.size.value) out.outer = { size: around.size.value - stroke.size.value, color: rgb(around.color) };
+    const out = { enabled: true, size: stroke.size.value, opacity: stroke.opacity === undefined ? 100 : stroke.opacity * 100, position: positionOf(stroke), color: rgb(stroke.color) };
+    const edge = PS().strokeOutside(out);
+    if (around && positionOf(around) === "outer" && around.size.value > edge) out.outer = { size: around.size.value - edge, color: rgb(around.color) };
     return out;
   };
 
-  const strokedDisplay = (bitmap, stroke) => {
-    const reach = stroke.size + (stroke.outer ? stroke.outer.size : 0);
-    const pad = Math.ceil(reach) + 1;
-    const canvas = PS().newCanvas(bitmap.width + pad * 2, bitmap.height + pad * 2);
+  // Photoshop's letters with their stroke around them, at the layer's Fill: the part outside
+  // under the letters, the part inside over them
+  const strokedDisplay = (bitmap, stroke, amount = 1) => {
+    const engine = PS();
+    const outside = engine.strokeOutside(stroke);
+    const pad = Math.ceil(engine.strokeReach(stroke)) + 1;
+    const canvas = engine.newCanvas(bitmap.width + pad * 2, bitmap.height + pad * 2);
     const ctx = canvas.getContext("2d");
-    const steps = Math.min(48, Math.max(12, Math.round(reach * 6)));
-    const ring = (size, color) => {
-      const layer = PS().newCanvas(canvas.width, canvas.height);
-      const c = layer.getContext("2d");
-      for (let i = 0; i < steps; i++) {
-        const angle = (i / steps) * Math.PI * 2;
-        c.drawImage(bitmap, pad + Math.cos(angle) * size, pad + Math.sin(angle) * size);
-      }
-      c.globalCompositeOperation = "source-in";
-      c.fillStyle = `rgb(${color.r},${color.g},${color.b})`;
-      c.fillRect(0, 0, layer.width, layer.height);
-      ctx.drawImage(layer, 0, 0);
-    };
-    if (stroke.outer) ring(stroke.size + stroke.outer.size, stroke.outer.color);
-    ring(stroke.size, stroke.color);
-    ctx.drawImage(bitmap, pad, pad);
+    if (stroke.outer && stroke.outer.size > 0) engine.ringOf(bitmap, pad, engine.strokeReach(stroke), stroke.outer.color, canvas);
+    if (outside > 0) engine.ringOf(bitmap, pad, outside, stroke.color, canvas);
+    if (amount < 1) {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.drawImage(bitmap, pad, pad);
+      ctx.globalCompositeOperation = "source-over";
+    }
+    if (amount > 0) {
+      ctx.globalAlpha = amount;
+      ctx.drawImage(bitmap, pad, pad);
+      ctx.globalAlpha = 1;
+    }
+    if (stroke.size > outside) engine.innerRingOf(bitmap, pad, stroke.size - outside, stroke.color, canvas);
     return { canvas, pad };
   };
 
@@ -331,6 +336,86 @@
       if (rings.some((color) => near(pixel, color)) && !letters.some((letter) => near(pixel, letter))) ringed++;
     }
     return opaque > 0 && ringed > opaque * 0.15;
+  };
+
+  /* --------------------------- layer effects, both ways --------------------------- */
+
+  // A text's Drop Shadow, Outer Glow, Inner Shadow, Inner Glow, Colour Overlay and Gradient
+  // Overlay, as TypeR draws them (see FX_DEFAULTS in photoshop.js). The rest of a layer style
+  // (bevel, satin, pattern, contours, noise) stays in the file as it was, and isn't drawn.
+  const FX_IN_FILE = { dropShadow: "dropShadow", outerGlow: "outerGlow", innerShadow: "innerShadow", innerGlow: "innerGlow", colorOverlay: "solidFill", gradientOverlay: "gradientOverlay" };
+  const FX_LISTS = new Set(["dropShadow", "innerShadow", "solidFill", "gradientOverlay"]);
+  const FX_NAMES = Object.keys(FX_IN_FILE);
+  const round = (value, places) => Math.round(value * 10 ** places) / 10 ** places;
+  const unitValue = (unit) => (unit && typeof unit.value === "number" ? unit.value : typeof unit === "number" ? unit : 0);
+  // A blend mode TypeR can't draw is drawn in Normal (and stays in the file while unchanged)
+  const fxBlendIn = (mode) => (mode && mode !== "pass through" && PS().BLENDS[mode] ? mode : "normal");
+  const fxFirst = (effects, name) => {
+    const value = effects[FX_IN_FILE[name]];
+    return FX_LISTS.has(FX_IN_FILE[name]) ? (Array.isArray(value) ? value[0] : undefined) : value;
+  };
+
+  // Photoshop keeps a gradient's colours and its opacities apart: here they are one list of
+  // stops, a stop wherever either had one. Midpoints are taken as halfway.
+  const along = (stops, at, read) => {
+    if (at <= stops[0].at) return read(stops[0]);
+    for (let i = 1; i < stops.length; i++) {
+      if (at > stops[i].at) continue;
+      const a = stops[i - 1];
+      const b = stops[i];
+      const f = b.at > a.at ? (at - a.at) / (b.at - a.at) : 1;
+      return read(a) + (read(b) - read(a)) * f;
+    }
+    return read(stops[stops.length - 1]);
+  };
+  const stopsFromPsd = (gradient) => {
+    if (!gradient || gradient.type !== "solid" || !Array.isArray(gradient.colorStops) || !gradient.colorStops.length) return PS().fxDefault("gradientOverlay").stops;
+    const place = (location) => round(Math.max(0, Math.min(1, location || 0)), 3);
+    const colors = gradient.colorStops.map((stop) => Object.assign({ at: place(stop.location) }, rgbFromPsd(stop.color))).sort((a, b) => a.at - b.at);
+    const opacities = (gradient.opacityStops && gradient.opacityStops.length ? gradient.opacityStops : [{ opacity: 1, location: 0 }]).map((stop) => ({ at: place(stop.location), a: stop.opacity === undefined ? 1 : stop.opacity })).sort((a, b) => a.at - b.at);
+    const places = Array.from(new Set(colors.concat(opacities).map((stop) => stop.at))).sort((a, b) => a - b);
+    return places.map((at) => ({
+      at,
+      r: Math.round(along(colors, at, (stop) => stop.r)),
+      g: Math.round(along(colors, at, (stop) => stop.g)),
+      b: Math.round(along(colors, at, (stop) => stop.b)),
+      a: round(along(opacities, at, (stop) => stop.a), 3),
+    }));
+  };
+
+  // The file's effects as TypeR's layer.effects, or undefined when it has none of them.
+  // `globalAngle`: the document's Global Light, for an effect that follows it.
+  const effectsFromPsd = (effects, globalAngle) => {
+    if (!effects) return undefined;
+    const scale = effects.scale > 0 ? effects.scale : 1;
+    const off = Boolean(effects.disabled);
+    const length = (unit) => round(unitValue(unit) * scale, 2);
+    const percent = (value) => round((value === undefined ? 1 : value) * 100, 2);
+    const angle = (fx) => round(fx.useGlobalLight && typeof globalAngle === "number" ? globalAngle : typeof fx.angle === "number" ? fx.angle : 120, 2);
+    const color = (fx) => rgbFromPsd(fx.color || (fx.gradient && fx.gradient.colorStops && fx.gradient.colorStops[0] && fx.gradient.colorStops[0].color) || { r: 255, g: 255, b: 255 });
+    const out = {};
+    FX_NAMES.forEach((name) => {
+      const fx = fxFirst(effects, name);
+      if (!fx || typeof fx !== "object") return;
+      const common = { enabled: !off && fx.enabled !== false, blend: fxBlendIn(fx.blendMode) };
+      if (name === "dropShadow") out[name] = Object.assign(common, { color: color(fx), opacity: percent(fx.opacity), angle: angle(fx), distance: length(fx.distance), spread: round(unitValue(fx.choke), 2), size: length(fx.size) });
+      else if (name === "outerGlow") out[name] = Object.assign(common, { color: color(fx), opacity: percent(fx.opacity), spread: round(unitValue(fx.choke), 2), size: length(fx.size) });
+      else if (name === "innerShadow") out[name] = Object.assign(common, { color: color(fx), opacity: percent(fx.opacity), angle: angle(fx), distance: length(fx.distance), choke: round(unitValue(fx.choke), 2), size: length(fx.size) });
+      else if (name === "innerGlow") out[name] = Object.assign(common, { color: color(fx), opacity: percent(fx.opacity), choke: round(unitValue(fx.choke), 2), size: length(fx.size) });
+      else if (name === "colorOverlay") out[name] = Object.assign(common, { color: color(fx), opacity: percent(fx.opacity) });
+      else out[name] = Object.assign(common, { opacity: percent(fx.opacity), stops: stopsFromPsd(fx.gradient), style: fx.type || "linear", angle: round(typeof fx.angle === "number" ? fx.angle : 90, 2), scale: percent(fx.scale), reverse: Boolean(fx.reverse) });
+    });
+    return Object.keys(out).length ? out : undefined;
+  };
+
+  // Equal as settings: the same numbers, the same fields (an absent one and an undefined one alike)
+  const sameValue = (a, b) => {
+    if (a === b) return true;
+    if (typeof a === "number" && typeof b === "number") return Math.abs(a - b) < 1e-6;
+    if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) !== Array.isArray(b)) return false;
+    const keys = new Set(Object.keys(a).concat(Object.keys(b)));
+    for (const key of keys) if (!sameValue(a[key], b[key])) return false;
+    return true;
   };
 
   /* --------------------------- SFX in the file's XMP --------------------------- */
@@ -455,6 +540,7 @@
     const info = psd.imageResources && psd.imageResources.resolutionInfo;
     const resolution = (info && info.horizontalResolution) || 72;
     const doc = { width: psd.width, height: psd.height, resolution };
+    const globalAngle = psd.imageResources && psd.imageResources.globalAngle;
     const engine = PS();
     const layers = [];
     const fontNames = [];
@@ -496,6 +582,9 @@
           const params = paramsFromPsd(node.text, doc);
           params.layerText.textStyleRange.forEach((range) => fontNames.push(range.textStyle.fontPostScriptName));
           const layer = Object.assign(common(node, parent), { kind: "text", params, stroke: strokeFromEffects(node.effects), raster: null });
+          // Its shadow, glows and overlays, drawn around and on Photoshop's own letters
+          const effects = effectsFromPsd(node.effects, globalAngle);
+          if (effects) layer.effects = effects;
           // Fill at 0%: only the stroke shows
           if (node.fillOpacity === 0) layer.knockout = true;
           if (node.canvas) {
@@ -505,15 +594,7 @@
             // Shown as they are, and saved again as an edited text: the file comes out right
             if (layer.stroke && amount === 1 && !layer.knockout && strokeDrawnIn(node.canvas, layer.stroke, params)) layer.raster.strokeDrawnIn = true;
             else if (layer.stroke) {
-              const { canvas, pad } = strokedDisplay(node.canvas, layer.stroke);
-              if (amount < 1) {
-                const c = canvas.getContext("2d");
-                c.globalCompositeOperation = "destination-out";
-                c.drawImage(node.canvas, pad, pad);
-                c.globalCompositeOperation = "source-over";
-                c.globalAlpha = amount;
-                if (amount > 0) c.drawImage(node.canvas, pad, pad);
-              }
+              const { canvas, pad } = strokedDisplay(node.canvas, layer.stroke, amount);
               Object.assign(layer.raster, { display: canvas, displayLeft: -pad, displayTop: -pad });
             } else if (layer.knockout) Object.assign(layer.raster, { display: engine.newCanvas(1, 1), displayLeft: 0, displayTop: 0 });
             else if (amount < 1) {
@@ -668,10 +749,10 @@
     return out;
   };
 
-  const strokeToPsd = (stroke, size = stroke.size, color = stroke.color) => ({
+  const strokeToPsd = (stroke, size = stroke.size, color = stroke.color, position = POSITION_OUT[stroke.position] || "outside") => ({
     enabled: true,
     size: { units: "Pixels", value: size },
-    position: "outside",
+    position,
     fillType: "color",
     color: { r: color.r, g: color.g, b: color.b },
     opacity: (stroke.opacity === undefined ? 100 : stroke.opacity) / 100,
@@ -682,8 +763,112 @@
   // wider one under it
   const strokesToPsd = (stroke) => {
     const list = [strokeToPsd(stroke)];
-    if (stroke.outer && stroke.outer.size > 0) list.push(strokeToPsd(stroke, stroke.size + stroke.outer.size, stroke.outer.color));
+    if (stroke.outer && stroke.outer.size > 0) list.push(strokeToPsd(stroke, PS().strokeReach(stroke), stroke.outer.color, "outside"));
     return list;
+  };
+
+  // What Photoshop's dialog sets in an effect TypeR adds where the file had none
+  const LINEAR = { name: "Linear", curve: [{ x: 0, y: 0 }, { x: 255, y: 255 }] };
+  const FX_FRESH = {
+    dropShadow: { useGlobalLight: false, antialiased: false, contour: LINEAR, noise: 0, layerConceals: true },
+    innerShadow: { useGlobalLight: false, antialiased: false, contour: LINEAR, noise: 0 },
+    outerGlow: { technique: "softer", range: 0.5, jitter: 0, antialiased: false, contour: LINEAR, noise: 0 },
+    innerGlow: { technique: "softer", source: "edge", range: 0.5, jitter: 0, antialiased: false, contour: LINEAR, noise: 0 },
+    colorOverlay: {},
+    gradientOverlay: { align: true, dither: false, offset: { x: 0, y: 0 } },
+  };
+  const pixels = (value) => ({ units: "Pixels", value: round(value || 0, 2) });
+  const gradientOut = (stops, was) => {
+    const sorted = (stops || []).slice().sort((a, b) => a.at - b.at);
+    return {
+      type: "solid",
+      name: (was && was.type === "solid" && was.name) || "Custom",
+      // Photoshop's 100% smooths the colours between stops; TypeR mixes them evenly, as 0% does
+      smoothness: was && was.type === "solid" && was.smoothness !== undefined ? was.smoothness : 0,
+      colorStops: sorted.map((stop) => ({ color: { r: stop.r, g: stop.g, b: stop.b }, location: stop.at, midpoint: 0.5 })),
+      opacityStops: sorted.map((stop) => ({ opacity: stop.a === undefined ? 1 : stop.a, location: stop.at, midpoint: 0.5 })),
+    };
+  };
+  // One effect for the file: TypeR's settings over the file's own entry, field by field, so what
+  // TypeR doesn't know (contour, noise, a blend mode it can't draw…) stays when unchanged
+  const fxEntryOut = (name, ours, theirs, entry, scale) => {
+    const out = Object.assign({}, entry || FX_FRESH[name]);
+    const changed = (field) => !theirs || !sameValue(ours[field], theirs[field]);
+    out.enabled = ours.enabled !== false;
+    if (changed("blend")) out.blendMode = ours.blend || "normal";
+    if ("color" in fxDefaultsOf(name) && changed("color")) {
+      const color = ours.color || { r: 0, g: 0, b: 0 };
+      out.color = { r: color.r, g: color.g, b: color.b };
+    }
+    if (changed("opacity")) out.opacity = (ours.opacity === undefined ? 100 : ours.opacity) / 100;
+    if (name === "gradientOverlay") {
+      if (changed("stops")) out.gradient = gradientOut(ours.stops, entry && entry.gradient);
+      if (changed("style")) out.type = ours.style || "linear";
+      if (changed("angle")) out.angle = ours.angle || 0;
+      if (changed("scale")) out.scale = (ours.scale === undefined ? 100 : ours.scale) / 100;
+      if (changed("reverse")) out.reverse = Boolean(ours.reverse);
+      return out;
+    }
+    if ((name === "dropShadow" || name === "innerShadow") && changed("angle")) {
+      out.angle = ours.angle || 0;
+      out.useGlobalLight = false;
+    }
+    if ((name === "dropShadow" || name === "innerShadow") && changed("distance")) out.distance = pixels((ours.distance || 0) / scale);
+    if (name !== "colorOverlay" && changed("size")) out.size = pixels((ours.size || 0) / scale);
+    // Spread and choke are percents, which Photoshop keeps in a field of pixels
+    const amount = name === "dropShadow" || name === "outerGlow" ? "spread" : "choke";
+    if (name !== "colorOverlay" && changed(amount)) out.choke = pixels(ours[amount] || 0);
+    return out;
+  };
+  const fxDefaultsOf = (name) => PS().FX_DEFAULTS[name] || {};
+  const globalAngleOf = (doc) => {
+    const resources = doc.psd && doc.psd.source && doc.psd.source.imageResources;
+    return resources ? resources.globalAngle : undefined;
+  };
+  // A text's effects into its node. The file's own stay exactly as they were when TypeR's
+  // still say the same; else each one TypeR changed is written, one taken off is switched
+  // off. Then Photoshop draws them as TypeR does: a mask hides them too, and in another blend
+  // mode than Normal, the inner ones blend with the letters first.
+  const effectsOut = (node, layer, doc) => {
+    const raw = layer.raw && layer.raw.effects;
+    const globalAngle = globalAngleOf(doc);
+    const was = effectsFromPsd(raw, globalAngle);
+    const now = layer.effects && Object.keys(layer.effects).length ? layer.effects : undefined;
+    if (sameValue(was, now)) return;
+    const effects = Object.assign({}, node.effects);
+    const scale = raw && raw.scale > 0 ? raw.scale : 1;
+    // Everything was switched off at once: what TypeR switches on comes back alone
+    const flip = Boolean(raw && raw.disabled) && FX_NAMES.some((name) => now && now[name] && now[name].enabled !== false);
+    if (flip) {
+      delete effects.disabled;
+      Object.keys(effects).forEach((key) => {
+        const value = effects[key];
+        if (key === "stroke" || !value || typeof value !== "object") return;
+        effects[key] = Array.isArray(value) ? value.map((entry) => Object.assign({}, entry, { enabled: false })) : Object.assign({}, value, { enabled: false });
+      });
+    }
+    FX_NAMES.forEach((name) => {
+      const key = FX_IN_FILE[name];
+      const list = FX_LISTS.has(key);
+      const entries = list && Array.isArray(effects[key]) ? effects[key] : null;
+      const entry = list ? entries && entries[0] : effects[key];
+      const ours = now && now[name];
+      const theirs = was && was[name];
+      if (sameValue(ours, theirs)) return;
+      // Field by field against what the file had, even when it hid them all: a blend mode TypeR
+      // draws as Normal stays the file's own
+      let next = null;
+      if (ours) next = fxEntryOut(name, ours, theirs, entry, scale);
+      else if (entry) next = Object.assign({}, entry, { enabled: false });
+      if (!next) return;
+      effects[key] = list ? [next].concat(entries ? entries.slice(1) : []) : next;
+    });
+    node.effects = effects;
+    const shown = PS().effectsOn(layer);
+    if (!shown) return;
+    if ((layer.blend || "normal") !== "normal" && ["innerShadow", "innerGlow", "colorOverlay", "gradientOverlay"].some((name) => shown[name] && shown[name].enabled !== false)) node.blendInteriorElements = true;
+    if (layer.mask) node.layerMaskAsGlobalMask = true;
+    if (layer.vectorMask) node.vectorMaskAsGlobalMask = true;
   };
 
   const commonOut = (layer) => {
@@ -711,6 +896,7 @@
     const amount = PS().fillOf(layer);
     if (amount > 0 && amount < 1) node.fillOpacity = amount;
     else if (amount === 1 && node.fillOpacity !== undefined && node.fillOpacity !== 0) node.fillOpacity = 1;
+    else if (amount === 0) node.fillOpacity = 0;
     return node;
   };
 
@@ -742,7 +928,8 @@
         node.effects = Object.assign({}, node.effects);
         delete node.effects.stroke;
       }
-      if (layer.knockout) node.fillOpacity = 0;
+      // Fill at 0%: a hollow text (an SFX's), or one set to 0
+      if (layer.knockout || PS().fillOf(layer) === 0) node.fillOpacity = 0;
       else if (node.fillOpacity === 0) node.fillOpacity = 1;
       return node;
     }
@@ -759,21 +946,25 @@
           transform[5] += moveY;
           node.text = Object.assign({}, layer.raw.text, { transform });
         }
+        // Its effects changed in TypeR go into the layer's record: its pixels stay the file's
+        effectsOut(node, layer, doc);
         return node;
       }
       flags.editedText = true;
       node.text = textToPsd(layer, doc);
       // A text's pixels are only its letters, even a hollow one's, which Photoshop hides at
-      // Fill 0%: Photoshop draws the layer style's stroke around them
-      const visual = engine.visualOf(Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined, knockout: false, stroke: null, raster: null }), doc);
+      // Fill 0%: Photoshop draws the layer style's stroke and effects around them
+      const visual = engine.visualOf(Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined, knockout: false, stroke: null, effects: undefined, raster: null }), doc);
       if (visual) place(node, visual.canvas, visual.x, visual.y);
-      if (layer.knockout) node.fillOpacity = 0;
+      // Fill at 0%: a hollow text (an SFX's), or one set to 0
+      if (layer.knockout || PS().fillOf(layer) === 0) node.fillOpacity = 0;
       else if (node.fillOpacity === 0) node.fillOpacity = 1;
       if (layer.stroke && layer.stroke.enabled) node.effects = Object.assign({}, node.effects, { stroke: strokesToPsd(layer.stroke) });
       else if (node.effects && node.effects.stroke) {
         node.effects = Object.assign({}, node.effects);
         delete node.effects.stroke;
       }
+      effectsOut(node, layer, doc);
       return node;
     }
     const painted = (layer.paint && layer.paint.length) || layer.dx || layer.dy;
@@ -796,7 +987,8 @@
     text.hidden = true;
     const shown = { name: layer.name, hidden: layer.visible === false, opacity: layer.opacity === undefined ? 1 : layer.opacity, blendMode: layer.blend || "normal" };
     if (layer.clipping) shown.clipping = true;
-    const visual = PS().visualOf(layer, doc);
+    // With its shadow and glows, made part of the pixels
+    const visual = PS().flatVisual(PS().visualOf(layer, doc));
     if (visual) place(shown, visual.canvas, visual.x, visual.y);
     return [text, shown];
   };
@@ -885,6 +1077,11 @@
   const nodesHaveColour = (nodes) => nodes.some((node) => {
     const strokes = (node.effects && node.effects.stroke) || [];
     if (strokes.some((stroke) => stroke.enabled !== false && colourOf(stroke.color))) return true;
+    // A text's shadow, glows and overlays, in colour
+    if (node.effects && !node.effects.disabled && FX_NAMES.some((name) => {
+      const value = node.effects[FX_IN_FILE[name]];
+      return (Array.isArray(value) ? value : value ? [value] : []).some((fx) => fx && fx.enabled !== false && (colourOf(fx.color) || (fx.gradient && (fx.gradient.colorStops || []).some((stop) => colourOf(stop.color)))));
+    })) return true;
     const text = node.text;
     if (text && [text.style, ...(text.styleRuns || []).map((run) => run.style)].some((style) => style && (colourOf(style.fillColor) || colourOf(style.strokeColor)))) return true;
     if (!node.typerRaw && canvasHasColour(node.canvas)) return true;
@@ -977,5 +1174,5 @@
     return lib.writePsdUint8Array(root, Object.assign({ generateThumbnail: true }, options));
   };
 
-  window.TypeRPSD = { read, readText, write, library, sfxOfXmp, xmpWithSfx };
+  window.TypeRPSD = { read, readText, write, library, sfxOfXmp, xmpWithSfx, effectsFromPsd };
 })();

@@ -60,6 +60,8 @@
     toast: $("toast"),
     busy: $("busy"),
     modal: $("modal"),
+    // Layer Style's window while it is open (it has one of its own: the colour picker opens over it)
+    layerStyle: null,
     drop: $("drop"),
   };
 
@@ -4212,7 +4214,7 @@
   };
   const genActive = () => genJobs.some((job) => job.state === "waiting" || job.state === "drawing" || job.state === "aligning" || job.state === "settling");
   // Something under way that a new layer would disturb: it lands once it's over
-  const pageBusy = () => Boolean(gesture || polygon || scrubbing || ui.modal.open || !ui.editor.hidden || (app.doc && app.doc.live) || transformOf() || cropOf() || warpedLayer() || (window.TypeRReshapeTool && window.TypeRReshapeTool.busy()));
+  const pageBusy = () => Boolean(gesture || polygon || scrubbing || ui.modal.open || ui.layerStyle || !ui.editor.hidden || (app.doc && app.doc.live) || transformOf() || cropOf() || warpedLayer() || (window.TypeRReshapeTool && window.TypeRReshapeTool.busy()));
   // Resolves once nothing is under way on `doc`, or at once when it isn't the page shown
   const pageFree = (doc) => new Promise((resolve) => {
     const check = () => (app.doc !== doc || !pageBusy() ? resolve() : setTimeout(check, 250));
@@ -7196,7 +7198,7 @@
     const point = toDoc(event);
     const hit = ops.hitLayer(point[0], point[1]);
     if (hit && !app.doc.state.activeIds.includes(hit.id)) ops.selectLayer(hit.id);
-    openContextMenu(event.clientX, event.clientY, ["Deselect", "Reselect", "Inverse", null, "Cut", "Copy", "Fill with Foreground Colour", "Fill with Background Colour", "Content-Aware Fill…", "Generative Fill…", null, addMaskItem, addVectorMaskItem, "Create Clipping Mask", null, "Free Transform", null, "Duplicate Layer", "Group Layers", "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", null, "Convert to SFX", "Separate SFX Letters", "Keep in the bank…", null, "Merge Down", "Merge Visible"]);
+    openContextMenu(event.clientX, event.clientY, ["Deselect", "Reselect", "Inverse", null, "Cut", "Copy", "Fill with Foreground Colour", "Fill with Background Colour", "Content-Aware Fill…", "Generative Fill…", null, addMaskItem, addVectorMaskItem, "Create Clipping Mask", null, "Free Transform", null, "Blending Options…", null, "Duplicate Layer", "Group Layers", "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", null, "Convert to SFX", "Separate SFX Letters", "Keep in the bank…", null, "Merge Down", "Merge Visible"]);
   });
   ui.stage.addEventListener("dblclick", (event) => {
     const turning = transformOf();
@@ -7965,20 +7967,25 @@
     activeLayers().filter((layer) => !layer.isBackground).forEach((layer) => ops.setLayerProps(layer.id, { blend: value }, "Blending Change", step));
   };
   let blendMenu = null;
+  // What the page shows for the mode pointed at: the layers' own blend, or what `own` says (a
+  // Layer Style effect's mode)
+  const previewBlendOf = (menu, value) => (menu.own && menu.own.preview ? menu.own.preview(value) : ops.previewBlend(menu.ids, value));
   const closeBlendMenu = () => {
     if (!blendMenu) return;
-    const { list, ids, button } = blendMenu;
+    const menu = blendMenu;
     blendMenu = null;
-    list.remove();
-    ops.previewBlend(ids, null);
-    button.setAttribute("aria-expanded", "false");
+    menu.list.remove();
+    previewBlendOf(menu, null);
+    menu.button.setAttribute("aria-expanded", "false");
   };
-  const openBlendMenu = (button) => {
+  // `own`, from the Layer Style dialog: { ids, host, pick(value), preview(value) }, the list
+  // put in the dialog (the rest of the page can't be clicked while it is open)
+  const openBlendMenu = (button, own) => {
     closeBlendMenu();
     closeContextMenu();
-    const layers = activeLayers().filter((layer) => !layer.isBackground);
-    if (!app.doc || !layers.length || button.disabled) return;
-    const ids = layers.map((layer) => layer.id);
+    const layers = own ? [] : activeLayers().filter((layer) => !layer.isBackground);
+    if (!app.doc || (!own && !layers.length) || button.disabled) return;
+    const ids = own ? own.ids : layers.map((layer) => layer.id);
     const current = button.dataset.value;
     const list = document.createElement("div");
     list.className = "menu__list menu__list--context blend-menu";
@@ -7986,7 +7993,7 @@
     list.setAttribute("aria-label", T("Blend mode"));
     if (lang === "ar") list.dir = "rtl";
     const items = [];
-    blendChoices().forEach((section, index) => {
+    (own ? BLEND_SECTIONS.slice(1) : blendChoices()).forEach((section, index) => {
       if (index) {
         const sep = document.createElement("div");
         sep.className = "menu__sep";
@@ -8005,7 +8012,7 @@
         list.appendChild(item);
       });
     });
-    document.body.appendChild(list);
+    ((own && own.host) || document.body).appendChild(list);
     const rect = button.getBoundingClientRect();
     list.style.minWidth = `${Math.round(rect.width)}px`;
     const below = rect.bottom + 2;
@@ -8013,7 +8020,7 @@
     list.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - list.offsetWidth - 8))}px`;
     list.style.top = `${top}px`;
     button.setAttribute("aria-expanded", "true");
-    blendMenu = { list, ids, button, items, hot: null, opened: performance.now() };
+    blendMenu = { list, ids, button, items, own, hot: null, opened: performance.now() };
     const hotItem = items.find((item) => item.dataset.value === current);
     if (hotItem) hotItem.scrollIntoView({ block: "nearest" });
     list.addEventListener("pointermove", (event) => {
@@ -8025,7 +8032,7 @@
       if (!blendMenu) return;
       blendMenu.hot = null;
       items.forEach((item) => item.classList.remove("is-hot"));
-      ops.previewBlend(ids, null);
+      previewBlendOf(blendMenu, null);
     });
     list.addEventListener("click", (event) => {
       const item = event.target.closest(".blend-menu__item");
@@ -8037,12 +8044,13 @@
     blendMenu.hot = item;
     blendMenu.items.forEach((each) => each.classList.toggle("is-hot", each === item));
     item.scrollIntoView({ block: "nearest" });
-    ops.previewBlend(blendMenu.ids, item.dataset.value);
+    previewBlendOf(blendMenu, item.dataset.value);
   };
   const pickBlend = (value) => {
-    const changed = blendMenu && value !== blendMenu.button.dataset.value;
+    const menu = blendMenu;
+    const changed = menu && value !== menu.button.dataset.value;
     closeBlendMenu();
-    if (changed) setBlend(value);
+    if (changed) (menu.own ? menu.own.pick : setBlend)(value);
   };
   const showBlend = (value, disabled) => {
     const button = $("layer-blend");
@@ -8187,15 +8195,55 @@
     const ids = new Set(chosen.map((layer) => layer.id));
     ops.setLayers(doc.state.layers.map((item) => (ids.has(item.id) ? Object.assign({}, item, { link }) : item)), "Link Layers");
   };
-  // The effects shown under a layer: its stroke, for now the only one TypeR draws
+  // The effects shown under a layer: its stroke (a text's or a folder's), then a text's Layer
+  // Style effects, each one it has, on or off
   const fxOpen = new Set();
   let fxDrag = null;
-  const hasFx = (layer) => (layer.kind === "text" || layer.kind === "group") && Boolean(layer.stroke) && layer.stroke.size > 0;
-  const setStrokeOf = (layer, stroke, name = "Stroke") => {
-    const doc = app.doc;
-    if (!doc) return;
-    ops.setLayers(doc.state.layers.map((item) => (item.id === layer.id ? Object.assign({}, item, { stroke }, item.kind === "text" ? { raster: null } : null) : item)), name);
+  const hasStrokeFx = (layer) => (layer.kind === "text" || layer.kind === "group") && Boolean(layer.stroke) && layer.stroke.size > 0;
+  const fxNamesOf = (layer) => (layer.kind === "text" && layer.effects ? PS.FX_ORDER.filter((name) => layer.effects[name]) : []);
+  const hasFx = (layer) => hasStrokeFx(layer) || fxNamesOf(layer).length > 0;
+  // What a drag of the effects carries: all of them (`only` null), the stroke, or one effect
+  const fxParts = (layer, only) => {
+    const names = fxNamesOf(layer);
+    return { stroke: hasStrokeFx(layer) && (!only || only === "stroke"), effects: only ? names.filter((name) => name === only) : names };
   };
+  // A layer without what `parts` says. A folder only has a stroke.
+  const withoutFx = (layer, parts) => {
+    const next = Object.assign({}, layer);
+    if (parts.stroke) {
+      next.stroke = null;
+      if (layer.kind === "text") next.raster = null;
+    }
+    if (parts.effects.length && layer.effects) {
+      const effects = Object.assign({}, layer.effects);
+      parts.effects.forEach((name) => { delete effects[name]; });
+      next.effects = PS.FX_ORDER.some((name) => effects[name]) ? effects : undefined;
+    }
+    return next;
+  };
+  // Layer Style's items, in its dialog's order: the layer's own blending, then the effects
+  const FX_ITEMS = [["blending", "Blending"], ["stroke", "Stroke"], ["dropShadow", "Drop Shadow"], ["outerGlow", "Outer Glow"], ["innerShadow", "Inner Shadow"], ["innerGlow", "Inner Glow"], ["colorOverlay", "Colour Overlay"], ["gradientOverlay", "Gradient Overlay"]];
+  const fxLabel = (name) => T((FX_ITEMS.find(([id]) => id === name) || [name, name])[1]);
+  // A gradient's stops as a CSS gradient, left to right
+  const gradientCss = (stops, reverse) => {
+    const list = (stops || []).map((item) => ({ at: reverse ? 1 - item.at : item.at, c: `rgba(${item.r}, ${item.g}, ${item.b}, ${item.a === undefined ? 1 : item.a})` })).sort((a, b) => a.at - b.at);
+    return list.length ? `linear-gradient(to right, ${list.map((item) => `${item.c} ${Math.round(item.at * 1000) / 10}%`).join(", ")})` : "transparent";
+  };
+  // What an effect's swatch shows: its colour, or its gradient
+  const fxSwatch = (name, fx) => {
+    if (name === "gradientOverlay") return gradientCss(fx.stops, fx.reverse);
+    const c = fx.color || { r: 0, g: 0, b: 0 };
+    return `rgb(${c.r}, ${c.g}, ${c.b})`;
+  };
+  // Is it drawn: the stroke or one of a text's effects
+  const fxIsOn = (layer, name) => (name === "stroke" ? hasStrokeFx(layer) && layer.stroke.enabled !== false : Boolean(layer.effects && layer.effects[name] && layer.effects[name].enabled !== false));
+  // The letters of an SFX are laid out again from the SFX's own settings, which have no Layer
+  // Style: effects put on them would be lost, so Layer Style leaves them out
+  const inSfx = (layer, doc = app.doc) => {
+    const parent = Boolean(layer && layer.group && doc) && doc.state.layers.find((item) => item.id === layer.group);
+    return Boolean(parent && parent.sfx);
+  };
+  const styleTargets = () => activeTexts().filter((layer) => !inSfx(layer));
   // The layers being dragged in the panel, and those that go with them
   let dragIds = null;
   let dragFamily = new Set();
@@ -8221,9 +8269,10 @@
         chooseLayers(ids);
         act(ids);
       } else if (takesMask && fxDrag) {
-        const layer = app.doc.state.layers.find((item) => item.id === fxDrag.id);
+        const { id, only } = fxDrag;
+        const layer = app.doc.state.layers.find((item) => item.id === id);
         fxDrag = null;
-        if (layer) setStrokeOf(layer, null, "Delete Effects");
+        if (layer) ops.setLayers(app.doc.state.layers.map((item) => (item.id === id ? withoutFx(item, fxParts(item, only)) : item)), "Delete Effects");
       } else if (takesMask && maskDrag) {
         const { id, part } = maskDrag;
         maskDrag = null;
@@ -8358,6 +8407,20 @@
   let layersKey = "";
   // A mask's thumbnail being dragged to another layer: { id, part }
   let maskDrag = null;
+  // A click on the name of the layer already chosen, the mouse still: the name to type, once
+  // it's clear no second click follows, as in Photoshop. { id, x, y, alone, timer }
+  let nameClick = null;
+  const cancelNameClick = () => {
+    if (nameClick && nameClick.timer) clearTimeout(nameClick.timer);
+    nameClick = null;
+  };
+  // On the name's letters, not on the empty space after them that the name also fills
+  const onNameText = (event, nameEl) => {
+    const range = document.createRange();
+    range.selectNodeContents(nameEl);
+    const rect = range.getBoundingClientRect();
+    return rect.width > 0 && event.clientX >= rect.left - 2 && event.clientX <= rect.right + 2;
+  };
   // Kept by layer: a layer that changes in any way is a new one
   const maskThumbs = new WeakMap();
   const maskThumbOf = (layer, doc, part) => {
@@ -8608,7 +8671,7 @@
       const shownName = ui.layers.querySelector(`#layer-row-${typed.id} .layer__name`);
       if (shownName && !shownName.firstElementChild && shownName.textContent !== typed.name) shownName.textContent = typed.name;
     }
-    const key = JSON.stringify([doc.id, doc.state.activeIds, doc.historyIndex, doc.state.layers.map((layer) => [layer.id, layer.visible, typed === layer ? "" : layer.name, layer.locked, layer.open, (layer.paint || []).length, Boolean(layer.clipping), layer.color || "", layer.locks || 0, PS.fillOf(layer), layer.link || 0, hasFx(layer) ? [layer.stroke.enabled !== false, fxOpen.has(layer.id)] : 0]), Fonts.generation, target ? [target.id, target.part] : null, doc.maskView ? doc.maskView.mode : null, thumbPixels(), layerFind.open, layerFind.words, Array.from(layerFind.kinds)]);
+    const key = JSON.stringify([doc.id, doc.state.activeIds, doc.historyIndex, doc.state.layers.map((layer) => [layer.id, layer.visible, typed === layer ? "" : layer.name, layer.locked, layer.open, (layer.paint || []).length, Boolean(layer.clipping), layer.color || "", layer.locks || 0, PS.fillOf(layer), layer.link || 0, hasFx(layer) ? [layer.stroke || 0, layer.kind === "text" ? layer.effects || 0 : 0, fxOpen.has(layer.id)] : 0]), Fonts.generation, target ? [target.id, target.part] : null, doc.maskView ? doc.maskView.mode : null, thumbPixels(), layerFind.open, layerFind.words, Array.from(layerFind.kinds)]);
     if (key === layersKey) return;
     layersKey = key;
     const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
@@ -8765,6 +8828,27 @@
       const name = document.createElement("span");
       name.className = "layer__name" + (bases.has(layer.id) ? " is-base" : "");
       name.textContent = layer.clean ? "TypeR Clean" : layer.name;
+      name.addEventListener("pointerdown", (event) => {
+        cancelNameClick();
+        if (event.button !== 0 || event.pointerType !== "mouse" || layer.isBackground) return;
+        const ids = doc.state.activeIds;
+        nameClick = { id: layer.id, x: event.clientX, y: event.clientY, alone: ids.length === 1 && ids[0] === layer.id, timer: 0 };
+      });
+      name.addEventListener("click", (event) => {
+        const pending = nameClick;
+        if (!pending || pending.id !== layer.id || event.detail !== 1) return cancelNameClick();
+        const still = Math.hypot(event.clientX - pending.x, event.clientY - pending.y) < 4;
+        if (!pending.alone || !still || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || !onNameText(event, name)) return cancelNameClick();
+        pending.timer = setTimeout(() => {
+          nameClick = null;
+          const now = app.doc;
+          const current = now && now.state.layers.find((item) => item.id === pending.id);
+          const nameEl = document.querySelector(`#layer-row-${pending.id} .layer__name`);
+          if (!current || !nameEl || nameEl.querySelector("input") || now.state.activeIds.length !== 1 || now.state.activeIds[0] !== pending.id) return;
+          if (ui.modal.open || ui.layerStyle || !ui.editor.hidden) return;
+          renameRow(current, nameEl);
+        }, 450);
+      });
       row.appendChild(name);
       if (layer.kind === "text") {
         const ps = layer.params.layerText.textStyleRange[0].textStyle.fontPostScriptName;
@@ -8807,7 +8891,11 @@
           layersKey = "";
           renderLayers();
         });
-        fx.addEventListener("dblclick", (event) => event.stopPropagation());
+        // Twice: the Layer Style dialog, as in Photoshop
+        fx.addEventListener("dblclick", (event) => {
+          event.stopPropagation();
+          openStyleOf(layer);
+        });
         row.appendChild(fx);
       }
       // Its padlock unlocks it, or makes the Background a normal layer, as in Photoshop. Hollow
@@ -8836,7 +8924,7 @@
         event.preventDefault();
         if (Shell.touch) return;
         if (!doc.state.activeIds.includes(layer.id)) ops.selectLayer(layer.id);
-        openContextMenu(event.clientX, event.clientY, [{ label: "Rename", action: () => renameRow(layer, name) }, "Duplicate Layer", "Delete Layer", null, "Group Layers", "Ungroup Layers", null, addMaskItem, addVectorMaskItem, "Create Clipping Mask", null, "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", null, "Convert to SFX", "Separate SFX Letters", "Keep in the bank…", null, "Merge Down", "Merge Visible", "Flatten Image", null, "Similar Layers", null, ...labelItems()]);
+        openContextMenu(event.clientX, event.clientY, [{ label: "Rename", action: () => renameRow(layer, name) }, "Duplicate Layer", "Delete Layer", null, "Group Layers", "Ungroup Layers", null, addMaskItem, addVectorMaskItem, "Create Clipping Mask", null, "Blending Options…", null, "Copy Layer", "Paste Layer", "Copy Layer Style", "Paste Layer Style", null, "Convert to Paragraph Text", "Convert to Point Text", "Rasterize Type", null, "Convert to SFX", "Separate SFX Letters", "Keep in the bank…", null, "Merge Down", "Merge Visible", "Flatten Image", null, "Similar Layers", null, ...labelItems()]);
       });
       row.addEventListener("click", (event) => {
         // Cmd + click on a thumbnail: its pixels as a selection, and with Shift, added to it
@@ -8874,12 +8962,15 @@
           renderAfterState();
         } else ops.selectLayer(layer.id, event.metaKey || event.ctrlKey);
       });
-      // On a text's thumbnail, its words to edit; on the Background, a normal layer; elsewhere,
-      // the name, as in Photoshop
+      // On a text's thumbnail, its words to edit; on the Background, a normal layer; elsewhere on
+      // a text, its Blending Options, as in Photoshop (a click on the name renames it). The other
+      // layers have no Layer Style here: their name.
       row.addEventListener("dblclick", (event) => {
+        cancelNameClick();
         if (event.target.closest(".layer__eye, .layer__twist, .layer__lock")) return;
         if (layer.isBackground) fromBackground(layer);
         else if (layer.kind === "text" && event.target.closest(".layer__thumb")) beginEdit(layer);
+        else if (layer.kind === "text" && !inSfx(layer, doc)) openStyleOf(layer, "blending");
         else renameRow(layer, name);
       });
       row.addEventListener("dragstart", (event) => {
@@ -8919,9 +9010,9 @@
         });
       });
       row.addEventListener("dragover", (event) => {
-        // Effects dragged from another layer: onto a text or a folder
+        // Effects dragged from another layer: onto a text, or a stroke onto a folder
         if (fxDrag) {
-          if (fxDrag.id === layer.id || !(layer.kind === "text" || layer.kind === "group")) return;
+          if (!fxTakes(byId.get(fxDrag.id), layer, fxDrag.only)) return;
           event.preventDefault();
           event.dataTransfer.dropEffect = event.altKey ? "copy" : "move";
           if (!row.classList.contains("drop-inside")) {
@@ -8972,8 +9063,9 @@
         row.classList.remove("drop-above", "drop-below", "drop-inside");
         if (fxDrag) {
           const from = byId.get(fxDrag.id);
+          const { only } = fxDrag;
           fxDrag = null;
-          if (from && from.stroke && from.id !== layer.id && (layer.kind === "text" || layer.kind === "group")) moveEffects(from, layer, event.altKey);
+          if (fxTakes(from, layer, only)) moveEffects(from, layer, event.altKey, only);
           return;
         }
         if (maskDrag && dragIds === null) {
@@ -9001,7 +9093,7 @@
         fxDrag = null;
       });
       ui.layers.appendChild(row);
-      if (hasFx(layer) && fxOpen.has(layer.id) && !filtered) ui.layers.appendChild(fxRow(layer, doc, depth));
+      if (hasFx(layer) && fxOpen.has(layer.id) && !filtered) fxRows(layer, doc, depth).forEach((sub) => ui.layers.appendChild(sub));
     });
     if (filtered && !ui.layers.firstChild) {
       const none = document.createElement("li");
@@ -9021,63 +9113,123 @@
     }
   };
 
-  // A layer's stroke, on its own line under it: its eye turns it off and on, a drag takes it to
-  // another layer (Alt: a copy), and onto the bin it goes
-  const fxRow = (layer, doc, depth) => {
-    const stroke = layer.stroke;
-    const on = stroke.enabled !== false;
-    const sub = document.createElement("li");
-    sub.className = "layer-fx" + (doc.state.activeIds.includes(layer.id) ? " is-on" : "") + (on ? "" : " is-off");
-    sub.setAttribute("role", "presentation");
-    sub.draggable = true;
-    const eye = document.createElement("button");
-    eye.type = "button";
-    eye.tabIndex = -1;
-    eye.className = "layer__eye";
-    eye.innerHTML = ICON.eye;
-    eye.setAttribute("aria-pressed", String(on));
-    eye.setAttribute("aria-label", `${T("Show or hide")}: ${T("Stroke")}`);
-    eye.addEventListener("click", (event) => {
-      event.stopPropagation();
-      setStrokeOf(layer, Object.assign({}, stroke, { enabled: !on }), on ? "Hide Effect" : "Show Effect");
-    });
-    const indent = document.createElement("span");
-    indent.style.width = `${depth * 12 + 22}px`;
-    indent.style.flex = "none";
-    const name = document.createElement("span");
-    name.className = "layer-fx__name";
-    name.textContent = T("Stroke");
-    const detail = document.createElement("span");
-    detail.className = "layer-fx__detail";
-    detail.textContent = `${Math.round(stroke.size * 10) / 10} px`;
-    const swatch = document.createElement("i");
-    swatch.className = "menu__swatch";
-    const c = stroke.color || { r: 0, g: 0, b: 0 };
-    swatch.style.setProperty("--label", `rgb(${c.r},${c.g},${c.b})`);
-    sub.append(eye, indent, swatch, name, detail);
-    sub.title = T("Drag onto another layer to move the stroke there (Alt: a copy), or onto the bin to remove it.");
-    sub.addEventListener("click", () => {
-      if (!(doc.state.activeIds.length === 1 && doc.state.activeIds[0] === layer.id)) ops.selectLayer(layer.id);
-    });
-    sub.addEventListener("dragstart", (event) => {
-      fxDrag = { id: layer.id };
-      dragIds = null;
-      event.dataTransfer.effectAllowed = "copyMove";
-      event.dataTransfer.setData("text/plain", "fx");
-    });
-    sub.addEventListener("dragend", () => {
-      fxDrag = null;
-      clearDrops();
-    });
-    return sub;
-  };
-  const moveEffects = (from, to, copy) => {
+  // A layer's effects, each on its own line under it: its eye turns it off and on, a double-click
+  // opens Layer Style on it, a drag takes it to another layer (Alt: a copy), and onto the bin it
+  // goes. With more than one, an "Effects" line comes first, for all of them at once.
+  const setFxShown = (layer, names, on) => {
     const doc = app.doc;
     if (!doc) return;
-    const stroke = JSON.parse(JSON.stringify(from.stroke));
     ops.setLayers(doc.state.layers.map((item) => {
-      if (item.id === to.id) return Object.assign({}, item, { stroke }, item.kind === "text" ? { raster: null } : null);
-      if (item.id === from.id && !copy) return Object.assign({}, item, { stroke: null }, item.kind === "text" ? { raster: null } : null);
+      if (item.id !== layer.id) return item;
+      const next = Object.assign({}, item);
+      if (names.includes("stroke") && item.stroke) {
+        next.stroke = Object.assign({}, item.stroke, { enabled: on });
+        if (item.kind === "text") next.raster = null;
+      }
+      const effects = names.filter((name) => name !== "stroke" && item.effects && item.effects[name]);
+      if (effects.length) {
+        next.effects = Object.assign({}, item.effects);
+        effects.forEach((name) => { next.effects[name] = Object.assign({}, item.effects[name], { enabled: on }); });
+      }
+      return next;
+    }), on ? "Show Effect" : "Hide Effect");
+  };
+  const fxRows = (layer, doc, depth) => {
+    const items = [];
+    if (hasStrokeFx(layer)) items.push(["stroke", layer.stroke]);
+    fxNamesOf(layer).forEach((name) => items.push([name, layer.effects[name]]));
+    const chosen = doc.state.activeIds.includes(layer.id);
+    const line = (name, fx, nest) => {
+      const on = name ? fx.enabled !== false : items.some(([, each]) => each.enabled !== false);
+      const label = name ? fxLabel(name) : T("Effects");
+      const sub = document.createElement("li");
+      sub.className = "layer-fx" + (chosen ? " is-on" : "") + (on ? "" : " is-off") + (name ? "" : " layer-fx--all");
+      sub.setAttribute("role", "presentation");
+      sub.draggable = true;
+      const eye = document.createElement("button");
+      eye.type = "button";
+      eye.tabIndex = -1;
+      eye.className = "layer__eye";
+      eye.innerHTML = ICON.eye;
+      eye.setAttribute("aria-pressed", String(on));
+      eye.setAttribute("aria-label", `${T("Show or hide")}: ${label}`);
+      eye.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setFxShown(layer, name ? [name] : items.map(([each]) => each), !on);
+      });
+      const indent = document.createElement("span");
+      indent.style.width = `${depth * 12 + 22 + (nest ? 12 : 0)}px`;
+      indent.style.flex = "none";
+      sub.append(eye, indent);
+      if (name) {
+        const swatch = document.createElement("i");
+        swatch.className = "menu__swatch";
+        swatch.style.setProperty("--label", fxSwatch(name, fx));
+        sub.appendChild(swatch);
+      }
+      const title = document.createElement("span");
+      title.className = "layer-fx__name";
+      title.textContent = label;
+      sub.appendChild(title);
+      if (name && fx.size !== undefined) {
+        const detail = document.createElement("span");
+        detail.className = "layer-fx__detail";
+        detail.textContent = `${Math.round(fx.size * 10) / 10} px`;
+        sub.appendChild(detail);
+      }
+      sub.title = layer.kind === "text" && !inSfx(layer) ? T("Double-click to change it. Drag onto another layer to move it there (Alt: a copy), or onto the bin to remove it.") : T("Drag onto another layer to move the stroke there (Alt: a copy), or onto the bin to remove it.");
+      sub.addEventListener("click", () => {
+        if (!(doc.state.activeIds.length === 1 && doc.state.activeIds[0] === layer.id)) ops.selectLayer(layer.id);
+      });
+      sub.addEventListener("dblclick", (event) => {
+        if (event.target.closest(".layer__eye")) return;
+        openStyleOf(layer, name || items[0][0]);
+      });
+      sub.addEventListener("dragstart", (event) => {
+        fxDrag = { id: layer.id, only: nest ? name : null };
+        dragIds = null;
+        event.dataTransfer.effectAllowed = "copyMove";
+        event.dataTransfer.setData("text/plain", "fx");
+      });
+      sub.addEventListener("dragend", () => {
+        fxDrag = null;
+        clearDrops();
+      });
+      return sub;
+    };
+    // A stroke alone keeps its one line
+    if (items.length === 1) return [line(items[0][0], items[0][1], false)];
+    return [line(null, null, false), ...items.map(([name, fx]) => line(name, fx, true))];
+  };
+  // Effects dragged from `from` onto `to`: a text takes them all, a folder only a stroke. The
+  // letters of an SFX would lose Layer Style effects when the SFX is laid out again.
+  const fxTakes = (from, to, only) => {
+    if (!from || !to || from.id === to.id) return false;
+    const parts = fxParts(from, only);
+    if (!parts.stroke && !parts.effects.length) return false;
+    if (to.kind === "group") return !parts.effects.length;
+    return to.kind === "text" && !(parts.effects.length && inSfx(to));
+  };
+  // What is dragged replaces the same effect on the layer it lands on; its other effects stay
+  const moveEffects = (from, to, copy, only) => {
+    const doc = app.doc;
+    if (!doc) return;
+    const parts = fxParts(from, only);
+    const held = JSON.parse(JSON.stringify({ stroke: from.stroke || null, effects: from.effects || {} }));
+    ops.setLayers(doc.state.layers.map((item) => {
+      if (item.id === to.id) {
+        const next = Object.assign({}, item);
+        if (parts.stroke) {
+          next.stroke = held.stroke;
+          if (item.kind === "text") next.raster = null;
+        }
+        if (parts.effects.length) {
+          next.effects = Object.assign({}, item.effects);
+          parts.effects.forEach((name) => { next.effects[name] = held.effects[name]; });
+        }
+        return next;
+      }
+      if (item.id === from.id && !copy) return withoutFx(item, parts);
       return item;
     }), copy ? "Copy Effects" : "Move Effects");
   };
@@ -9443,7 +9595,7 @@
     if (scrubbing) return;
     if (host.contains(document.activeElement) && document.activeElement.tagName === "INPUT" && document.activeElement.type !== "checkbox" && document.activeElement.type !== "color") return;
     const layer = activeTexts()[0];
-    const key = layer ? JSON.stringify([layer.id, styleShown(layer), layer.params.layerText.paragraphStyleRange[0], layer.params.layerText.antiAlias, layer.params.layerText.textShape, Boolean(layer.warp), layer.stroke, Fonts.generation]) : "none";
+    const key = layer ? JSON.stringify([layer.id, styleShown(layer), layer.params.layerText.paragraphStyleRange[0], layer.params.layerText.antiAlias, layer.params.layerText.textShape, Boolean(layer.warp), layer.stroke, layer.effects || null, inSfx(layer), Fonts.generation]) : "none";
     if (key === characterKey) return;
     characterKey = key;
     closeLeadingMenu();
@@ -9583,6 +9735,31 @@
       remove.classList.add("character__end");
       outerRow.appendChild(remove);
       host.appendChild(outerRow);
+    }
+    // Layer Style: the shadows, glows and overlays, a dot for each one on. Also how a touch
+    // screen gets there, which has no menu on the layers.
+    if (!inSfx(layer)) {
+      const style = document.createElement("button");
+      style.type = "button";
+      style.className = "btn btn--small wide fx-open";
+      const on = FX_ITEMS.filter(([name]) => name !== "blending" && fxIsOn(layer, name));
+      const word = document.createElement("span");
+      word.className = "fx-open__word";
+      word.textContent = T("Layer Style…");
+      style.appendChild(word);
+      const dots = document.createElement("span");
+      dots.className = "fx-open__dots";
+      on.forEach(([name]) => {
+        const dot = document.createElement("i");
+        dot.style.background = name === "stroke" ? fxSwatch("stroke", layer.stroke) : fxSwatch(name, layer.effects[name]);
+        dots.appendChild(dot);
+      });
+      style.appendChild(dots);
+      style.title = on.length ? `${T("Layer Style")}: ${on.map(([name]) => fxLabel(name)).join(", ")}` : T("Shadows, glows and overlays on the text");
+      // On the last effect that is on, or the drop shadow: the stroke has its row above
+      const effects = on.filter(([name]) => name !== "stroke");
+      style.addEventListener("click", () => openLayerStyle(effects.length ? effects[effects.length - 1][0] : "dropShadow"));
+      host.appendChild(style);
     }
     const height = numberInput(style.verticalScale === undefined ? 100 : style.verticalScale, 10, 500, (value) => applyTextPatch({ verticalScale: value }, null, "scale"));
     host.append(scrubbed(T("Height %"), height, withSteps(height)));
@@ -13487,6 +13664,918 @@
     if (!answer) ops.rollbackHistory(startIndex);
     else ops.sealHistory();
   };
+  /* ---- Layer Style: Photoshop's Blending Options and its effects, on text layers ---- */
+  // Each change is tried out on the page at once and all of them make one step of history: Cancel
+  // takes them back. The window leaves the page as it is, which is the preview, and moves by its
+  // title. The useful settings first, the others under Advanced (kept open or closed meanwhile).
+  let fxAdvanced = false;
+  const freshStroke = () => ({ enabled: true, size: 3, opacity: 100, position: "outer", color: { r: 255, g: 255, b: 255 } });
+  // The pictures of the rail: a letter A and what the effect does to it
+  const FX_A = '<path d="M6.5 19 12 5.5 17.5 19M8.7 14h6.6"/>';
+  const FX_GLYPHS = {
+    blending: '<circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/>',
+    stroke: `<g stroke-width="5.4">${FX_A}</g><g class="fxdlg__hole" stroke-width="2.2">${FX_A}</g>`,
+    dropShadow: `<g transform="translate(2.4 2.4)" opacity=".38" stroke-width="2.6">${FX_A}</g>${FX_A}`,
+    outerGlow: `<g stroke-width="7.5" opacity=".13">${FX_A}</g><g stroke-width="4.4" opacity=".22">${FX_A}</g>${FX_A}`,
+    innerShadow: '<rect x="4" y="4" width="16" height="16" rx="3.5"/><path d="M7.4 17V9a1.6 1.6 0 0 1 1.6-1.6h8" stroke-width="2.6" opacity=".42"/>',
+    innerGlow: '<rect x="4" y="4" width="16" height="16" rx="3.5"/><rect x="7.6" y="7.6" width="8.8" height="8.8" rx="1.6" stroke-width="2.8" opacity=".24"/>',
+  };
+  // Built-in gradients, then those kept from the Gradient tool's editor
+  const FX_GRADIENTS = [
+    ["Black to White", () => [{ at: 0, r: 0, g: 0, b: 0, a: 1 }, { at: 1, r: 255, g: 255, b: 255, a: 1 }]],
+    ["Foreground to Background", () => [Object.assign({ at: 0, a: 1 }, app.fg), Object.assign({ at: 1, a: 1 }, app.bg)]],
+    ["Foreground to Transparent", () => [Object.assign({ at: 0, a: 1 }, app.fg), Object.assign({ at: 1, a: 0 }, app.fg)]],
+    ["Fire", () => [{ at: 0, r: 122, g: 8, b: 0, a: 1 }, { at: 0.5, r: 255, g: 72, b: 0, a: 1 }, { at: 1, r: 255, g: 214, b: 64, a: 1 }]],
+    ["Gold", () => [{ at: 0, r: 120, g: 76, b: 4, a: 1 }, { at: 0.45, r: 255, g: 230, b: 150, a: 1 }, { at: 0.55, r: 196, g: 140, b: 30, a: 1 }, { at: 1, r: 110, g: 66, b: 0, a: 1 }]],
+    ["Ice", () => [{ at: 0, r: 12, g: 60, b: 150, a: 1 }, { at: 0.6, r: 140, g: 210, b: 255, a: 1 }, { at: 1, r: 255, g: 255, b: 255, a: 1 }]],
+    ["Chrome", () => [{ at: 0, r: 60, g: 60, b: 64, a: 1 }, { at: 0.48, r: 250, g: 250, b: 250, a: 1 }, { at: 0.52, r: 80, g: 80, b: 84, a: 1 }, { at: 1, r: 225, g: 225, b: 228, a: 1 }]],
+  ];
+  const FX_STYLES = [["linear", "Linear"], ["radial", "Radial"], ["angle", "Angle"], ["reflected", "Reflected"], ["diamond", "Diamond"]];
+  // What each effect shows, in its order: [field, label, under Advanced]. Sizes and distances go
+  // further than their sliders when typed.
+  const FX_FIELDS = {
+    dropShadow: [["color"], ["opacity"], ["angle"], ["distance"], ["size", "Blur"], ["spread", "Spread", true], ["blend", "Blend Mode", true]],
+    outerGlow: [["color"], ["opacity"], ["size"], ["spread", "Spread"], ["blend", "Blend Mode", true]],
+    innerShadow: [["color"], ["opacity"], ["angle"], ["distance"], ["size", "Blur"], ["choke", "Choke", true], ["blend", "Blend Mode", true]],
+    innerGlow: [["color"], ["opacity"], ["size"], ["choke", "Choke", true], ["blend", "Blend Mode", true]],
+    colorOverlay: [["color"], ["opacity"], ["blend", "Blend Mode", true]],
+  };
+  // [label, min, max, slider's end, unit]
+  const FX_RANGES = { opacity: ["Opacity", 0, 100, 100, "%"], distance: ["Distance", 0, 300, 100, "px"], size: ["Size", 0, 250, 100, "px"], spread: ["Spread", 0, 100, 100, "%"], choke: ["Choke", 0, 100, 100, "%"], scale: ["Scale", 10, 150, 150, "%"] };
+  const sameStops = (a, b) => a.length === b.length && a.every((item, i) => ["at", "r", "g", "b", "a"].every((key) => Math.abs((item[key] === undefined ? 1 : item[key]) - (b[i][key] === undefined ? 1 : b[i][key])) < 1e-3));
+
+  // From a row of the Layers panel: that layer, on that effect
+  const openStyleOf = (layer, item) => {
+    const doc = app.doc;
+    if (!doc || layer.kind !== "text" || inSfx(layer)) return;
+    if (!doc.state.activeIds.includes(layer.id)) ops.selectLayer(layer.id);
+    openLayerStyle(item);
+  };
+  const openLayerStyle = (start = "blending") => {
+    const doc = app.doc;
+    if (!doc || ui.layerStyle || ui.modal.open) return;
+    if (!ui.editor.hidden) endEdit();
+    commitTransform();
+    closeContextMenu();
+    const targets = styleTargets();
+    if (!targets.length) return;
+    const ids = targets.map((layer) => layer.id);
+    const leadId = doc.state.activeIds.slice().reverse().find((id) => ids.includes(id)) || ids[ids.length - 1];
+    const layersNow = () => ids.map((id) => doc.state.layers.find((item) => item.id === id)).filter(Boolean);
+    const lead = () => doc.state.layers.find((item) => item.id === leadId) || layersNow()[0];
+    // The step before the dialog, by itself rather than by its place: with a full history (or
+    // past the memory budget) the oldest step goes when the dialog adds its own, and every place
+    // moves down by one
+    const base = doc.history[doc.historyIndex];
+    const startState = doc.state;
+    const token = `gesture:layer-style:${Date.now()}`;
+    const lookOf = () => JSON.stringify(layersNow().map((layer) => [layer.stroke || null, layer.effects || null, layer.blend || "normal", layer.opacity === undefined ? 1 : layer.opacity, PS.fillOf(layer)]));
+    const before = lookOf();
+    // The step every change goes into, named for the dialog from the start
+    ops.setLayerEffects(ids, (layer) => layer.effects, token);
+    const own = doc.history[doc.historyIndex];
+    // Back to before the dialog, its step gone. Should the step before it have been let go, the
+    // dialog's own step becomes it, as it was.
+    const backToStart = () => {
+      const at = doc.history.indexOf(base);
+      if (at >= 0) {
+        ops.rollbackHistory(at);
+        return;
+      }
+      const mine = doc.history.indexOf(own);
+      if (mine < 0) return;
+      Object.assign(own, { name: base.name, state: startState, size: base.size, coalesce: null });
+      doc.history.length = mine + 1;
+      ops.jump(mine);
+    };
+    // Effects turned off here: gone on OK, as in Photoshop (the Layers panel's eye keeps them)
+    const turnedOff = new Set();
+    // An effect's settings while it is off, for when it comes back
+    const kept = {};
+    let current = FX_ITEMS.some(([id]) => id === start) ? start : "blending";
+
+    // What an item shows: the active layer's own, what was set here, or Photoshop's defaults
+    const shownOf = (name) => {
+      const layer = lead();
+      if (name === "stroke") return (layer && hasStrokeFx(layer) ? layer.stroke : null) || kept.stroke || freshStroke();
+      return (layer && layer.effects && layer.effects[name]) || kept[name] || PS.fxDefault(name);
+    };
+    const isOn = (name) => {
+      const layer = lead();
+      return Boolean(layer) && fxIsOn(layer, name);
+    };
+    // On each layer's own effect, so that a size keeps their colours; a layer without it takes
+    // the one shown. `own`: only on the layers that have it (to turn it off).
+    const changeFx = (name, patch, own) => {
+      if (app.doc !== doc) return;
+      const shown = shownOf(name);
+      const make = (base) => {
+        const next = Object.assign({}, base, typeof patch === "function" ? patch(base) : patch);
+        Object.keys(next).forEach((key) => { if (next[key] === undefined) delete next[key]; });
+        return next;
+      };
+      if (name === "stroke") {
+        ops.setTextStroke(ids, (layer) => {
+          const mine = hasStrokeFx(layer) ? layer.stroke : null;
+          return mine || !own ? make(mine || shown) : layer.stroke;
+        }, token);
+      } else {
+        ops.setLayerEffects(ids, (layer) => {
+          const mine = layer.effects && layer.effects[name];
+          if (!mine && own) return layer.effects;
+          return Object.assign({}, layer.effects, { [name]: make(mine || shown) });
+        }, token);
+      }
+      showRail();
+    };
+    // A setting changed turns its effect on: it was wanted
+    const setFx = (name, patch) => {
+      turnedOff.delete(name);
+      changeFx(name, (base) => Object.assign({}, typeof patch === "function" ? patch(base) : patch, { enabled: true }));
+      showOff();
+    };
+    const turn = (name, on) => {
+      if (on) {
+        turnedOff.delete(name);
+        changeFx(name, { enabled: true });
+        choose(name);
+        return;
+      }
+      kept[name] = shownOf(name);
+      turnedOff.add(name);
+      changeFx(name, { enabled: false }, true);
+      showOff();
+    };
+    const setBlending = (key, value) => {
+      if (app.doc !== doc) return;
+      if (key === "fill") setFill(layersNow(), value / 100, token);
+      else ids.forEach((id) => ops.setLayerProps(id, key === "blend" ? { blend: value } : { opacity: value / 100 }, key === "blend" ? "Blending Change" : "Opacity Change", token));
+    };
+    // A slider dragged changes the page once a frame
+    const waiting = new Map();
+    let frame = 0;
+    const flush = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+      const runs = Array.from(waiting.values());
+      waiting.clear();
+      runs.forEach((run) => run());
+    };
+    const soon = (key, run) => {
+      waiting.set(key, run);
+      if (!frame) frame = requestAnimationFrame(() => { frame = 0; flush(); });
+    };
+
+    const make = (tag, className, parent, text) => {
+      const el = document.createElement(tag);
+      if (className) el.className = className;
+      if (text !== undefined) el.textContent = text;
+      if (parent) parent.appendChild(el);
+      return el;
+    };
+    const dlg = make("dialog", "modal fxdlg");
+    dlg.setAttribute("aria-label", T("Layer Style"));
+    if (lang === "ar") dlg.dir = "rtl";
+    const head = make("div", "modal__head fxdlg__head", dlg);
+    make("span", "fxdlg__title", head, T("Layer Style"));
+    make("span", "fxdlg__of", head, ids.length > 1 ? fill(T("{count} layers"), { count: ids.length }) : lead().name);
+    const body = make("div", "fxdlg__body", dlg);
+    const rail = make("div", "fxdlg__rail", body);
+    rail.setAttribute("role", "tablist");
+    rail.setAttribute("aria-orientation", "vertical");
+    const pane = make("div", "fxdlg__pane", body);
+    pane.setAttribute("role", "tabpanel");
+    const foot = make("div", "modal__foot fxdlg__foot", dlg);
+    const no = make("button", "btn", foot, T("Cancel"));
+    no.type = "button";
+    const yes = make("button", "btn btn--main", foot, "OK");
+    yes.type = "button";
+
+    /* the rail: Blending, then each effect with its switch */
+    const railItems = {};
+    FX_ITEMS.forEach(([name]) => {
+      const item = make("div", "fxdlg__item", rail);
+      item.dataset.fx = name;
+      const pick = make("button", "fxdlg__pick", item);
+      pick.type = "button";
+      pick.setAttribute("role", "tab");
+      const glyph = make("span", "fxdlg__glyph", pick);
+      if (name === "colorOverlay" || name === "gradientOverlay") make("i", "fxdlg__swatch", glyph);
+      else glyph.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${FX_GLYPHS[name]}</svg>`;
+      make("span", "fxdlg__name", pick, fxLabel(name));
+      pick.addEventListener("click", () => choose(name));
+      let toggle = null;
+      if (name !== "blending") {
+        toggle = make("input", "fxdlg__switch", item);
+        toggle.type = "checkbox";
+        toggle.setAttribute("role", "switch");
+        toggle.setAttribute("aria-label", fxLabel(name));
+        toggle.addEventListener("change", () => turn(name, toggle.checked));
+      } else make("div", "fxdlg__sep", rail);
+      railItems[name] = { item, pick, toggle, swatch: glyph.querySelector(".fxdlg__swatch") };
+    });
+    const showRail = () => {
+      FX_ITEMS.forEach(([name]) => {
+        const { item, pick, toggle, swatch } = railItems[name];
+        const on = name !== "blending" && isOn(name);
+        item.classList.toggle("is-on", on);
+        item.classList.toggle("is-current", name === current);
+        pick.setAttribute("aria-selected", String(name === current));
+        pick.tabIndex = name === current ? 0 : -1;
+        if (toggle) toggle.checked = on;
+        if (swatch) swatch.style.background = fxSwatch(name, shownOf(name));
+      });
+    };
+    // Up and down go through the rail
+    rail.addEventListener("keydown", (event) => {
+      if (!(event.key === "ArrowDown" || event.key === "ArrowUp") || !event.target.closest(".fxdlg__pick")) return;
+      event.preventDefault();
+      const names = FX_ITEMS.map(([name]) => name);
+      const next = names[Math.max(0, Math.min(names.length - 1, names.indexOf(current) + (event.key === "ArrowDown" ? 1 : -1)))];
+      choose(next);
+      railItems[next].pick.focus();
+    });
+
+    /* the settings */
+    let fields = null;
+    let topSwitch = null;
+    // The rows: a name (dragged, it changes a number, as in the panels), then the control
+    const row = (parent, label, control, number) => {
+      const line = number ? scrubbed(label, number, control) : labelled(label, control);
+      line.classList.add("fxdlg__row");
+      parent.appendChild(line);
+      return line;
+    };
+    const slider = (parent, label, given, [min, max, end, unit], apply) => {
+      const value = Number(given) || 0;
+      const key = {};
+      const range = make("input");
+      range.type = "range";
+      range.min = String(min);
+      range.max = String(end);
+      range.step = "1";
+      range.value = String(Math.min(value, end));
+      range.setAttribute("aria-label", label);
+      const shown = (v) => {
+        range.value = String(Math.min(v, end));
+        showSliderFill(range);
+      };
+      const number = numberInput(Math.round(value * 10) / 10, min, max, (v) => {
+        shown(v);
+        soon(key, () => apply(v));
+      });
+      number.setAttribute("aria-label", label);
+      range.addEventListener("input", () => {
+        number.value = range.value;
+        soon(key, () => apply(Number(range.value)));
+      });
+      // Typed: tried out at once, held to its limits when the field is left
+      number.addEventListener("input", () => {
+        if (number.value === "" || Number.isNaN(Number(number.value))) return;
+        const v = withinLimits(number, Number(number.value));
+        shown(v);
+        soon(key, () => apply(v));
+      });
+      showSliderFill(range);
+      const control = make("span", "fxdlg__control");
+      control.append(range, number);
+      make("span", "fxdlg__unit", control, unit);
+      return row(parent, label, control, number);
+    };
+    // Where the light comes from, as in Photoshop: 0° from the right, 90° from above
+    const angleRow = (parent, given, apply) => {
+      const value = Number(given) || 0;
+      const dial = make("span", "fxdlg__dial");
+      dial.dir = "ltr";
+      dial.title = T("Drag to set the angle. Shift: by 15°.");
+      const hand = make("i", "fxdlg__hand", dial);
+      const shown = (v) => { hand.style.transform = `rotate(${-v}deg)`; };
+      const number = numberInput(Math.round(value), -180, 180, (v) => {
+        shown(v);
+        soon("angle", () => apply(v));
+      });
+      number.setAttribute("aria-label", T("Angle"));
+      number.addEventListener("input", () => {
+        if (number.value === "" || Number.isNaN(Number(number.value))) return;
+        const v = withinLimits(number, Number(number.value));
+        shown(v);
+        soon("angle", () => apply(v));
+      });
+      dial.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        dial.setPointerCapture(event.pointerId);
+        const box = dial.getBoundingClientRect();
+        const turnTo = (e) => {
+          let v = Math.round((Math.atan2(box.top + box.height / 2 - e.clientY, e.clientX - box.left - box.width / 2) * 180) / Math.PI);
+          if (e.shiftKey) v = Math.round(v / 15) * 15;
+          if (v <= -180) v += 360;
+          number.value = String(v);
+          shown(v);
+          soon("angle", () => apply(v));
+        };
+        const stop = () => {
+          dial.removeEventListener("pointermove", turnTo);
+          dial.removeEventListener("pointerup", stop);
+          dial.removeEventListener("pointercancel", stop);
+        };
+        dial.addEventListener("pointermove", turnTo);
+        dial.addEventListener("pointerup", stop);
+        dial.addEventListener("pointercancel", stop);
+        turnTo(event);
+      });
+      shown(value);
+      const control = make("span", "fxdlg__control fxdlg__control--angle");
+      control.append(dial, number);
+      make("span", "fxdlg__unit", control, "°");
+      return row(parent, T("Angle"), control, number);
+    };
+    // The app's colour picker opens over this window, and comes back to it. Its Cancel only
+    // sets the field back to the colour it had (its own undo can't reach inside this window's
+    // one step): the layers are then put back exactly as they were when it opened, each with its
+    // own colour, an effect that was off still off, Photoshop's kept pixels still there.
+    const pickerGuard = (input) => {
+      let held = null;
+      let from = "";
+      input.addEventListener("click", () => {
+        flush();
+        held = new Map(layersNow().map((layer) => [layer.id, layer]));
+        from = input.value;
+      });
+      input.addEventListener("change", () => { held = null; });
+      return () => {
+        if (!held || input.value !== from || app.doc !== doc) return false;
+        if (frame) cancelAnimationFrame(frame);
+        frame = 0;
+        waiting.clear();
+        const back = held;
+        ops.setLayers(doc.state.layers.map((layer) => back.get(layer.id) || layer), "Layer Style", { coalesce: token });
+        showRail();
+        showOff();
+        return true;
+      };
+    };
+    const colourRow = (parent, label, colour, name, apply) => {
+      const input = make("input");
+      input.type = "color";
+      input.value = toHex(colour);
+      input.setAttribute("aria-label", name);
+      const backAgain = pickerGuard(input);
+      input.addEventListener("input", () => {
+        if (!backAgain()) apply(fromHex(input.value));
+      });
+      const control = make("span", "fxdlg__control");
+      control.appendChild(input);
+      return row(parent, label, control);
+    };
+    const blendRow = (parent, value, apply, preview) => {
+      const button = make("button", "font-field blend-field fxdlg__blend");
+      button.type = "button";
+      button.setAttribute("aria-haspopup", "listbox");
+      button.setAttribute("aria-expanded", "false");
+      button.setAttribute("aria-label", T("Blend Mode"));
+      button.dataset.value = value;
+      const name = make("span", "blend-field__name", button, blendLabel(value));
+      const open = () => openBlendMenu(button, {
+        ids,
+        host: dlg,
+        preview,
+        pick: (v) => {
+          button.dataset.value = v;
+          name.textContent = blendLabel(v);
+          apply(v);
+        },
+      });
+      button.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        if (blendMenu) closeBlendMenu();
+        else open();
+      });
+      button.addEventListener("keydown", (event) => {
+        if (blendMenu || !(event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter" || event.key === " ")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        open();
+        const hot = blendMenu && blendMenu.items.find((item) => item.dataset.value === button.dataset.value);
+        if (hot) showBlendItem(hot);
+      });
+      const control = make("span", "fxdlg__control fxdlg__control--wide");
+      control.appendChild(button);
+      return row(parent, T("Blend Mode"), control);
+    };
+    // An effect's mode pointed at in the list shows on the page, and goes back when let go
+    const effectBlendPreview = (name) => {
+      let saved = null;
+      return (value) => {
+        if (value === null) {
+          if (!saved) return;
+          const back = saved;
+          saved = null;
+          ops.setLayerEffects(ids, (layer) => (back.has(layer.id) ? back.get(layer.id) : layer.effects), token);
+          showRail();
+          return;
+        }
+        if (!saved) saved = new Map(layersNow().map((layer) => [layer.id, layer.effects]));
+        changeFx(name, { blend: value, enabled: true });
+      };
+    };
+    const switchRow = (parent, label, on, apply) => {
+      const input = make("input", "fxdlg__switch");
+      input.type = "checkbox";
+      input.setAttribute("role", "switch");
+      input.checked = on;
+      input.addEventListener("change", () => apply(input.checked));
+      const control = make("span", "fxdlg__control");
+      control.appendChild(input);
+      return row(parent, label, control);
+    };
+    const hint = (parent, text) => make("p", "fxdlg__hint", parent, text);
+
+    // Gradient Overlay's gradient: presets, the bar with its colours (click under it to add one,
+    // drag one along, or down off it to remove it), and the chosen colour's settings
+    const gradientEditor = (parent, fx, apply) => {
+      const state = { stops: fx.stops.map((item) => Object.assign({ a: 1 }, item)).sort((a, b) => a.at - b.at), chosen: 0, removing: null };
+      const box = make("div", "fxgrad", parent);
+      // A gradient runs left to right, in every language
+      box.dir = "ltr";
+      const presets = make("div", "fxgrad__presets", box);
+      const bar = make("div", "fxgrad__bar", box);
+      const ramp = make("canvas", "", bar);
+      const track = make("div", "fxgrad__track", box);
+      track.title = T("Click under the bar to add a colour, drag one down off it to remove it.");
+      const chosenRow = make("div", "fxgrad__chosen", box);
+      const effective = () => state.stops.filter((item) => item !== state.removing);
+      const changed = () => {
+        const stops = effective().map((item) => ({ at: item.at, r: item.r, g: item.g, b: item.b, a: item.a }));
+        soon("stops", () => apply(stops));
+        drawRamp();
+        showMarks();
+        showPresets();
+        styleShown();
+      };
+      // Mixed as the page draws the overlay: Photoshop's classic way, not the Gradient tool's
+      const drawRamp = () => {
+        const width = Math.max(120, Math.round(bar.clientWidth || 300));
+        const { canvas } = PS.renderGradient({ type: "linear", start: [0, 0], end: [width, 0], stops: effective().length >= 2 ? effective() : state.stops, method: "classic", opacity: 1, dither: false }, { left: 0, top: 0, width, height: 1 });
+        ramp.width = width;
+        ramp.height = 1;
+        ramp.getContext("2d").drawImage(canvas, 0, 0);
+      };
+      const showMarks = () => {
+        track.textContent = "";
+        state.stops.forEach((item, i) => {
+          const mark = make("button", "fxgrad__stop" + (i === state.chosen ? " is-on" : "") + (item === state.removing ? " is-removing" : ""), track);
+          mark.type = "button";
+          mark.dataset.i = String(i);
+          mark.style.left = `${item.at * 100}%`;
+          mark.style.setProperty("--stop", `rgb(${item.r}, ${item.g}, ${item.b})`);
+          mark.setAttribute("aria-label", `${T("Colour")} ${i + 1}: ${toHex(item)}, ${Math.round(item.at * 100)}%`);
+          mark.setAttribute("aria-pressed", String(i === state.chosen));
+        });
+      };
+      let inputs = null;
+      const showChosen = () => {
+        chosenRow.textContent = "";
+        const item = state.stops[state.chosen];
+        if (!item) return;
+        const colour = make("input", "", chosenRow);
+        colour.type = "color";
+        colour.value = toHex(item);
+        colour.setAttribute("aria-label", `${fxLabel("gradientOverlay")}: ${T("Colour")}`);
+        const backAgain = pickerGuard(colour);
+        colour.addEventListener("input", () => {
+          Object.assign(item, fromHex(colour.value));
+          if (!backAgain()) {
+            changed();
+            return;
+          }
+          drawRamp();
+          showMarks();
+          styleShown();
+        });
+        const numberField = (label, value, onValue) => {
+          const field = make("span", "fxgrad__field", chosenRow);
+          const number = numberInput(value, 0, 100, (v) => {
+            onValue(v);
+            changed();
+          });
+          number.setAttribute("aria-label", label);
+          number.addEventListener("input", () => {
+            if (number.value === "" || Number.isNaN(Number(number.value))) return;
+            onValue(withinLimits(number, Number(number.value)));
+            changed();
+          });
+          field.appendChild(scrubbed(label, number));
+          make("span", "fxdlg__unit", field, "%");
+          return number;
+        };
+        const opacity = numberField(T("Opacity"), Math.round(item.a * 100), (v) => { item.a = v / 100; });
+        const place = numberField(T("Location"), Math.round(item.at * 100), (v) => { item.at = v / 100; });
+        const remove = iconButton("trash", T("Delete"), false, () => {
+          if (state.stops.length <= 2) return;
+          state.stops.splice(state.chosen, 1);
+          state.chosen = Math.min(state.chosen, state.stops.length - 1);
+          showChosen();
+          changed();
+        });
+        remove.classList.add("fxgrad__remove");
+        remove.disabled = state.stops.length <= 2;
+        chosenRow.appendChild(remove);
+        inputs = { colour, opacity, place, remove };
+      };
+      // The chosen colour's fields follow a drag without being made again
+      const refreshChosen = () => {
+        const item = state.stops[state.chosen];
+        if (!inputs || !item) return;
+        inputs.place.value = String(Math.round(item.at * 100));
+        inputs.remove.disabled = state.stops.length <= 2;
+      };
+      const showPresets = () => {
+        presets.textContent = "";
+        const own = window.TypeRRetouch && window.TypeRRetouch.gradientPresets ? window.TypeRRetouch.gradientPresets() : [];
+        FX_GRADIENTS.map(([label, stops]) => [T(label), stops()]).concat(own.map((item) => [item.name, item.stops])).forEach(([label, stops]) => {
+          const swatch = make("button", "fxgrad__preset", presets);
+          swatch.type = "button";
+          swatch.title = label;
+          swatch.setAttribute("aria-label", label);
+          swatch.classList.toggle("is-on", sameStops(stops.slice().sort((a, b) => a.at - b.at), effective()));
+          make("i", "", swatch).style.background = gradientCss(stops);
+          swatch.addEventListener("click", () => {
+            state.stops = stops.map((item) => Object.assign({ a: 1 }, item)).sort((a, b) => a.at - b.at);
+            state.chosen = 0;
+            showChosen();
+            changed();
+          });
+        });
+      };
+      const grab = (event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        const rect = track.getBoundingClientRect();
+        const along = (e) => clampTo((e.clientX - rect.left) / rect.width, 0, 1);
+        const mark = event.target.closest(".fxgrad__stop");
+        let item = mark ? state.stops[Number(mark.dataset.i)] : null;
+        let moved = false;
+        if (!item) {
+          // A new colour, the gradient's own where it is added
+          const at = along(event);
+          const list = state.stops.slice().sort((a, b) => a.at - b.at);
+          let i = 0;
+          while (i < list.length - 1 && list[i + 1].at < at) i++;
+          const a = list[i];
+          const b = list[Math.min(i + 1, list.length - 1)];
+          const f = b.at > a.at ? clampTo((at - a.at) / (b.at - a.at), 0, 1) : 0;
+          const mix = (key) => a[key] + (b[key] - a[key]) * f;
+          item = { at, r: Math.round(mix("r")), g: Math.round(mix("g")), b: Math.round(mix("b")), a: Math.round(mix("a") * 100) / 100 };
+          state.stops.push(item);
+          moved = true;
+        }
+        state.chosen = state.stops.indexOf(item);
+        showChosen();
+        if (moved) changed();
+        else showMarks();
+        const x0 = event.clientX;
+        const holder = event.currentTarget;
+        holder.setPointerCapture(event.pointerId);
+        const move = (e) => {
+          if (!moved && Math.abs(e.clientX - x0) < 3 && e.clientY - rect.bottom < 24) return;
+          moved = true;
+          item.at = Math.round(along(e) * 1000) / 1000;
+          state.removing = state.stops.length > 2 && e.clientY - rect.bottom > 24 ? item : null;
+          refreshChosen();
+          changed();
+        };
+        const end = () => {
+          holder.removeEventListener("pointermove", move);
+          holder.removeEventListener("pointerup", end);
+          holder.removeEventListener("pointercancel", end);
+          if (!state.removing) return;
+          state.stops = state.stops.filter((other) => other !== state.removing);
+          state.removing = null;
+          state.chosen = Math.min(state.chosen, state.stops.length - 1);
+          showChosen();
+          changed();
+        };
+        holder.addEventListener("pointermove", move);
+        holder.addEventListener("pointerup", end);
+        holder.addEventListener("pointercancel", end);
+      };
+      track.addEventListener("pointerdown", grab);
+      bar.addEventListener("pointerdown", grab);
+      // The styles' pictures take the gradient's colours
+      let styleShown = () => {};
+      const styles = (row) => {
+        styleShown = () => row.querySelectorAll(".fxgrad__style").forEach((button) => {
+          const type = button.dataset.style;
+          const centred = type !== "linear";
+          const { canvas } = PS.renderGradient({ type, start: centred ? [15, 9] : [1, 9], end: centred ? [29, 9] : [29, 9], stops: effective(), method: "classic", opacity: 1, dither: false }, { left: 0, top: 0, width: 30, height: 18 });
+          const shown = button.querySelector("canvas");
+          shown.getContext("2d").clearRect(0, 0, 30, 18);
+          shown.getContext("2d").drawImage(canvas, 0, 0);
+        });
+        styleShown();
+      };
+      requestAnimationFrame(drawRamp);
+      showPresets();
+      showMarks();
+      showChosen();
+      return { styles };
+    };
+
+    const buildPane = () => {
+      if (blendMenu && blendMenu.own) closeBlendMenu();
+      flush();
+      pane.textContent = "";
+      const top = make("div", "fxdlg__top", pane);
+      make("h3", "fxdlg__heading", top, fxLabel(current));
+      topSwitch = null;
+      if (current !== "blending") {
+        topSwitch = make("input", "fxdlg__switch fxdlg__topswitch", top);
+        topSwitch.type = "checkbox";
+        topSwitch.setAttribute("role", "switch");
+        topSwitch.setAttribute("aria-label", fxLabel(current));
+        const name = current;
+        topSwitch.addEventListener("change", () => turn(name, topSwitch.checked));
+      }
+      const reset = make("button", "fxdlg__reset", top, T("Reset"));
+      reset.type = "button";
+      reset.title = fill(T("Back to the defaults of {name}"), { name: fxLabel(current) });
+      reset.addEventListener("click", () => {
+        flush();
+        if (current === "blending") {
+          setBlending("blend", "normal");
+          setBlending("opacity", 100);
+          setBlending("fill", 100);
+        } else if (current === "stroke") setFx("stroke", () => Object.assign(freshStroke(), { outer: undefined }));
+        else setFx(current, () => PS.fxDefault(current));
+        buildPane();
+      });
+      fields = make("div", "fxdlg__fields", pane);
+      const more = make("div", "fxdlg__fields fxdlg__advanced");
+      const name = current;
+      if (name === "blending") {
+        const layer = lead();
+        blendRow(fields, layer.blend || "normal", (v) => setBlending("blend", v), (v) => ops.previewBlend(ids, v));
+        slider(fields, T("Opacity"), Math.round((layer.opacity === undefined ? 1 : layer.opacity) * 100), [0, 100, 100, "%"], (v) => setBlending("opacity", v));
+        slider(more, TL("Fill (layers panel)", "Fill"), Math.round(PS.fillOf(layer) * 100), [0, 100, 100, "%"], (v) => setBlending("fill", v));
+        hint(more, T("Fill fades the letters, not their stroke or effects."));
+      } else if (name === "stroke") {
+        const stroke = shownOf("stroke");
+        slider(fields, T("Size"), stroke.size, [1, 100, 30, "px"], (v) => setFx("stroke", { size: v }));
+        // Where it lies, as in Photoshop: outside the letters, inside them, or on their edge
+        const where = make("span", "fxdlg__seg");
+        where.setAttribute("role", "radiogroup");
+        where.setAttribute("aria-label", T("Position"));
+        const position = stroke.position === "inner" || stroke.position === "center" ? stroke.position : "outer";
+        [["outer", TL("Outside (stroke position)", "Outside")], ["inner", TL("Inside (stroke position)", "Inside")], ["center", TL("Centre (stroke position)", "Centre")]].forEach(([value, label]) => {
+          const button = make("button", "fxdlg__segitem" + (value === position ? " is-on" : ""), where, label);
+          button.type = "button";
+          button.setAttribute("role", "radio");
+          button.setAttribute("aria-checked", String(value === position));
+          button.addEventListener("click", () => {
+            where.querySelectorAll(".fxdlg__segitem").forEach((other) => {
+              other.classList.toggle("is-on", other === button);
+              other.setAttribute("aria-checked", String(other === button));
+            });
+            setFx("stroke", { position: value });
+          });
+        });
+        const whereControl = make("span", "fxdlg__control fxdlg__control--wide");
+        whereControl.appendChild(where);
+        row(fields, T("Position"), whereControl);
+        colourRow(fields, T("Colour"), stroke.color, T("Stroke colour"), (c) => setFx("stroke", { color: c }));
+        // A stroke around the stroke, black around a light one, white around a dark one
+        const around = make("div", "fxdlg__sub", fields);
+        make("span", "fxdlg__subname", around, T("Around the stroke"));
+        if (stroke.outer) {
+          const remove = iconButton("trash", T("Remove the stroke around the stroke"), false, () => {
+            setFx("stroke", { outer: undefined });
+            buildPane();
+          });
+          around.appendChild(remove);
+          const outerOf = (own, change) => ({ outer: Object.assign({}, own.outer || stroke.outer, change) });
+          slider(fields, T("Size"), stroke.outer.size, [1, 100, 30, "px"], (v) => setFx("stroke", (own) => outerOf(own, { size: v })));
+          colourRow(fields, T("Colour"), stroke.outer.color, T("Colour of the stroke around the stroke"), (c) => setFx("stroke", (own) => outerOf(own, { color: c })));
+        } else {
+          const add = make("button", "fxdlg__add", around);
+          add.type = "button";
+          add.innerHTML = ICON.plus;
+          make("span", "", add, T("Add"));
+          add.title = T("Add a stroke around the stroke");
+          add.addEventListener("click", () => {
+            const c = shownOf("stroke").color;
+            const light = c.r * 0.299 + c.g * 0.587 + c.b * 0.114 > 127;
+            setFx("stroke", (own) => (own.outer ? {} : { outer: { size: 3, color: light ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 } } }));
+            buildPane();
+          });
+        }
+      } else if (name === "gradientOverlay") {
+        const fx = shownOf(name);
+        const editor = gradientEditor(fields, fx, (stops) => setFx(name, { stops }));
+        const styleRow = make("div", "fxgrad__styles");
+        FX_STYLES.forEach(([type, label]) => {
+          const button = make("button", "fxgrad__style" + (fx.style === type ? " is-on" : ""), styleRow);
+          button.type = "button";
+          button.dataset.style = type;
+          button.title = T(label);
+          button.setAttribute("aria-label", T(label));
+          button.setAttribute("aria-pressed", String(fx.style === type));
+          const shown = make("canvas", "", button);
+          shown.width = 30;
+          shown.height = 18;
+          button.addEventListener("click", () => {
+            styleRow.querySelectorAll(".fxgrad__style").forEach((other) => {
+              other.classList.toggle("is-on", other === button);
+              other.setAttribute("aria-pressed", String(other === button));
+            });
+            setFx(name, { style: type });
+          });
+        });
+        const control = make("span", "fxdlg__control fxdlg__control--wide");
+        control.appendChild(styleRow);
+        row(fields, T("Style"), control);
+        editor.styles(styleRow);
+        angleRow(fields, fx.angle, (v) => setFx(name, { angle: v }));
+        switchRow(fields, T("Reverse"), Boolean(fx.reverse), (on) => setFx(name, { reverse: on }));
+        slider(fields, T("Opacity"), fx.opacity, [0, 100, 100, "%"], (v) => setFx(name, { opacity: v }));
+        slider(more, T("Scale"), fx.scale, FX_RANGES.scale.slice(1), (v) => setFx(name, { scale: v }));
+        blendRow(more, fx.blend || "normal", (v) => setFx(name, { blend: v }), effectBlendPreview(name));
+      } else {
+        const fx = shownOf(name);
+        FX_FIELDS[name].forEach(([key, label, advanced]) => {
+          const parent = advanced ? more : fields;
+          if (key === "color") colourRow(parent, T("Colour"), fx.color, fxLabel(name), (c) => setFx(name, { color: c }));
+          else if (key === "angle") angleRow(parent, fx.angle, (v) => setFx(name, { angle: v }));
+          else if (key === "blend") blendRow(parent, fx.blend || "normal", (v) => setFx(name, { blend: v }), effectBlendPreview(name));
+          else slider(parent, T(label || FX_RANGES[key][0]), fx[key], FX_RANGES[key].slice(1), (v) => setFx(name, { [key]: v }));
+        });
+      }
+      if (more.childNodes.length) {
+        const toggle = make("button", "fxdlg__more", pane);
+        toggle.type = "button";
+        toggle.innerHTML = ICON.chevronDown;
+        make("span", "", toggle, T("Advanced"));
+        const shown = () => {
+          toggle.setAttribute("aria-expanded", String(fxAdvanced));
+          more.hidden = !fxAdvanced;
+        };
+        toggle.addEventListener("click", () => {
+          fxAdvanced = !fxAdvanced;
+          shown();
+        });
+        shown();
+        pane.appendChild(more);
+      }
+      showOff();
+    };
+    // An effect that is off shows its settings faded: changing one turns it on
+    const showOff = () => {
+      const off = current !== "blending" && !isOn(current);
+      pane.classList.toggle("is-off", off);
+      if (topSwitch) topSwitch.checked = !off;
+    };
+    const choose = (name) => {
+      if (name !== current) {
+        current = name;
+        buildPane();
+        pane.scrollTop = 0;
+        // On a narrow screen the rail is a strip that scrolls: the chosen one comes into it
+        railItems[name].item.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+      showRail();
+      showOff();
+    };
+
+    /* the window: where it opens, how it moves, how it ends */
+    // On a phone held upright it is docked along the bottom, as the other sheets (touch.css):
+    // its title still moves it, up and down
+    const docked = () => Shell.kind === "phone" && Shell.side === "bottom";
+    // Where it is, without the slight zoom it opens with (app.css): its place stays right
+    const boxOf = () => ({ left: dlg.offsetLeft, top: dlg.offsetTop, width: dlg.offsetWidth, height: dlg.offsetHeight });
+    let dragged = false;
+    const moveTo = (x, y) => {
+      const rect = boxOf();
+      if (docked()) {
+        Object.assign(dlg.style, { margin: "0", left: "0", top: `${Math.round(clampTo(y, 8, Math.max(8, window.innerHeight - rect.height)))}px`, right: "auto", bottom: "auto" });
+        return;
+      }
+      Object.assign(dlg.style, {
+        margin: "0",
+        left: `${Math.round(clampTo(x, 8, Math.max(8, window.innerWidth - rect.width - 8)))}px`,
+        top: `${Math.round(clampTo(y, 8, Math.max(8, window.innerHeight - rect.height - 8)))}px`,
+        right: "auto",
+        bottom: "auto",
+      });
+    };
+    // Off the text it changes, where there is room: the middle, a side, the top or the bottom.
+    // Docked, the page moves up instead when the text would be under it.
+    const place = () => {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const stage = ui.stage.getBoundingClientRect();
+      let text = null;
+      const visual = lead() && PS.visualOf(lead(), doc);
+      if (visual && visual.canvas) {
+        const [x0, y0] = toScreen(visual.x, visual.y);
+        const [x1, y1] = toScreen(visual.x + visual.canvas.width, visual.y + visual.canvas.height);
+        text = { left: stage.left + x0, top: stage.top + y0, right: stage.left + x1, bottom: stage.top + y1 };
+      }
+      if (docked()) {
+        ["margin", "left", "top", "right", "bottom"].forEach((key) => { dlg.style[key] = ""; });
+        const sheetTop = boxOf().top;
+        const up = text ? Math.min(text.bottom - (sheetTop - 16), text.top - stage.top - 16) : 0;
+        if (up > 0) panBy(0, -up);
+        return;
+      }
+      const rect = boxOf();
+      const spots = [[(width - rect.width) / 2, (height - rect.height) / 2], [width - rect.width - 24, (height - rect.height) / 2], [24, (height - rect.height) / 2], [(width - rect.width) / 2, 16], [(width - rect.width) / 2, height - rect.height - 16]];
+      const covered = ([x, y]) => (text ? Math.max(0, Math.min(x + rect.width, text.right) - Math.max(x, text.left)) * Math.max(0, Math.min(y + rect.height, text.bottom) - Math.max(y, text.top)) : 0);
+      const best = spots.reduce((a, b) => (covered(b) < covered(a) ? b : a));
+      moveTo(best[0], best[1]);
+    };
+    const keepInside = () => {
+      if (docked() && !dragged) {
+        ["margin", "left", "top", "right", "bottom"].forEach((key) => { dlg.style[key] = ""; });
+        return;
+      }
+      const rect = boxOf();
+      moveTo(rect.left, rect.top);
+    };
+    head.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      const rect = boxOf();
+      const dx = event.clientX - rect.left;
+      const dy = event.clientY - rect.top;
+      head.setPointerCapture(event.pointerId);
+      const move = (e) => {
+        dragged = true;
+        moveTo(e.clientX - dx, e.clientY - dy);
+      };
+      const stop = () => {
+        head.removeEventListener("pointermove", move);
+        head.removeEventListener("pointerup", stop);
+        head.removeEventListener("pointercancel", stop);
+      };
+      head.addEventListener("pointermove", move);
+      head.addEventListener("pointerup", stop);
+      head.addEventListener("pointercancel", stop);
+    });
+
+    let finished = false;
+    const finish = (keep) => {
+      if (finished) return;
+      finished = true;
+      if (blendMenu && blendMenu.own) closeBlendMenu();
+      flush();
+      ops.previewBlend(ids, null);
+      ui.layerStyle = null;
+      window.removeEventListener("resize", keepInside);
+      if (dlg.open) dlg.close();
+      dlg.remove();
+      if (app.doc !== doc) return;
+      if (!keep) {
+        backToStart();
+        return;
+      }
+      turnedOff.forEach((name) => {
+        const off = (layer) => (name === "stroke" ? hasStrokeFx(layer) && layer.stroke.enabled === false : Boolean(layer.effects && layer.effects[name] && layer.effects[name].enabled === false));
+        if (!layersNow().some(off)) return;
+        if (name === "stroke") ops.setTextStroke(ids, (layer) => (off(layer) ? null : layer.stroke), token);
+        else ops.setLayerEffects(ids, (layer) => (off(layer) ? withoutFx(layer, { stroke: false, effects: [name] }).effects : layer.effects), token);
+      });
+      // Nothing changed: no step either
+      if (lookOf() === before) backToStart();
+      else ops.sealHistory();
+    };
+    no.addEventListener("click", () => finish(false));
+    yes.addEventListener("click", () => finish(true));
+    dlg.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      finish(false);
+    });
+    dlg.addEventListener("close", () => finish(false));
+    // Enter is OK, except on a button, which it presses (the rail's names are chosen with the
+    // arrows or Space). The app's shortcuts stay out meanwhile.
+    dlg.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.isComposing && !blendMenu && (event.target.tagName !== "BUTTON" || event.target.classList.contains("fxdlg__pick"))) {
+        event.preventDefault();
+        finish(true);
+      }
+      event.stopPropagation();
+    });
+    dlg.addEventListener("keyup", (event) => event.stopPropagation());
+
+    document.body.appendChild(dlg);
+    ui.layerStyle = dlg;
+    buildPane();
+    showRail();
+    dlg.showModal();
+    place();
+    window.addEventListener("resize", keepInside);
+    railItems[current].pick.focus();
+  };
   const toggleQuickMask = () => {
     if (!app.doc) return;
     commitTransform();
@@ -13803,6 +14892,7 @@
       null,
       { label: "Copy Layer", keys: "Alt+Shift+Cmd+C", enabled: hasLayer, action: () => { if (ops.copyLayers()) toast(T("Copied.")); } },
       { label: "Paste Layer", keys: "Alt+Shift+Cmd+V", enabled: () => hasDoc() && Boolean(app.layerClipboard), action: () => ops.pasteLayers() },
+      { label: "Blending Options…", enabled: () => styleTargets().length > 0, action: () => openLayerStyle("blending") },
       { label: "Copy Layer Style", enabled: hasLayer, action: () => { if (ops.copyLayerStyle()) toast(T("Copied.")); } },
       { label: "Paste Layer Style", enabled: () => hasLayer() && Boolean(app.styleClipboard), action: () => ops.pasteLayerStyle() },
       null,
@@ -14727,7 +15817,7 @@
   const isText = (element) => isField(element) && element.tagName !== "SELECT" && !/^(checkbox|radio|color|range)$/.test(element.type);
 
   // TypeR's panel has nothing to do while a window is open or text is being typed in the page
-  PS.muteKeys(() => ui.modal.open || isText(document.activeElement));
+  PS.muteKeys(() => ui.modal.open || Boolean(ui.layerStyle) || isText(document.activeElement));
 
   // A choice made with the mouse gives the keyboard back, in the page and in the panel
   const watchChoices = (root) => {
@@ -14820,7 +15910,8 @@
   const anywhereItems = () => allShortcuts().filter((item) => item.anywhere || ANYWHERE.has(item.label));
 
   const handleKey = (event, fromPanel) => {
-    if (ui.modal.open) return;
+    // Layer Style's own window keeps its keys: an Undo there would undo what it tries out
+    if (ui.modal.open || ui.layerStyle) return;
     const active = fromPanel ? event.target : document.activeElement;
     const command = isCommand(event);
     // A menu or a checkbox only keeps the plain keys, which it uses itself

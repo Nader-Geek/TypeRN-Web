@@ -645,8 +645,32 @@
   // hollow text of an SFX (`knockout`); a value between, `fill`.
   const fillOf = (layer) => (!layer ? 1 : layer.knockout ? 0 : layer.fill === undefined ? 1 : Math.max(0, Math.min(1, layer.fill)));
 
-  // How far a stroke reaches past the letters: its own size, plus the stroke around it if any
-  const strokeReach = (stroke) => (stroke ? stroke.size + (stroke.outer && stroke.outer.size > 0 ? stroke.outer.size : 0) : 0);
+  // A text layer's effects, as Photoshop's layer style: `layer.effects`, one of each at most,
+  // drawn only when `enabled`. Opacities, spread and choke in percent, sizes and distances in
+  // pixels, angles in degrees as Photoshop's (where the light comes from), blends by the
+  // names of BLENDS. A gradient's stops are the Gradient tool's: { at, r, g, b, a }.
+  const FX_ORDER = ["dropShadow", "outerGlow", "innerShadow", "innerGlow", "colorOverlay", "gradientOverlay"];
+  const FX_DEFAULTS = {
+    dropShadow: { enabled: true, blend: "normal", color: { r: 0, g: 0, b: 0 }, opacity: 75, angle: 120, distance: 5, spread: 0, size: 5 },
+    outerGlow: { enabled: true, blend: "normal", color: { r: 255, g: 255, b: 255 }, opacity: 100, spread: 0, size: 8 },
+    innerShadow: { enabled: true, blend: "normal", color: { r: 0, g: 0, b: 0 }, opacity: 75, angle: 120, distance: 5, choke: 0, size: 5 },
+    innerGlow: { enabled: true, blend: "normal", color: { r: 255, g: 255, b: 255 }, opacity: 75, choke: 0, size: 5 },
+    colorOverlay: { enabled: true, blend: "normal", color: { r: 255, g: 0, b: 0 }, opacity: 100 },
+    gradientOverlay: { enabled: true, blend: "normal", opacity: 100, stops: [{ at: 0, r: 0, g: 0, b: 0, a: 1 }, { at: 1, r: 255, g: 255, b: 255, a: 1 }], style: "linear", angle: 90, scale: 100, reverse: false },
+  };
+  const fxDefault = (name) => JSON.parse(JSON.stringify(FX_DEFAULTS[name]));
+  // The effects of a layer that are drawn, or null
+  const effectsOn = (layer) => {
+    const effects = layer && layer.kind === "text" && layer.effects;
+    if (!effects) return null;
+    return FX_ORDER.some((name) => effects[name] && effects[name].enabled !== false) ? effects : null;
+  };
+  // A stroke's Position, as Photoshop's: outside the letters (TypeR's and Photoshop's default),
+  // inside them, or centred on their edge. How much of it lies outside them:
+  const strokeOutside = (stroke) => (!stroke ? 0 : stroke.position === "inner" ? 0 : stroke.position === "center" ? stroke.size / 2 : stroke.size);
+  // How far a stroke reaches past the letters: its part outside them, plus the stroke around it
+  // if any, which goes around its outer edge
+  const strokeReach = (stroke) => (stroke ? strokeOutside(stroke) + (stroke.outer && stroke.outer.size > 0 ? stroke.outer.size : 0) : 0);
 
   const drawLines = (ctx, lines, stroke, layer) => {
     const paragraph = layer.params.layerText.paragraphStyleRange && layer.params.layerText.paragraphStyleRange[0];
@@ -659,39 +683,42 @@
     ctx.lineJoin = "round";
     ctx.miterLimit = 2;
     // One run at its own width, height and baseline shift, as Photoshop draws it
-    const place = (line, item, draw) => {
-      setRunFont(ctx, item.run.style, item.size);
-      ctx.save();
-      ctx.translate(line.x + item.x, line.baseline - item.shift);
-      ctx.scale(item.scaleX, item.scaleY);
+    const place = (g, line, item, draw) => {
+      setRunFont(g, item.run.style, item.size);
+      g.save();
+      g.translate(line.x + item.x, line.baseline - item.shift);
+      g.scale(item.scaleX, item.scaleY);
       draw();
-      ctx.restore();
+      g.restore();
     };
-    // The stroke around the stroke first, as wide as both, then the stroke over it
-    const passes = [];
-    if (stroke && stroke.outer && stroke.outer.size > 0) passes.push({ color: stroke.outer.color, size: strokeReach(stroke) });
-    if (stroke) passes.push({ color: stroke.color, size: stroke.size });
-    passes.forEach((pass) => {
-      ctx.strokeStyle = colorCss(pass.color);
+    // Every letter's outline, `reach` pixels each side of it
+    const outline = (g, color, reach) => {
+      g.strokeStyle = colorCss(color);
       lines.forEach((line) => {
         line.m.placed.forEach((item) => {
-          place(line, item, () => {
-            ctx.lineWidth = (pass.size + bolder) * 2;
-            ctx.strokeText(item.shown, 0, 0);
+          place(g, line, item, () => {
+            g.lineWidth = reach * 2;
+            g.strokeText(item.shown, 0, 0);
           });
         });
       });
-    });
-    const letters = (hollow) => lines.forEach((line) => {
+    };
+    // The stroke's part outside the letters is drawn under them, its part inside over them
+    const outside = strokeOutside(stroke);
+    const inside = stroke ? stroke.size - outside : 0;
+    // The stroke around the stroke first, as wide as both, then the stroke over it
+    if (stroke && stroke.outer && stroke.outer.size > 0) outline(ctx, stroke.outer.color, strokeReach(stroke) + bolder);
+    if (outside > 0) outline(ctx, stroke.color, outside + bolder);
+    const letters = (g, hollow) => lines.forEach((line) => {
       line.m.placed.forEach((item) => {
-        place(line, item, () => {
-          ctx.fillStyle = hollow ? "#000" : rgbCss(item.run.style.color);
-          ctx.fillText(item.shown, 0, 0);
+        place(g, line, item, () => {
+          g.fillStyle = hollow ? "#000" : rgbCss(item.run.style.color);
+          g.fillText(item.shown, 0, 0);
           if (bolder) {
             // In the run's own units, which its width and height scale
-            ctx.strokeStyle = ctx.fillStyle;
-            ctx.lineWidth = (bolder * 2) / Math.max(item.scaleX, item.scaleY);
-            ctx.strokeText(item.shown, 0, 0);
+            g.strokeStyle = g.fillStyle;
+            g.lineWidth = (bolder * 2) / Math.max(item.scaleX, item.scaleY);
+            g.strokeText(item.shown, 0, 0);
           }
         });
       });
@@ -701,12 +728,37 @@
     const fill = fillOf(layer);
     if (fill < 1 && stroke) {
       ctx.globalCompositeOperation = "destination-out";
-      letters(true);
+      letters(ctx, true);
       ctx.globalCompositeOperation = "source-over";
     }
     if (fill > 0) {
       ctx.globalAlpha = fill;
-      letters(false);
+      letters(ctx, false);
+      ctx.globalAlpha = 1;
+    }
+    // The part inside: the outline, kept where the letters are, over them. Canvas can't clip
+    // to text: the outline and the letters are drawn apart, with the same transform, the
+    // letters cut the outline all at once, and it is laid on.
+    if (inside > 0 && ctx.canvas && ctx.canvas.width && ctx.canvas.height) {
+      const apart = () => {
+        const g = newCanvas(ctx.canvas.width, ctx.canvas.height).getContext("2d");
+        g.setTransform(ctx.getTransform());
+        g.textBaseline = ctx.textBaseline;
+        g.textAlign = ctx.textAlign;
+        if ("direction" in g) g.direction = ctx.direction;
+        g.lineJoin = "round";
+        g.miterLimit = 2;
+        return g;
+      };
+      const ring = apart();
+      outline(ring, stroke.color, Math.max(0.05, inside - bolder));
+      const shape = apart();
+      letters(shape, true);
+      ring.setTransform(1, 0, 0, 1, 0, 0);
+      ring.globalCompositeOperation = "destination-in";
+      ring.drawImage(shape.canvas, 0, 0);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(ring.canvas, 0, 0);
     }
     ctx.restore();
   };
@@ -1625,20 +1677,31 @@
   const WARP_SETTLE = 120;
   let warpLast = null;
   let warpRefine = 0;
+  // A text with effects draws two pictures at each step (with its stroke, its letters alone):
+  // the latest quick one of each is drawn again, and of a plain text only its latest one
+  let warpPending = [];
   const warpQuickly = (forLayout, key) => {
     const now = Date.now();
     const quick = Boolean(warpLast && warpLast.forLayout === forLayout && warpLast.key !== key && now - warpLast.time < WARP_STEP_GAP);
     warpLast = { forLayout, key, time: now };
     return quick;
   };
-  const refineWarpLater = (layer, doc, relative, stroke, antiAlias, forLayout, key) => {
+  const refineWarpLater = (layer, doc, relative, stroke, antiAlias, forLayout, key, variant) => {
     clearTimeout(warpRefine);
+    warpPending = warpPending.filter((item) => item.forLayout === forLayout && item.variant !== variant);
+    warpPending.push({ layer, doc, relative, stroke, antiAlias, forLayout, key, variant });
     warpRefine = setTimeout(() => {
       warpRefine = 0;
-      const shown = forLayout.get(key);
-      if (!shown || !shown.quick) return;
-      keepText(forLayout, key, warpedBitmap(layer, doc, relative, stroke, antiAlias));
-      if (app.doc === doc) emit("render");
+      const pending = warpPending;
+      warpPending = [];
+      let drawn = null;
+      pending.forEach(({ layer, doc, relative, stroke, antiAlias, forLayout, key }) => {
+        const shown = forLayout.get(key);
+        if (!shown || !shown.quick) return;
+        keepText(forLayout, key, warpedBitmap(layer, doc, relative, stroke, antiAlias));
+        if (app.doc === doc) drawn = doc;
+      });
+      if (drawn) emit("render");
     }, WARP_SETTLE);
   };
 
@@ -1683,7 +1746,8 @@
     const relative = layout.relative;
     const stroke = layer.stroke && layer.stroke.enabled && layer.stroke.size > 0 ? layer.stroke : null;
     const antiAlias = layer.params.layerText.antiAlias || "antiAliasSmooth";
-    const strokeKey = (stroke ? strokeKeyOf(stroke) : "") + "|" + antiAlias + (layer.knockout ? "|hollow" : "");
+    // Hollow at Fill 0%, whether an SFX's (`knockout`) or set to 0
+    const strokeKey = (stroke ? strokeKeyOf(stroke) : "") + "|" + antiAlias + (fillOf(layer) === 0 ? "|hollow" : "");
     let forLayout = textBitmaps.get(relative);
     if (!forLayout) {
       forLayout = new Map();
@@ -1696,7 +1760,7 @@
       if (!forLayout.has(warpKey)) {
         const quick = warpQuickly(forLayout, warpKey);
         keepText(forLayout, warpKey, warpedBitmap(layer, doc, relative, stroke, antiAlias, quick));
-        if (quick) refineWarpLater(layer, doc, relative, stroke, antiAlias, forLayout, warpKey);
+        if (quick) refineWarpLater(layer, doc, relative, stroke, antiAlias, forLayout, warpKey, strokeKey);
       }
       return forLayout.get(warpKey);
     }
@@ -1732,6 +1796,555 @@
       keepText(forLayout, entryKey, entry);
     }
     return { canvas: entry.canvas, x: Math.round(layout.anchor[0]) + entry.x, y: Math.round(layout.anchor[1]) + entry.y };
+  };
+
+  /* ============================ layer effects ============================ */
+
+  // A text's layer style as Photoshop draws it (see FX_DEFAULTS). Under the layer, each in its
+  // own blend mode: Drop Shadow, then Outer Glow, then the stroke and the letters at their
+  // Fill. On the letters only, each in its own blend mode: Gradient Overlay, Colour Overlay,
+  // Inner Glow, Inner Shadow. Fill fades the letters, never the effects; the layer's opacity
+  // fades everything. Every effect is worked out from how much of each pixel the letters
+  // cover, without their stroke, colour coming last. The maths follow photocraft's (an open
+  // editor whose effects were fitted against Photoshop's own files): spread and choke grow
+  // the shape, the size blurs it with two box blurs, which match Photoshop better than a
+  // Gaussian, and a glow's range is Photoshop's 50%.
+  const FX_MAX_SIZE = 250;
+  const FX_MAX_BLUR = 512;
+  const FX_MAX_DISTANCE = 2000;
+  const FX_INSIDE = ["gradientOverlay", "colorOverlay", "innerGlow", "innerShadow"];
+  const fxNumber = (value, low, high, fallback) => (Number.isFinite(value) ? Math.max(low, Math.min(high, value)) : fallback);
+  // An effect that shows: on, and above 0%
+  const fxShown = (effect) => Boolean(effect) && effect.enabled !== false && fxNumber(effect.opacity, 0, 100, 100) > 0;
+  const fxBlendOf = (effect) => BLENDS[effect.blend] || "source-over";
+  // A shadow or a glow drawn around the letters
+  const outerEffectsOn = (layer) => Boolean(layer.kind === "text" && layer.effects && (fxShown(layer.effects.dropShadow) || fxShown(layer.effects.outerGlow)));
+  // The effects that go on the letters only, kept as one object per layer style
+  const insideKept = new WeakMap();
+  const insideEffects = (effects) => {
+    if (!effects) return effects;
+    if (insideKept.has(effects)) return insideKept.get(effects);
+    const out = {};
+    FX_INSIDE.forEach((name) => { if (effects[name]) out[name] = effects[name]; });
+    const kept = Object.keys(out).length ? out : undefined;
+    insideKept.set(effects, kept);
+    return kept;
+  };
+  const fxKeys = new WeakMap();
+  const fxKeyOf = (effects) => {
+    let key = fxKeys.get(effects);
+    if (key === undefined) {
+      key = JSON.stringify(effects);
+      fxKeys.set(effects, key);
+    }
+    return key;
+  };
+  // Where the light comes from, as Photoshop's angle: at 120° the shadow falls right and down
+  const fxOffset = (effect) => {
+    const angle = (fxNumber(effect.angle, -36000, 36000, 120) * Math.PI) / 180;
+    const distance = fxNumber(effect.distance, 0, FX_MAX_DISTANCE, 0);
+    // Halves round away from 0, as Photoshop's: cos 120° × 5 is 2.4999… in floating point, and
+    // is 3 there; cos 60° × 5 is -3
+    const snap = (value) => {
+      const even = Math.round(value * 1e6) / 1e6;
+      return Math.sign(even) * Math.round(Math.abs(even));
+    };
+    return [snap(-Math.cos(angle) * distance), snap(Math.sin(angle) * distance)];
+  };
+  const fxSize = (effect) => fxNumber(effect.size, 0, FX_MAX_SIZE, 0);
+
+  // `from` moved by dx, dy into `to`, W × H. What comes in from past the edge is empty, or, for
+  // the inner effects (`invert`: they start from where the letters aren't), full.
+  const fxShift = (from, to, W, H, dx, dy, invert) => {
+    const outside = invert ? 1 : 0;
+    const x0 = Math.min(W, Math.max(0, dx));
+    const x1 = Math.max(x0, Math.min(W, W + dx));
+    for (let y = 0; y < H; y++) {
+      const row = y * W;
+      const sy = y - dy;
+      if (sy < 0 || sy >= H || x1 <= x0) {
+        to.fill(outside, row, row + W);
+        continue;
+      }
+      to.fill(outside, row, row + x0);
+      to.fill(outside, row + x1, row + W);
+      const at = sy * W - dx;
+      if (invert) for (let x = x0; x < x1; x++) to[row + x] = 1 - from[at + x];
+      else to.set(from.subarray(at + x0, at + x1), row + x0);
+    }
+  };
+
+  // Spread and choke: the shape grown by r pixels, from how far each pixel's centre is from its
+  // edge (a 5 × 5 chamfer: steps of 1, √2 and √5). A pixel the shape covers by `a` has its edge
+  // 0.5 - a from its centre, as Photoshop measures it: the grown edge keeps the letters' own
+  // anti-aliasing instead of growing every faint pixel into a whole one.
+  const FX_R2 = Math.SQRT2;
+  const FX_R5 = Math.sqrt(5);
+  const fxGrow = (map, W, H, r, dist) => {
+    if (r <= 0) return;
+    for (let i = 0; i < map.length; i++) dist[i] = map[i] > 0 ? 0.5 - map[i] : 1e6;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0, i = y * W; x < W; x++, i++) {
+        let d = dist[i];
+        if (d <= 0) continue;
+        let n;
+        if (x > 0 && (n = dist[i - 1] + 1) < d) d = n;
+        if (y > 0) {
+          const up = i - W;
+          if ((n = dist[up] + 1) < d) d = n;
+          if (x > 0 && (n = dist[up - 1] + FX_R2) < d) d = n;
+          if (x < W - 1 && (n = dist[up + 1] + FX_R2) < d) d = n;
+          if (x > 1 && (n = dist[up - 2] + FX_R5) < d) d = n;
+          if (x < W - 2 && (n = dist[up + 2] + FX_R5) < d) d = n;
+          if (y > 1) {
+            if (x > 0 && (n = dist[up - W - 1] + FX_R5) < d) d = n;
+            if (x < W - 1 && (n = dist[up - W + 1] + FX_R5) < d) d = n;
+          }
+        }
+        dist[i] = d;
+      }
+    }
+    for (let y = H - 1; y >= 0; y--) {
+      for (let x = W - 1, i = y * W + W - 1; x >= 0; x--, i--) {
+        let d = dist[i];
+        if (d <= 0) continue;
+        let n;
+        if (x < W - 1 && (n = dist[i + 1] + 1) < d) d = n;
+        if (y < H - 1) {
+          const down = i + W;
+          if ((n = dist[down] + 1) < d) d = n;
+          if (x < W - 1 && (n = dist[down + 1] + FX_R2) < d) d = n;
+          if (x > 0 && (n = dist[down - 1] + FX_R2) < d) d = n;
+          if (x < W - 2 && (n = dist[down + 2] + FX_R5) < d) d = n;
+          if (x > 1 && (n = dist[down - 2] + FX_R5) < d) d = n;
+          if (y < H - 2) {
+            if (x < W - 1 && (n = dist[down + W + 1] + FX_R5) < d) d = n;
+            if (x > 0 && (n = dist[down + W - 1] + FX_R5) < d) d = n;
+          }
+        }
+        dist[i] = d;
+      }
+    }
+    for (let i = 0; i < map.length; i++) {
+      const v = r + 0.5 - dist[i];
+      map[i] = v <= 0 ? 0 : v >= 1 ? 1 : v;
+    }
+  };
+
+  // One box blur of width w along a line of n values, from `src` into `dst`. A width that isn't
+  // whole counts the two outermost pixels for the fraction. The ends carry on past the line.
+  const fxBox = (src, dst, n, w) => {
+    const h = Math.floor((w - 1) / 2);
+    const f = (w - 1 - 2 * h) / 2;
+    const scale = 1 / w;
+    const last = n - 1;
+    let sum = 0;
+    for (let i = -h; i <= h; i++) sum += src[i < 0 ? 0 : i > last ? last : i];
+    for (let x = 0; x < n; x++) {
+      const l = x - h - 1;
+      const r = x + h + 1;
+      const vr = src[r > last ? last : r];
+      dst[x] = (sum + f * (src[l < 0 ? 0 : l] + vr)) * scale;
+      const gone = x - h;
+      sum += vr - src[gone < 0 ? 0 : gone > last ? last : gone];
+    }
+  };
+  // The size: two box blurs one after the other (a tent), across then down
+  const fxBlur = (map, W, H, w) => {
+    if (!(w > 1)) return;
+    const n = Math.max(W, H);
+    const a = new Float32Array(n);
+    const b = new Float32Array(n);
+    for (let y = 0; y < H; y++) {
+      const row = y * W;
+      a.set(map.subarray(row, row + W));
+      fxBox(a, b, W, w);
+      fxBox(b, a, W, w);
+      map.set(a.subarray(0, W), row);
+    }
+    for (let x = 0; x < W; x++) {
+      for (let y = 0, i = x; y < H; y++, i += W) a[y] = map[i];
+      fxBox(a, b, H, w);
+      fxBox(b, a, H, w);
+      for (let y = 0, i = x; y < H; y++, i += W) map[i] = a[y];
+    }
+  };
+
+  // A colour at `a` (0 to 1) over a pixel of an ImageData, as Normal lays it
+  const fxOver = (px, o, r, g, b, a) => {
+    const below = px[o + 3] / 255;
+    if (below <= 0) {
+      px[o] = r;
+      px[o + 1] = g;
+      px[o + 2] = b;
+      px[o + 3] = a * 255;
+      return;
+    }
+    const keep = below * (1 - a);
+    const out = a + keep;
+    px[o] = (r * a + px[o] * keep) / out;
+    px[o + 1] = (g * a + px[o + 1] * keep) / out;
+    px[o + 2] = (b * a + px[o + 2] * keep) / out;
+    px[o + 3] = out * 255;
+  };
+  // An effect's colour over `px` (w × h), as much as `map` says (read from ox, oy in a map W
+  // wide; no map: everywhere) times the opacity. `only`: the letters, for an effect that stays
+  // on them, painted where they touch a pixel at all (how much they cover comes after).
+  // `ranged`: a glow, at full strength from half of it on.
+  const fxPaint = (px, w, h, map, W, ox, oy, only, ranged, opacity, color) => {
+    const r = fxNumber(color && color.r, 0, 255, 0);
+    const g = fxNumber(color && color.g, 0, 255, 0);
+    const b = fxNumber(color && color.b, 0, 255, 0);
+    for (let y = 0; y < h; y++) {
+      let m = (y + oy) * W + ox;
+      let o = y * w * 4;
+      for (let x = 0; x < w; x++, m++, o += 4) {
+        if (only && !(only[m] > 0)) continue;
+        let v = map ? map[m] : 1;
+        if (ranged) v = v >= 0.5 ? 1 : v * 2;
+        v *= opacity;
+        if (v > 0.0005) fxOver(px, o, r, g, b, v > 1 ? 1 : v);
+      }
+    }
+  };
+  // Gradient Overlay over the letters (w × h, at ox, oy in the map), spanning their own bounds
+  const fxGradient = (px, w, h, shape, W, ox, oy, effect, box) => {
+    const stops = Array.isArray(effect.stops) && effect.stops.length ? effect.stops : FX_DEFAULTS.gradientOverlay.stops;
+    const table = gradientTable(stops, "classic");
+    const opacity = fxNumber(effect.opacity, 0, 100, 100) / 100;
+    const scale = fxNumber(effect.scale, 10, 150, 100) / 100;
+    const turn = (fxNumber(effect.angle, -36000, 36000, 90) * Math.PI) / 180;
+    const c = Math.cos(turn);
+    const s = Math.sin(turn);
+    const bw = box.right - box.left;
+    const bh = box.bottom - box.top;
+    const cx = (box.left + box.right) / 2;
+    const cy = (box.top + box.bottom) / 2;
+    // Linear and reflected: as long as the line through the centre at that angle inside the
+    // bounds. Radial and diamond: half the bounds' extent along that angle.
+    const chord = Math.max(1, Math.min(Math.abs(c) > 1e-6 ? bw / Math.abs(c) : Infinity, Math.abs(s) > 1e-6 ? bh / Math.abs(s) : Infinity) * scale);
+    const half = Math.max(0.5, (Math.hypot(c * bw, s * bh) * scale) / 2);
+    const style = effect.style || "linear";
+    const reverse = Boolean(effect.reverse);
+    for (let y = 0; y < h; y++) {
+      let m = (y + oy) * W + ox;
+      let o = y * w * 4;
+      const dy = y + 0.5 - cy;
+      for (let x = 0; x < w; x++, m++, o += 4) {
+        if (!(shape[m] > 0)) continue;
+        const v = opacity;
+        const dx = x + 0.5 - cx;
+        const along = dx * c - dy * s;
+        let t;
+        if (style === "radial") t = Math.hypot(dx, dy) / half;
+        else if (style === "diamond") t = (Math.abs(along) + Math.abs(dx * s + dy * c)) / half;
+        else if (style === "reflected") t = Math.abs(along / (chord / 2));
+        else if (style === "angle") {
+          t = (turn - Math.atan2(-dy, dx)) / (Math.PI * 2);
+          t -= Math.floor(t);
+        } else t = along / chord + 0.5;
+        if (!(t > 0)) t = 0;
+        else if (t > 1) t = 1;
+        if (reverse) t = 1 - t;
+        const i = Math.round(t * GRADIENT_STEPS) * 4;
+        const a = v * table[i + 3];
+        if (a > 0.0005) fxOver(px, o, table[i], table[i + 1], table[i + 2], a > 1 ? 1 : a);
+      }
+    }
+  };
+
+  // The effects' pictures for letters drawn in `letters`, with the layer as it shows (stroke,
+  // letters at their Fill) in `base` at bx, by from them. One picture holding all when the
+  // layer and what goes under it blend in Normal (the layer's opacity then fades them as one,
+  // as in Photoshop); else the layer with its inner effects, and what goes under it apart, in
+  // its own blend mode. Places are from the letters' top left. Null when there are no letters.
+  const buildEffects = (effects, letters, base, bx, by, fill, normal) => {
+    const sw = letters.width;
+    const sh = letters.height;
+    const alpha = letters.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, sw, sh).data;
+    const box = { left: sw, top: sh, right: 0, bottom: 0 };
+    for (let y = 0, o = 3; y < sh; y++) {
+      for (let x = 0; x < sw; x++, o += 4) {
+        if (!alpha[o]) continue;
+        if (x < box.left) box.left = x;
+        if (x >= box.right) box.right = x + 1;
+        if (y < box.top) box.top = y;
+        if (y >= box.bottom) box.bottom = y + 1;
+      }
+    }
+    if (box.right <= box.left) return null;
+    const shown = (name) => (fxShown(effects[name]) ? effects[name] : null);
+    const shadow = shown("dropShadow");
+    const glow = shown("outerGlow");
+    const innerShadow = shown("innerShadow");
+    const innerGlow = shown("innerGlow");
+    const overlay = shown("colorOverlay");
+    const gradient = shown("gradientOverlay");
+    // Room around the letters for what reaches past them
+    const shadowAt = shadow ? fxOffset(shadow) : [0, 0];
+    const innerAt = innerShadow ? fxOffset(innerShadow) : [0, 0];
+    let mL = 0;
+    let mR = 0;
+    let mT = 0;
+    let mB = 0;
+    const room = (effect, dx, dy) => {
+      const reach = Math.ceil(fxSize(effect)) + 2;
+      mL = Math.max(mL, reach + Math.max(0, -dx));
+      mR = Math.max(mR, reach + Math.max(0, dx));
+      mT = Math.max(mT, reach + Math.max(0, -dy));
+      mB = Math.max(mB, reach + Math.max(0, dy));
+    };
+    if (shadow) room(shadow, shadowAt[0], shadowAt[1]);
+    if (glow) room(glow, 0, 0);
+    if (innerShadow) room(innerShadow, 0, 0);
+    if (innerGlow) room(innerGlow, 0, 0);
+    const W = sw + mL + mR;
+    const H = sh + mT + mB;
+    const N = W * H;
+    const shape = new Float32Array(N);
+    for (let y = 0, o = 3; y < sh; y++) {
+      for (let x = 0, m = (y + mT) * W + mL; x < sw; x++, m++, o += 4) shape[m] = alpha[o] / 255;
+    }
+    const work = shadow || glow || innerShadow || innerGlow ? new Float32Array(N) : null;
+    let dist = null;
+    // Shift, grow, blur: the effect's own shape in `work`
+    const spread = (effect, amount, dx, dy, invert) => {
+      const size = fxSize(effect);
+      const s = fxNumber(amount, 0, 100, 0) / 100;
+      fxShift(shape, work, W, H, dx, dy, invert);
+      const grow = Math.round(size * s);
+      if (grow > 0) {
+        if (!dist) dist = new Float32Array(N);
+        fxGrow(work, W, H, grow, dist);
+      }
+      fxBlur(work, W, H, Math.min(FX_MAX_BLUR, size - grow));
+    };
+    // Under the layer. The letters knock it out: in Normal, as much as they let the page
+    // through; in another mode, entirely.
+    const outside = [];
+    const merged = !shadow || !glow || (fxBlendOf(shadow) === "source-over" && fxBlendOf(glow) === "source-over");
+    const around = (effect, amount, dx, dy, ranged) => {
+      spread(effect, amount, dx, dy, false);
+      const keep = normal ? 1 - fill : 1;
+      for (let i = 0; i < N; i++) {
+        let v = work[i];
+        if (ranged) v = v >= 0.5 ? 1 : v * 2;
+        work[i] = v * (1 - shape[i] * keep);
+      }
+      if (!outside.length || !merged) outside.push({ image: new ImageData(W, H), blend: fxBlendOf(effect) });
+      fxPaint(outside[outside.length - 1].image.data, W, H, work, W, 0, 0, null, false, fxNumber(effect.opacity, 0, 100, 100) / 100, effect.color);
+    };
+    if (shadow) around(shadow, shadow.spread, shadowAt[0], shadowAt[1], false);
+    if (glow) around(glow, glow.spread, 0, 0, true);
+    // On the letters, bottom to top; those in Normal one after the other on the same picture
+    const inside = [];
+    const onLetters = (effect) => {
+      const blend = fxBlendOf(effect);
+      const last = inside[inside.length - 1];
+      if (last && last.blend === "source-over" && blend === "source-over") return last.image.data;
+      const image = new ImageData(sw, sh);
+      inside.push({ image, blend });
+      return image.data;
+    };
+    if (gradient) fxGradient(onLetters(gradient), sw, sh, shape, W, mL, mT, gradient, box);
+    if (overlay) fxPaint(onLetters(overlay), sw, sh, null, W, mL, mT, shape, false, fxNumber(overlay.opacity, 0, 100, 100) / 100, overlay.color);
+    if (innerGlow) {
+      spread(innerGlow, innerGlow.choke, 0, 0, true);
+      fxPaint(onLetters(innerGlow), sw, sh, work, W, mL, mT, shape, true, fxNumber(innerGlow.opacity, 0, 100, 100) / 100, innerGlow.color);
+    }
+    if (innerShadow) {
+      spread(innerShadow, innerShadow.choke, innerAt[0], innerAt[1], true);
+      fxPaint(onLetters(innerShadow), sw, sh, work, W, mL, mT, shape, false, fxNumber(innerShadow.opacity, 0, 100, 100) / 100, innerShadow.color);
+    }
+    // One picture, or the layer and what goes under it
+    const together = normal && outside.length > 0 && outside.every((item) => item.blend === "source-over");
+    let left = Math.min(0, bx);
+    let top = Math.min(0, by);
+    let right = Math.max(sw, bx + base.width);
+    let bottom = Math.max(sh, by + base.height);
+    if (together) {
+      left = Math.min(left, -mL);
+      top = Math.min(top, -mT);
+      right = Math.max(right, sw + mR);
+      bottom = Math.max(bottom, sh + mB);
+    }
+    const canvas = newCanvas(right - left, bottom - top);
+    const ctx = canvas.getContext("2d");
+    if (together) outside.forEach(({ image }) => {
+      const picture = newCanvas(W, H);
+      picture.getContext("2d").putImageData(image, 0, 0);
+      ctx.drawImage(picture, -mL - left, -mT - top);
+    });
+    ctx.drawImage(base, bx - left, by - top);
+    if (inside.length) {
+      // The inner effects as Photoshop lays them: on the letters' own colours at their Fill,
+      // as if each pixel the letters touch were whole, then cut to how much they cover it. A
+      // pixel half covered gets half of the result, not half of each effect over half of the
+      // letters, which would leave its edge thicker than the letters.
+      const own = new ImageData(sw, sh);
+      const o4 = own.data;
+      for (let o = 0; o < o4.length; o += 4) {
+        if (!alpha[o + 3]) continue;
+        o4[o] = alpha[o];
+        o4[o + 1] = alpha[o + 1];
+        o4[o + 2] = alpha[o + 2];
+        o4[o + 3] = fill * 255;
+      }
+      const letters = newCanvas(sw, sh);
+      const l = letters.getContext("2d", { willReadFrequently: true });
+      l.putImageData(own, 0, 0);
+      const picture = newCanvas(sw, sh);
+      const p = picture.getContext("2d");
+      inside.forEach(({ image, blend }) => {
+        p.putImageData(image, 0, 0);
+        l.globalCompositeOperation = blend;
+        l.drawImage(picture, 0, 0);
+      });
+      const done = l.getImageData(0, 0, sw, sh).data;
+      // In place of the letters: what is under them (their stroke, their shadow) stays
+      const region = ctx.getImageData(-left, -top, sw, sh);
+      const px = region.data;
+      for (let o = 0; o < px.length; o += 4) {
+        const a = alpha[o + 3] / 255;
+        if (!a) continue;
+        const lettersA = a * fill;
+        const shownA = px[o + 3] / 255;
+        let belowA = 0;
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        if (lettersA < 0.999) {
+          const k = 1 / (1 - lettersA);
+          belowA = Math.max(0, (shownA - lettersA) * k);
+          r = Math.max(0, (px[o] * shownA - alpha[o] * lettersA) * k);
+          g = Math.max(0, (px[o + 1] * shownA - alpha[o + 1] * lettersA) * k);
+          b = Math.max(0, (px[o + 2] * shownA - alpha[o + 2] * lettersA) * k);
+        }
+        const topA = (done[o + 3] / 255) * a;
+        const outA = topA + belowA * (1 - topA);
+        if (outA <= 0) {
+          px[o + 3] = 0;
+          continue;
+        }
+        px[o] = (done[o] * topA + r * (1 - topA)) / outA;
+        px[o + 1] = (done[o + 1] * topA + g * (1 - topA)) / outA;
+        px[o + 2] = (done[o + 2] * topA + b * (1 - topA)) / outA;
+        px[o + 3] = outA * 255;
+      }
+      ctx.putImageData(region, -left, -top);
+    }
+    const under = together ? null : outside.map(({ image, blend }) => {
+      const picture = newCanvas(W, H);
+      picture.getContext("2d").putImageData(image, 0, 0);
+      return { canvas: picture, dx: -mL, dy: -mT, blend };
+    });
+    return { canvas, dx: left, dy: top, under: under && under.length ? under : null };
+  };
+
+  // A text with its effects. Built once for its letters and settings: moving it, its opacity,
+  // scrolling and zooming build nothing again. Kept by letters, then by layer: copies of a text
+  // share their letters, each with its own effects, and identical ones share the picture.
+  const fxBuilt = new WeakMap();
+  const FX_KEPT_LAYERS = 64;
+  const styledTextVisual = (layer, doc) => {
+    const base = textVisual(layer, doc);
+    const effects = layer.effects;
+    if (!base || !FX_ORDER.some((name) => fxShown(effects[name]))) return base;
+    const shape = textVisual(Object.assign(withoutStroke(layer), { fill: undefined, knockout: false, effects: undefined }), doc);
+    if (!shape || !shape.canvas.width || !shape.canvas.height) return base;
+    const fill = fillOf(layer);
+    // The blend mode the list shows while hovered: the picture it gives once picked
+    const blend = doc.blendPreview && doc.blendPreview.ids.has(layer.id) ? doc.blendPreview.blend : layer.blend;
+    const normal = (BLENDS[blend] || "source-over") === "source-over";
+    const bx = base.x - shape.x;
+    const by = base.y - shape.y;
+    const key = [fxKeyOf(effects), fill, normal, identity(base.canvas), bx, by].join("|");
+    let kept = fxBuilt.get(shape.canvas);
+    if (!kept) {
+      kept = new Map();
+      fxBuilt.set(shape.canvas, kept);
+    }
+    // A slider dragged builds one at each step: a layer keeps only its latest
+    let entry = kept.get(layer.id);
+    if (!entry || entry.key !== key) {
+      entry = null;
+      kept.forEach((other) => { if (!entry && other.key === key) entry = other; });
+      if (!entry) entry = { key, built: buildEffects(effects, shape.canvas, base.canvas, bx, by, fill, normal) };
+      kept.delete(layer.id);
+      kept.set(layer.id, entry);
+      if (kept.size > FX_KEPT_LAYERS) kept.delete(kept.keys().next().value);
+    }
+    const built = entry.built;
+    if (!built) return base;
+    const visual = { canvas: built.canvas, x: shape.x + built.dx, y: shape.y + built.dy };
+    if (built.under) visual.under = built.under.map((item) => ({ canvas: item.canvas, x: shape.x + item.dx, y: shape.y + item.dy, blend: item.blend }));
+    return visual;
+  };
+
+  // What a visual covers on the page, what goes under it included
+  const visualRect = (visual) => {
+    let left = visual.x;
+    let top = visual.y;
+    let right = visual.x + visual.canvas.width;
+    let bottom = visual.y + visual.canvas.height;
+    (visual.under || NONE).forEach((item) => {
+      left = Math.min(left, item.x);
+      top = Math.min(top, item.y);
+      right = Math.max(right, item.x + item.canvas.width);
+      bottom = Math.max(bottom, item.y + item.canvas.height);
+    });
+    return { left, top, right, bottom };
+  };
+  // What goes under a layer (its shadow, its glow), each in its own blend mode, moved by ox, oy.
+  // Faded with a half-transparent layer, it is cut where the layer is, so as not to show
+  // through it.
+  const underCuts = new WeakMap();
+  const underCut = (item, visual) => {
+    const dx = visual.x - item.x;
+    const dy = visual.y - item.y;
+    const kept = underCuts.get(item.canvas);
+    if (kept && kept.main === visual.canvas && kept.dx === dx && kept.dy === dy) return kept.canvas;
+    const canvas = newCanvas(item.canvas.width, item.canvas.height);
+    const c = canvas.getContext("2d");
+    c.drawImage(item.canvas, 0, 0);
+    c.globalCompositeOperation = "destination-out";
+    c.drawImage(visual.canvas, dx, dy);
+    underCuts.set(item.canvas, { main: visual.canvas, dx, dy, canvas });
+    return canvas;
+  };
+  // `clip`: for a clipped text, the base's shape ({ canvas, x, y }, where `target` has it), which
+  // its shadow and glow stay inside, whatever their blend mode
+  const confinedTo = (picture, x, y, clip) => {
+    const canvas = newCanvas(picture.width, picture.height);
+    const c = canvas.getContext("2d");
+    c.drawImage(picture, 0, 0);
+    c.globalCompositeOperation = "destination-in";
+    c.drawImage(clip.canvas, clip.x - x, clip.y - y);
+    return canvas;
+  };
+  const drawUnder = (target, visual, ox, oy, alpha, matrix, clip) => {
+    target.save();
+    if (matrix) {
+      target.transform(...matrix);
+      target.imageSmoothingQuality = "high";
+    }
+    target.globalAlpha = alpha;
+    visual.under.forEach((item) => {
+      const picture = alpha < 1 ? underCut(item, visual) : item.canvas;
+      target.globalCompositeOperation = item.blend;
+      target.drawImage(clip ? confinedTo(picture, item.x + ox, item.y + oy, clip) : picture, item.x + ox, item.y + oy);
+    });
+    target.restore();
+  };
+  // One picture of a visual, what goes under it included, as a pixel layer keeps it
+  const flatVisual = (visual) => {
+    if (!visual || !visual.under) return visual;
+    const { left, top, right, bottom } = visualRect(visual);
+    const canvas = newCanvas(right - left, bottom - top);
+    const ctx = canvas.getContext("2d");
+    drawUnder(ctx, visual, -left, -top, 1);
+    ctx.drawImage(visual.canvas, visual.x - left, visual.y - top);
+    return { canvas, x: left, y: top };
   };
 
   /* ================================ masks ================================ */
@@ -2095,12 +2708,18 @@
     const key = [identity(visual.canvas), visual.version || 0, visual.x, visual.y, masksKey(layer, doc)].join("|");
     const kept = maskedVisuals.get(layer.id);
     if (kept && kept.key === key) return kept.visual;
-    const canvas = newCanvas(visual.canvas.width, visual.canvas.height);
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(visual.canvas, 0, 0);
-    if (maskOn(layer)) cutWith(ctx, canvas.width, canvas.height, visual.x, visual.y, maskPicture(layer, doc));
-    if (vectorOn(layer)) cutWith(ctx, canvas.width, canvas.height, visual.x, visual.y, vectorPicture(layer));
-    const masked = { canvas, x: visual.x, y: visual.y };
+    // A text's shadow and glow are hidden by its masks too, as Photoshop's "Layer Mask Hides
+    // Effects": they come from the whole letters
+    const cut = (picture, x, y) => {
+      const canvas = newCanvas(picture.width, picture.height);
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(picture, 0, 0);
+      if (maskOn(layer)) cutWith(ctx, canvas.width, canvas.height, x, y, maskPicture(layer, doc));
+      if (vectorOn(layer)) cutWith(ctx, canvas.width, canvas.height, x, y, vectorPicture(layer));
+      return canvas;
+    };
+    const masked = { canvas: cut(visual.canvas, visual.x, visual.y), x: visual.x, y: visual.y };
+    if (visual.under) masked.under = visual.under.map((item) => Object.assign({}, item, { canvas: cut(item.canvas, item.x, item.y) }));
     maskedVisuals.delete(layer.id);
     maskedVisuals.set(layer.id, { key, visual: masked });
     if (maskedVisuals.size > 32) maskedVisuals.delete(maskedVisuals.keys().next().value);
@@ -2235,7 +2854,7 @@
   };
 
   const visualOf = (layer, doc) => {
-    const visual = layer.kind === "text" ? textVisual(layer, doc) : layer.kind === "raster" ? fadedVisual(rasterVisual(layer, doc), fillOf(layer)) : null;
+    const visual = layer.kind === "text" ? (layer.effects ? styledTextVisual(layer, doc) : textVisual(layer, doc)) : layer.kind === "raster" ? fadedVisual(rasterVisual(layer, doc), fillOf(layer)) : null;
     return applyMasks(visual, layer, doc);
   };
   // A pixel layer has no stroke here: its Fill fades its pixels, kept by picture
@@ -2315,10 +2934,8 @@
     }
     return found;
   };
-  // Grows a shape by `size` pixels all round, in `color`: the same rings as a PSD's strokes
-  const ringOf = (source, pad, size, color, into) => {
-    const ring = newCanvas(into.width, into.height);
-    const c = ring.getContext("2d");
+  // A shape grown by `size` pixels all round, onto `c`
+  const spread = (c, source, pad, size) => {
     const steps = Math.min(48, Math.max(12, Math.round(size * 4)));
     // The inner circle fills what a small dot would leave open inside the outer one
     for (const r of size > 3 ? [size, size / 2] : [size]) {
@@ -2327,6 +2944,30 @@
         c.drawImage(source, pad + Math.cos(angle) * r, pad + Math.sin(angle) * r);
       }
     }
+  };
+  // Grows a shape by `size` pixels all round, in `color`: the same rings as a PSD's strokes
+  const ringOf = (source, pad, size, color, into) => {
+    const ring = newCanvas(into.width, into.height);
+    const c = ring.getContext("2d");
+    spread(c, source, pad, size);
+    c.globalCompositeOperation = "source-in";
+    c.fillStyle = colorCss(color);
+    c.fillRect(0, 0, ring.width, ring.height);
+    into.getContext("2d").drawImage(ring, 0, 0);
+  };
+  // A stroke inside a shape, `size` pixels in from its edge, in `color`, over it: what is
+  // around the shape, grown, then kept where the shape is. `source` is laid at `pad` in `into`.
+  const innerRingOf = (source, pad, size, color, into) => {
+    const around = newCanvas(into.width, into.height);
+    const a = around.getContext("2d");
+    a.fillRect(0, 0, around.width, around.height);
+    a.globalCompositeOperation = "destination-out";
+    a.drawImage(source, pad, pad);
+    const ring = newCanvas(into.width, into.height);
+    const c = ring.getContext("2d");
+    spread(c, around, 0, size);
+    c.globalCompositeOperation = "destination-in";
+    c.drawImage(source, pad, pad);
     c.globalCompositeOperation = "source-in";
     c.fillStyle = colorCss(color);
     c.fillRect(0, 0, ring.width, ring.height);
@@ -2341,6 +2982,7 @@
     c.drawImage(base.canvas, 0, 0);
     let shape = null;
     clips.forEach(({ visual, alpha, blend }) => {
+      if (visual.under) drawUnder(c, visual, -base.x, -base.y, alpha, null, { canvas: base.canvas, x: 0, y: 0 });
       c.globalAlpha = alpha;
       if (blend === "source-over") {
         c.globalCompositeOperation = "source-atop";
@@ -2384,14 +3026,18 @@
       }
       return { visible, opacity };
     };
-    const shown = (layer) => {
+    // `bare`: without its stroke, shadow and glow, for what is clipped to it to land on its letters
+    const shown = (layer, bare) => {
       const moving = live && live.ids.has(layer.id);
       const loose = moving && looseMasks(layer);
-      const visual = visualOf(loose ? shifted(layer, Math.round(live.dx), Math.round(live.dy), doc) : doc.preview && doc.preview.id === layer.id ? doc.preview : layer, doc);
+      const source = loose ? shifted(layer, Math.round(live.dx), Math.round(live.dy), doc) : doc.preview && doc.preview.id === layer.id ? doc.preview : layer;
+      const visual = visualOf(bare ? withoutStroke(source) : source, doc);
       if (!visual || !visual.canvas || !visual.canvas.width) return null;
       const dx = moving && !loose ? Math.round(live.dx) : 0;
       const dy = moving && !loose ? Math.round(live.dy) : 0;
-      return { canvas: visual.canvas, x: visual.x + dx, y: visual.y + dy, key: identity(visual.canvas) + "." + (visual.version || 0) };
+      const out = { canvas: visual.canvas, x: visual.x + dx, y: visual.y + dy, key: identity(visual.canvas) + "." + (visual.version || 0) };
+      if (visual.under) out.under = visual.under.map((item) => Object.assign({}, item, { x: item.x + dx, y: item.y + dy }));
+      return out;
     };
     layers.forEach((layer) => {
       if (layer.id === group.id || !members.has(layer.id)) return;
@@ -2418,7 +3064,7 @@
         if (base) base.clips.push({ visual, alpha: layer.opacity === undefined ? 1 : layer.opacity, blend });
         return;
       }
-      const part = { visual, alpha: opacity, blend, key: visual.key, clips: [] };
+      const part = { visual, alpha: opacity, blend, key: visual.key, clips: [], layer };
       parts.push(part);
       partOf.set(layer.id, part);
     });
@@ -2434,16 +3080,32 @@
     let right = -Infinity;
     let bottom = -Infinity;
     parts.forEach(({ visual }) => {
-      left = Math.min(left, visual.x);
-      top = Math.min(top, visual.y);
-      right = Math.max(right, visual.x + visual.canvas.width);
-      bottom = Math.max(bottom, visual.y + visual.canvas.height);
+      const area = visualRect(visual);
+      left = Math.min(left, area.left);
+      top = Math.min(top, area.top);
+      right = Math.max(right, area.right);
+      bottom = Math.max(bottom, area.bottom);
     });
     const pad = Math.ceil(strokeReach(stroke)) + 2;
     const fill = newCanvas(right - left + pad * 2, bottom - top + pad * 2);
     const f = fill.getContext("2d");
-    parts.forEach(({ visual, alpha, blend, clips }) => {
-      const drawn = clips.length ? withClipped(visual, clips) : visual;
+    parts.forEach(({ visual, alpha, blend, clips, layer }) => {
+      let drawn = visual;
+      // As on the page: a text's stroke, shadow and glow stay whole around its letters, and
+      // what is clipped to it lands on the letters
+      const ringed = layer && layer.kind === "text" && ((layer.stroke && layer.stroke.enabled && layer.stroke.size > 0) || outerEffectsOn(layer));
+      const bare = clips.length && ringed ? shown(layer, true) : null;
+      if (bare) {
+        const glued = withClipped(bare, clips);
+        const x = Math.min(visual.x, glued.x);
+        const y = Math.min(visual.y, glued.y);
+        const canvas = newCanvas(Math.max(visual.x + visual.canvas.width, glued.x + glued.canvas.width) - x, Math.max(visual.y + visual.canvas.height, glued.y + glued.canvas.height) - y);
+        const g = canvas.getContext("2d");
+        g.drawImage(visual.canvas, visual.x - x, visual.y - y);
+        g.drawImage(glued.canvas, glued.x - x, glued.y - y);
+        drawn = { canvas, x, y };
+      } else if (clips.length) drawn = withClipped(visual, clips);
+      if (visual.under) drawUnder(f, visual, pad - left, pad - top, alpha);
       f.globalAlpha = alpha;
       f.globalCompositeOperation = blend;
       f.drawImage(drawn.canvas, drawn.x - left + pad, drawn.y - top + pad);
@@ -2457,7 +3119,7 @@
       const o = out.getContext("2d");
       if (stroke) {
         if (stroke.outer && stroke.outer.size > 0) ringOf(fill, 0, strokeReach(stroke), stroke.outer.color, out);
-        ringOf(fill, 0, stroke.size, stroke.color, out);
+        if (strokeOutside(stroke) > 0) ringOf(fill, 0, strokeOutside(stroke), stroke.color, out);
       }
       // Fill: what the folder holds at that much over its stroke, which stays whole
       if (amount < 1 && stroke) {
@@ -2470,6 +3132,8 @@
         o.drawImage(fill, 0, 0);
         o.globalAlpha = 1;
       }
+      // Its part inside, over what the folder holds
+      if (stroke && stroke.size > strokeOutside(stroke)) innerRingOf(fill, 0, stroke.size - strokeOutside(stroke), stroke.color, out);
     }
     const o = out.getContext("2d");
     if (maskOn(group)) cutWith(o, out.width, out.height, left - pad, top - pad, maskPicture(group, doc));
@@ -2542,11 +3206,13 @@
   // opened from a PSD shows Photoshop's own pixels, the stroke drawn around them: its letters
   // alone are those pixels. Where an older TypeR drew the stroke into them, TypeR draws the
   // letters again.
+  // Its shadow and glow go too: what is clipped lands on the letters and their inner effects.
   const withoutStroke = (layer) => {
     const raster = layer.kind === "text" ? layer.raster : null;
-    if (!raster) return Object.assign({}, layer, { stroke: null });
-    if (raster.strokeDrawnIn) return Object.assign({}, layer, { stroke: null, raster: null });
-    return Object.assign({}, layer, { stroke: null, raster: { bitmap: raster.bitmap, left: raster.left, top: raster.top } });
+    const effects = insideEffects(layer.effects);
+    if (!raster) return Object.assign({}, layer, { stroke: null, effects });
+    if (raster.strokeDrawnIn) return Object.assign({}, layer, { stroke: null, effects, raster: null });
+    return Object.assign({}, layer, { stroke: null, effects, raster: { bitmap: raster.bitmap, left: raster.left, top: raster.top } });
   };
   const paintDoc = (doc, ctx, options = {}) => {
     // On screen, layers being dragged in the panel show where they would land
@@ -2556,7 +3222,9 @@
     const live = doc.live;
     const rect = options.rect || null;
     const clip = clippingOf(layers);
-    const place = (layer, target, alpha, blend) => {
+    // `extra.underTo`: where the shadow and glow go instead, at `extra.underAlpha` (a clipping
+    // base's, against the page). `extra.clip`: the base's shape, for a clipped layer's.
+    const place = (layer, target, alpha, blend, extra) => {
       // A layer whose mask isn't linked moves under its mask, which stays
       const moving = live && live.ids.has(layer.id);
       const loose = moving && looseMasks(layer);
@@ -2568,14 +3236,22 @@
       }
       const visual = visualOf(shown, doc);
       if (!visual || !visual.canvas || !visual.canvas.width) return;
-      if (shown === layer) visualBoxes.set(layer, { x: visual.x, y: visual.y, width: visual.canvas.width, height: visual.canvas.height });
+      // A text's shadow and glow reach past its letters
+      const area = visual.under ? visualRect(visual) : null;
+      if (shown === layer) visualBoxes.set(layer, area ? { x: area.left, y: area.top, width: area.right - area.left, height: area.bottom - area.top } : { x: visual.x, y: visual.y, width: visual.canvas.width, height: visual.canvas.height });
       let { x, y } = visual;
       if (moving && !loose) {
         x += Math.round(live.dx);
         y += Math.round(live.dy);
       }
       const turning = doc.liveTransform && doc.liveTransform.ids.has(layer.id) ? doc.liveTransform.matrix : null;
-      if (rect && !turning && (x >= rect.right || y >= rect.bottom || x + visual.canvas.width <= rect.left || y + visual.canvas.height <= rect.top)) return;
+      if (area) {
+        const ox = x - visual.x;
+        const oy = y - visual.y;
+        if (rect && !turning && (area.left + ox >= rect.right || area.top + oy >= rect.bottom || area.right + ox <= rect.left || area.bottom + oy <= rect.top)) return;
+        if (extra && extra.underTo) drawUnder(extra.underTo, visual, ox, oy, extra.underAlpha, turning);
+        else drawUnder(target, visual, ox, oy, alpha, turning, extra && extra.clip ? { canvas: extra.clip(), x: 0, y: 0 } : null);
+      } else if (rect && !turning && (x >= rect.right || y >= rect.bottom || x + visual.canvas.width <= rect.left || y + visual.canvas.height <= rect.top)) return;
       target.globalAlpha = alpha;
       target.globalCompositeOperation = blend;
       if (!turning) {
@@ -2584,7 +3260,7 @@
           const top = Math.max(y, rect.top);
           const width = Math.min(x + visual.canvas.width, rect.right) - left;
           const height = Math.min(y + visual.canvas.height, rect.bottom) - top;
-          target.drawImage(visual.canvas, left - x, top - y, width, height, left, top, width, height);
+          if (width > 0 && height > 0) target.drawImage(visual.canvas, left - x, top - y, width, height, left, top, width, height);
         } else target.drawImage(visual.canvas, x, y);
         return;
       }
@@ -2637,9 +3313,10 @@
       const alpha = (layer.opacity === undefined ? 1 : layer.opacity) * chain.opacity;
       const blend = blendOf(layer);
       // A base with a stroke keeps it, as in Photoshop: what is clipped to it (a gradient on a
-      // text or an SFX) goes on its letters, and the stroke stays around them in its colour
-      const ringed = layer.kind === "text" ? Boolean(layer.stroke && layer.stroke.enabled && layer.stroke.size > 0) : styledTop && Boolean(groupStroke(layer));
-      const drawBase = (target, a, b, which = layer) => (styledTop ? placeGroup(which, target, a, b) : place(which, target, a, b));
+      // text or an SFX) goes on its letters, and the stroke stays around them in its colour. So
+      // do a text's shadow and glow, under them.
+      const ringed = layer.kind === "text" ? Boolean(layer.stroke && layer.stroke.enabled && layer.stroke.size > 0) || outerEffectsOn(layer) : styledTop && Boolean(groupStroke(layer));
+      const drawBase = (target, a, b, which = layer, extra) => (styledTop ? placeGroup(which, target, a, b) : place(which, target, a, b, extra));
       const clipped = [];
       for (let j = i + 1; j < layers.length && clip.clipped.has(layers[j].id) && clip.baseOf.get(layers[j].id) === layer; j++) {
         if (!(options.skip && options.skip(layers[j])) && chainOf(layers[j], byId).visible) clipped.push(layers[j]);
@@ -2656,14 +3333,8 @@
       else c.clearRect(0, 0, doc.width, doc.height);
       drawBase(c, 1, "source-over", ringed ? withoutStroke(layer) : layer);
       let shaped = false;
-      clipped.forEach((item) => {
-        const itemAlpha = item.opacity === undefined ? 1 : item.opacity;
-        const itemBlend = blendOf(item);
-        if (itemBlend === "source-over") {
-          place(item, c, itemAlpha, "source-atop");
-          return;
-        }
-        // Another mode blends over the base, then what went past its pixels is cut off
+      // The base's shape, taken once something needs it
+      const baseShape = () => {
         if (!shaped) {
           if (!scratchShape || scratchShape.width !== doc.width || scratchShape.height !== doc.height) scratchShape = newCanvas(doc.width, doc.height);
           const s = scratchShape.getContext("2d");
@@ -2672,7 +3343,19 @@
           s.globalCompositeOperation = "source-over";
           shaped = true;
         }
-        place(item, c, itemAlpha, itemBlend);
+        return scratchShape;
+      };
+      clipped.forEach((item) => {
+        const itemAlpha = item.opacity === undefined ? 1 : item.opacity;
+        const itemBlend = blendOf(item);
+        // A clipped text's shadow and glow stay inside the base too, in their own blend mode
+        if (itemBlend === "source-over") {
+          place(item, c, itemAlpha, "source-atop", { clip: baseShape });
+          return;
+        }
+        // Another mode blends over the base, then what went past its pixels is cut off
+        baseShape();
+        place(item, c, itemAlpha, itemBlend, { clip: baseShape });
         c.globalAlpha = 1;
         c.globalCompositeOperation = "destination-in";
         c.drawImage(scratchShape, 0, 0);
@@ -2686,7 +3369,8 @@
         r.globalCompositeOperation = "source-over";
         if (rect) r.clearRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
         else r.clearRect(0, 0, doc.width, doc.height);
-        drawBase(r, 1, "source-over");
+        // Its shadow and glow straight onto the page, in their own blend mode
+        drawBase(r, 1, "source-over", layer, { underTo: ctx, underAlpha: alpha });
         r.globalAlpha = 1;
         r.globalCompositeOperation = "source-over";
         r.drawImage(scratch, 0, 0);
@@ -4501,7 +5185,7 @@
   // The part of the page a layer's picture covers
   const visualBounds = (layer, doc) => {
     const visual = layer.kind === "group" ? null : visualOf(layer, doc);
-    return visual && visual.canvas && visual.canvas.width ? { left: visual.x, top: visual.y, right: visual.x + visual.canvas.width, bottom: visual.y + visual.canvas.height } : null;
+    return visual && visual.canvas && visual.canvas.width ? visualRect(visual) : null;
   };
   const unionRect = (doc, before, after) => (before && after ? pageRect(doc, Math.min(before.left, after.left), Math.min(before.top, after.top), Math.max(before.right, after.right), Math.max(before.bottom, after.bottom)) : undefined);
 
@@ -5092,6 +5776,17 @@
       next.stroke = Object.assign({}, layer.stroke, { size: Math.round(layer.stroke.size * sy * 100) / 100 });
       if (layer.stroke.outer) next.stroke.outer = Object.assign({}, layer.stroke.outer, { size: Math.round(layer.stroke.outer.size * sy * 100) / 100 });
     }
+    // Its effects' sizes and distances, as the stroke's
+    if (layer.effects) {
+      next.effects = {};
+      Object.keys(layer.effects).forEach((name) => {
+        const effect = layer.effects[name];
+        next.effects[name] = effect && typeof effect === "object" ? Object.assign({}, effect) : effect;
+        ["size", "distance"].forEach((field) => {
+          if (effect && typeof effect[field] === "number") next.effects[name][field] = Math.round(effect[field] * sy * 100) / 100;
+        });
+      });
+    }
     if (layer.warp) {
       const { source, corners, bendTop, bendBottom } = layer.warp;
       const scaled = ([x, y]) => [x * sx, y * sy];
@@ -5159,10 +5854,11 @@
       if (!ids.has(layer.id) || layer.kind === "group") return;
       const visual = visualOf(layer, doc);
       if (!visual) return;
-      const left = visual.x + Math.round(dx);
-      const top = visual.y + Math.round(dy);
-      const right = left + visual.canvas.width;
-      const bottom = top + visual.canvas.height;
+      const area = visualRect(visual);
+      const left = area.left + Math.round(dx);
+      const top = area.top + Math.round(dy);
+      const right = area.right + Math.round(dx);
+      const bottom = area.bottom + Math.round(dy);
       box = box ? { left: Math.min(box.left, left), top: Math.min(box.top, top), right: Math.max(box.right, right), bottom: Math.max(box.bottom, bottom) } : { left, top, right, bottom };
     });
     return box;
@@ -6376,6 +7072,7 @@
         paragraph: lt ? clone(lt.paragraphStyleRange[0].paragraphStyle) : null,
         antiAlias: lt ? lt.antiAlias : null,
         stroke: layer.stroke ? clone(layer.stroke) : null,
+        effects: layer.kind === "text" && layer.effects ? clone(layer.effects) : null,
         blend: layer.blend,
         opacity: layer.opacity,
       };
@@ -6386,6 +7083,17 @@
       const held = app.styleClipboard;
       if (!doc || !held) return;
       const chosen = new Set(doc.state.activeIds);
+      const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
+      // An SFX's letters are drawn again from its recipe: effects on them would be lost
+      const inSfx = (layer) => {
+        for (let id = layer.group; id; ) {
+          const parent = byId.get(id);
+          if (!parent) return false;
+          if (parent.sfx) return true;
+          id = parent.group;
+        }
+        return false;
+      };
       const layers = doc.state.layers.map((layer) => {
         if (!chosen.has(layer.id) || layer.kind === "group") return layer;
         const next = Object.assign({}, layer);
@@ -6401,6 +7109,7 @@
         lt.paragraphStyleRange.forEach((range) => { range.paragraphStyle = Object.assign(range.paragraphStyle, clone(held.paragraph)); });
         if (held.antiAlias) lt.antiAlias = held.antiAlias;
         next.stroke = held.stroke ? clone(held.stroke) : null;
+        if (!inSfx(layer)) next.effects = held.effects ? clone(held.effects) : undefined;
         next.raster = null;
         return boxShape(lt) ? next : centredOn(next, doc, box.xMid, box.yMid);
       });
@@ -6411,7 +7120,8 @@
     selectLayerPixels(id, mode) {
       const doc = app.doc;
       const layer = doc && doc.state.layers.find((item) => item.id === id);
-      const visual = layer && visualOf(layer, doc);
+      // As Photoshop's: the layer's own pixels, without the shadow or the glow of its effects
+      const visual = layer && visualOf(layer.effects ? Object.assign({}, layer, { effects: undefined }) : layer, doc);
       if (!visual || !visual.canvas.width || !visual.canvas.height) return null;
       const left = Math.max(0, Math.ceil(visual.x));
       const top = Math.max(0, Math.ceil(visual.y));
@@ -8465,6 +9175,21 @@
         return next === layer.stroke ? layer : Object.assign({}, layer, { stroke: next, raster: null });
       }) }, coalesce);
     },
+    // A text layer's effects (see FX_DEFAULTS): the whole `effects` object, or a function of
+    // each layer for a change made on each one's own. Null takes them all off. The letters
+    // stay as they are, Photoshop's own pixels included: only what is drawn around and on them
+    // changes.
+    setLayerEffects(ids, effects, coalesce) {
+      const doc = app.doc;
+      if (!doc) return;
+      const set = new Set(ids);
+      const effectsOf = typeof effects === "function" ? effects : () => effects;
+      commitState(doc, "Layer Style", { layers: doc.state.layers.map((layer) => {
+        if (!set.has(layer.id) || layer.kind !== "text") return layer;
+        const next = effectsOf(layer) || undefined;
+        return next === layer.effects ? layer : Object.assign({}, layer, { effects: next });
+      }) }, coalesce);
+    },
     undo() {
       const doc = app.doc;
       if (!doc || doc.historyIndex <= 0) return false;
@@ -8683,6 +9408,7 @@
     layers.forEach((layer) => {
       const visual = visualOf(layer, doc);
       if (!visual) return;
+      if (visual.under) drawUnder(ctx, visual, 0, 0, layer.opacity === undefined ? 1 : layer.opacity);
       ctx.globalAlpha = layer.opacity === undefined ? 1 : layer.opacity;
       ctx.globalCompositeOperation = BLENDS[layer.blend] || "source-over";
       ctx.drawImage(visual.canvas, visual.x, visual.y);
@@ -9580,6 +10306,12 @@
   window.TypeRPhotoshop = {
     app,
     ops,
+    FX_ORDER,
+    FX_DEFAULTS,
+    fxDefault,
+    effectsOn,
+    flatVisual,
+    BLENDS,
     grayOf,
     maskOn,
     vectorOn,
@@ -9619,6 +10351,10 @@
     newTextLayer: (doc, params, stroke, name) => newTextLayer(doc, params, stroke, name),
     familyOf: (layers, id) => familyOf(layers, id),
     fillOf,
+    strokeOutside,
+    strokeReach,
+    ringOf,
+    innerRingOf,
     lockOf,
     groupVisual: (group, doc) => groupVisual(group, doc),
     centredOn,

@@ -1052,6 +1052,8 @@
       return false;
     },
     busy: () => jobs.length > 0,
+    // The gradients kept in the Gradient Editor, for Layer Style's Gradient Overlay (app.js)
+    gradientPresets: () => readPresets(),
     // For the tutorial (guide.js): the options, a gradient being dragged, one whose ends show
     prefs: () => Object.assign({}, prefs),
     dragging: () => dragging,
