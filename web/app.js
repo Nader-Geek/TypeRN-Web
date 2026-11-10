@@ -4466,9 +4466,12 @@
   // answer is kept while the page's pixels don't change: asking again costs nothing.
   const textFind = { running: false, landing: false, doc: null, data: null, confidence: null, mask: null };
   // How far around the letters the selection goes, and how close two letters must be to make
-  // one area: both follow the page's size
-  const textGrow = (doc) => Math.max(2, Math.round(Math.max(doc.width, doc.height) * 0.003));
-  const textLink = (doc) => Math.max(6, Math.round(Math.max(doc.width, doc.height) * 0.01));
+  // one area: both follow the page's size, its longer side. A strip longer than a manga page
+  // (1.45 times as long as it is wide; a webtoon) counts as a page of its width: its letters are
+  // no bigger for being many screens long.
+  const textSize = (doc) => Math.min(Math.max(doc.width, doc.height), Math.round(1.45 * Math.min(doc.width, doc.height)));
+  const textGrow = (doc) => Math.max(2, Math.round(textSize(doc) * 0.003));
+  const textLink = (doc) => Math.max(6, Math.round(textSize(doc) * 0.01));
   const textMaskMessage = (error) => {
     const detail = error && error.detail ? ` (${error.detail})` : "";
     switch (error && error.kind) {
