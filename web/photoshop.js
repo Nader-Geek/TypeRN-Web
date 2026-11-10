@@ -5387,8 +5387,9 @@
       },
     };
   };
-  // Each channel of `picture`'s levels mapped so that, where `hole` is empty, they spread as
-  // `page`'s do (histogram matching), smoothed so no step shows
+  // Match the surrounding histograms using only levels actually observed there.
+  // Interpolate between those anchors: empty histogram bins carry no evidence
+  // about the selected drawing, and must not crush its tones or darken white.
   const matchLevels = (picture, page, hole) => {
     for (let c = 0; c < 3; c++) {
       const from = new Float64Array(256);
@@ -5405,25 +5406,31 @@
         from[v] += from[v - 1];
         to[v] += to[v - 1];
       }
-      const lut = new Float64Array(256);
+      const anchors = [];
       let u = 0;
       for (let v = 0; v < 256; v++) {
+        const count = from[v] - (v ? from[v - 1] : 0);
+        if (!count) continue;
         // The middle of the levels v stands for, in the page's levels
-        const at = (from[v] - (v ? (from[v] - from[v - 1]) / 2 : from[0] / 2));
+        const at = from[v] - count / 2;
         while (u < 255 && to[u] < at) u++;
-        lut[v] = u;
+        anchors.push({ from: v, to: u });
       }
-      const smooth = new Uint8ClampedArray(256);
+      const lut = new Uint8ClampedArray(256);
+      let right = 0;
       for (let v = 0; v < 256; v++) {
-        let sum = 0;
-        let count = 0;
-        for (let k = Math.max(0, v - 2); k <= Math.min(255, v + 2); k++) {
-          sum += lut[k];
-          count++;
+        while (right < anchors.length - 1 && anchors[right].from < v) right++;
+        const b = anchors[right];
+        if (v <= anchors[0].from || v >= anchors[anchors.length - 1].from) {
+          // Outside the observed range, keep contrast with the nearest offset.
+          const edge = v <= anchors[0].from ? anchors[0] : anchors[anchors.length - 1];
+          lut[v] = v + edge.to - edge.from;
+        } else {
+          const a = anchors[Math.max(0, right - 1)];
+          lut[v] = a.to + (b.to - a.to) * (v - a.from) / (b.from - a.from);
         }
-        smooth[v] = Math.round(sum / count);
       }
-      for (let i = 0; i < picture.length; i += 4) picture[i + c] = smooth[picture[i + c]];
+      for (let i = 0; i < picture.length; i += 4) picture[i + c] = lut[picture[i + c]];
     }
   };
   // Inside `hole`, `picture` brought to the brightness of the page that borders it. A model can
