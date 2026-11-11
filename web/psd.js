@@ -405,6 +405,11 @@
       else if (name === "colorOverlay") out[name] = Object.assign(common, { color: color(fx), opacity: percent(fx.opacity) });
       else out[name] = Object.assign(common, { opacity: percent(fx.opacity), stops: stopsFromPsd(fx.gradient), style: fx.type || "linear", angle: round(typeof fx.angle === "number" ? fx.angle : 90, 2), scale: percent(fx.scale), reverse: Boolean(fx.reverse) });
     });
+    // A Pattern Overlay, drawn from the file's own pattern and kept in it as it was
+    const pattern = effects.patternOverlay;
+    if (pattern && typeof pattern === "object" && pattern.pattern && pattern.pattern.id) {
+      out.patternOverlay = { enabled: !off && pattern.enabled !== false, blend: fxBlendIn(pattern.blendMode), opacity: percent(pattern.opacity), scale: percent(pattern.scale), angle: round(typeof pattern.angle === "number" ? pattern.angle : 0, 2), phase: pattern.phase ? { x: pattern.phase.x || 0, y: pattern.phase.y || 0 } : undefined, pattern: { id: pattern.pattern.id, name: pattern.pattern.name } };
+    }
     return Object.keys(out).length ? out : undefined;
   };
 
@@ -614,8 +619,13 @@
           // A folder's own layer style and mask, as an SFX has them
           const stroke = strokeFromEffects(node.effects);
           if (stroke) group.stroke = stroke;
+          // Its shadow, glows and overlays (a Gradient Overlay on an SFX), drawn on all it holds
+          const effects = effectsFromPsd(node.effects, globalAngle);
+          if (effects) group.effects = effects;
           masksIn(node, group);
           if (node.fillOpacity === 0) group.knockout = true;
+          // In Normal, its adjustment layers adjust only what it holds: drawn as one picture
+          if (group.blend === "normal" && node.children.some((child) => child.adjustment)) group.isolated = true;
           groupsRead.push(group);
           walk(node.children, group.id);
           layers.push(group);
@@ -660,10 +670,20 @@
           return;
         }
         const layer = engine.newRaster(node.name || "Layer", Object.assign(common(node, parent), { bitmap: node.canvas || null, left: node.left || 0, top: node.top || 0 }));
+        // A pixel or shape layer's layer style (letters made pixels, with a Gradient Overlay):
+        // drawn on the page, its pixels left as they are
+        const effects = node.adjustment ? undefined : effectsFromPsd(node.effects, globalAngle);
+        if (effects) layer.effects = effects;
+        // A shape's strokes (an SFX made a shape: two strokes around letters at Fill 0%), drawn
+        // around its pixels. They stay in the file as they were.
+        const stroke = node.adjustment ? null : strokeFromEffects(node.effects);
+        if (stroke) layer.stroke = stroke;
+        if (node.fillOpacity === 0 && !node.adjustment) layer.fill = 0;
         masksIn(node, layer);
         if (node.adjustment) {
           layer.adjustment = true;
-          notes.adjustments++;
+          // Invert is drawn; the others are only kept
+          if (node.adjustment.type !== "invert") notes.adjustments++;
         }
         if (!parent && index === 0 && BACKGROUND_NAME.test(layer.name)) {
           layer.isBackground = true;
@@ -1012,7 +1032,7 @@
     }
     const painted = (layer.paint && layer.paint.length) || layer.dx || layer.dy;
     if (painted || !layer.raw) {
-      const clean = Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined });
+      const clean = Object.assign({}, layer, { mask: null, vectorMask: null, fill: undefined, stroke: null, effects: undefined });
       const visual = engine.visualOf(clean, doc);
       if (visual) place(node, visual.canvas, visual.x, visual.y);
       else delete node.canvas;
