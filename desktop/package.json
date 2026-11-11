@@ -1,7 +1,7 @@
 {
   "name": "typer-studio",
   "productName": "TypeR Studio",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "minContentShell": "0.1.0",
   "description": "TypeR's Photoshop-like workspace for manga and comics typesetters, as a desktop app.",
   "homepage": "https://typer.hayasaku.fr",
