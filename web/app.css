@@ -611,6 +611,9 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .layers__foot .icon-btn { transition: background-color 0.08s ease-out, box-shadow 0.08s ease-out; }
 .layers__foot .icon-btn:disabled { opacity: 0.35; pointer-events: none; }
 .layers__foot .icon-btn.is-drop { background: var(--ui-3); box-shadow: inset 0 0 0 1px var(--blue); }
+/* Add a layer style: Photoshop's italic fx. On a layer that can't take one, faded, still there to say why. */
+.layers__foot .layers__fxbtn { font: italic 600 13px/1 Georgia, serif; }
+.layers__foot .layers__fxbtn.is-refused { opacity: 0.6; }
 /* Number keys and the scrubby label: the field answers with a short flash */
 #layer-opacity.is-flash, #layer-fill.is-flash { animation: layer-flash 0.4s ease-out; }
 /* The blend mode: a field that opens Photoshop's list; the mode pointed at shows on the page */

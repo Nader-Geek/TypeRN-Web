@@ -10803,6 +10803,37 @@
       commitState(doc, "Levels", { layers: replaceLayer(doc, layer, withPixels(layer, session.canvas, session.visual.x, session.visual.y, pageMask(layer, doc))) });
       firePanelEvent(EVENT_HISTORY);
     },
+    // Layer > Layer Style > Clear Layer Style: no stroke, no effects, and the blending back to
+    // Normal at 100%, Fill 100%, as Photoshop clears it. On texts and folders (an SFX keeps its
+    // own). The number of layers cleared.
+    clearLayerStyle(ids) {
+      const doc = app.doc;
+      if (!doc) return 0;
+      const chosen = new Set(ids || doc.state.activeIds);
+      const byId = new Map(doc.state.layers.map((layer) => [layer.id, layer]));
+      const inSfx = (layer) => Boolean(layer.sfx || (layer.group && byId.get(layer.group) && byId.get(layer.group).sfx));
+      let count = 0;
+      let refused = false;
+      const layers = doc.state.layers.map((layer) => {
+        if (!chosen.has(layer.id) || !(layer.kind === "text" || layer.kind === "group") || layer.adjustment || inSfx(layer)) return layer;
+        const plain = layer.kind === "group" ? "pass through" : "normal";
+        const styled = Boolean(layer.stroke) || Boolean(layer.effects) || (layer.blend || plain) !== plain || (layer.opacity !== undefined && layer.opacity !== 1) || fillOf(layer) !== 1;
+        if (!styled) return layer;
+        if (layer.locked) {
+          refused = true;
+          return layer;
+        }
+        count++;
+        const next = Object.assign({}, layer, { stroke: null, effects: undefined, blend: plain, opacity: 1, knockout: false, fill: undefined });
+        if (layer.kind === "text") next.raster = null;
+        return next;
+      });
+      if (refused) emit("layer-locked");
+      if (!count) return 0;
+      commitState(doc, "Clear Layer Style", { layers });
+      firePanelEvent(EVENT_HISTORY);
+      return count;
+    },
     // The text's rectangle becomes a surface, with nothing moved yet
     startTextWarp(id) {
       const doc = app.doc;

@@ -8245,12 +8245,26 @@
     dropOnButton(bin, () => ops.deleteLayers(), true);
     dropOnButton(add, () => ops.duplicateLayers());
     dropOnButton(group, () => ops.groupLayers(T("Group")));
-    footButtons = { lock, copy, bin };
+    // Photoshop's Add a Layer Style button: Blending Options and the effects, each opening the
+    // dialog on its pane. On a layer that can't take one, it says why when picked.
+    const fx = document.createElement("button");
+    fx.type = "button";
+    fx.className = "icon-btn layers__fxbtn";
+    fx.textContent = "fx";
+    fx.title = T("Add a layer style");
+    fx.setAttribute("aria-label", fx.title);
+    fx.setAttribute("aria-haspopup", "menu");
+    fx.addEventListener("click", () => {
+      const box = fx.getBoundingClientRect();
+      openContextMenu(box.left, box.bottom + 4, LAYER_STYLE_ITEMS.slice(0, LAYER_STYLE_ITEMS.indexOf(null)));
+    });
+    footButtons = { lock, copy, bin, fx };
     foot.append(
       reorder("up", "Bring Forward", 1),
       reorder("down", "Send Backward", -1),
       rename,
       lock,
+      fx,
       group,
       maskButton,
       add,
@@ -8553,6 +8567,25 @@
     return Boolean(parent && parent.sfx);
   };
   const styleTargets = () => activeTexts().filter((layer) => !inSfx(layer));
+  // Why the chosen layers can't take a Layer Style here, or null when they can: said rather
+  // than greyed out
+  const styleRefusal = () => {
+    if (styleTargets().length) return null;
+    const layer = activeLayer();
+    if (!layer) return T("Select a text layer first.");
+    if (layer.kind === "text") return T("An SFX's letters take their look from the SFX: change it in the SFX panel.");
+    if (layer.kind === "group") return T("Layer Style works on text layers: a group keeps the stroke its file gave it.");
+    return T("Layer Style works on text layers: a pixel layer keeps the style its file gave it.");
+  };
+  // Layer > Layer Style and the fx button of the Layers panel: the dialog on that pane, the
+  // effect turned on, as in Photoshop
+  const styleFrom = (name) => {
+    const why = styleRefusal();
+    if (why) toast(why);
+    else openLayerStyle(name, name !== "blending");
+  };
+  // What Clear Layer Style would take off: a text's or a folder's stroke, effects, blending
+  const canClearStyle = () => activeLayers().some((layer) => (layer.kind === "text" || layer.kind === "group") && !layer.isBackground && (Boolean(layer.stroke) || Boolean(layer.effects) || (layer.blend || (layer.kind === "group" ? "pass through" : "normal")) !== (layer.kind === "group" ? "pass through" : "normal") || (layer.opacity !== undefined && layer.opacity !== 1) || PS.fillOf(layer) !== 1));
   // The layers being dragged in the panel, and those that go with them
   let dragIds = null;
   let dragFamily = new Set();
@@ -8964,6 +8997,10 @@
       footButtons.lock.disabled = !active;
       footButtons.copy.disabled = !active;
       footButtons.bin.disabled = !active;
+      footButtons.fx.disabled = !active;
+      const why = active ? styleRefusal() : null;
+      footButtons.fx.title = why ? `${T("Add a layer style")}: ${why}` : T("Add a layer style");
+      footButtons.fx.classList.toggle("is-refused", Boolean(why));
     }
     if (!doc) {
       ui.layers.textContent = "";
@@ -14033,7 +14070,8 @@
     if (!doc.state.activeIds.includes(layer.id)) ops.selectLayer(layer.id);
     openLayerStyle(item);
   };
-  const openLayerStyle = (start = "blending") => {
+  // `turnOn`: the effect it opens on is switched on, as Photoshop's Layer Style menu does
+  const openLayerStyle = (start = "blending", turnOn = false) => {
     const doc = app.doc;
     if (!doc || ui.layerStyle || ui.modal.open) return;
     if (!ui.editor.hidden) endEdit();
@@ -14893,6 +14931,7 @@
     ui.layerStyle = dlg;
     buildPane();
     showRail();
+    if (turnOn && current !== "blending" && !isOn(current)) turn(current, true);
     dlg.showModal();
     place();
     window.addEventListener("resize", keepInside);
@@ -15143,6 +15182,19 @@
 
   const DESKTOP = Boolean(window.TypeRDesktop);
   const findItem = { label: "Find Layers", keys: "Alt+Shift+Cmd+F", enabled: hasDoc, action: () => openFind() };
+  // Layer > Layer Style, as Photoshop's. Its first part is the fx button's menu too (Layers
+  // panel). On a layer that can't take a style, each says why when picked.
+  const LAYER_STYLE_ITEMS = [
+    { label: "Blending Options…", enabled: hasLayer, action: () => styleFrom("blending") },
+    ...[["stroke", "Stroke…"], ["innerShadow", "Inner Shadow…"], ["innerGlow", "Inner Glow…"], ["colorOverlay", "Colour Overlay…"], ["gradientOverlay", "Gradient Overlay…"], ["outerGlow", "Outer Glow…"], ["dropShadow", "Drop Shadow…"]].map(([name, label]) => ({ label, enabled: hasLayer, action: () => styleFrom(name) })),
+    null,
+    { label: "Copy Layer Style", enabled: hasLayer, action: () => { if (ops.copyLayerStyle()) toast(T("Copied.")); } },
+    { label: "Paste Layer Style", enabled: () => hasLayer() && Boolean(app.styleClipboard), action: () => ops.pasteLayerStyle() },
+    { label: "Clear Layer Style", enabled: hasLayer, action: () => {
+      if (canClearStyle()) ops.clearLayerStyle();
+      else toast(styleRefusal() || T("This layer has no style to clear."));
+    } },
+  ];
   const MENUS = [
     ["File", [
       { label: "New…", keys: DESKTOP ? "Cmd+N" : "Alt+Cmd+N", action: newDocument },
@@ -15214,9 +15266,7 @@
       null,
       { label: "Copy Layer", keys: "Alt+Shift+Cmd+C", enabled: hasLayer, action: () => { if (ops.copyLayers()) toast(T("Copied.")); } },
       { label: "Paste Layer", keys: "Alt+Shift+Cmd+V", enabled: () => hasDoc() && Boolean(app.layerClipboard), action: () => ops.pasteLayers() },
-      { label: "Blending Options…", enabled: () => styleTargets().length > 0, action: () => openLayerStyle("blending") },
-      { label: "Copy Layer Style", enabled: hasLayer, action: () => { if (ops.copyLayerStyle()) toast(T("Copied.")); } },
-      { label: "Paste Layer Style", enabled: () => hasLayer() && Boolean(app.styleClipboard), action: () => ops.pasteLayerStyle() },
+      { label: "Layer Style", submenu: LAYER_STYLE_ITEMS },
       null,
       { label: "Bring to Front", keys: "Shift+Cmd+]", enabled: hasLayer, action: () => shiftLayerOrder(1, true) },
       { label: "Bring Forward", keys: "Cmd+]", enabled: hasLayer, action: () => shiftLayerOrder(1) },
