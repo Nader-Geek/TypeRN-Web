@@ -859,6 +859,8 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Choose a Folder…": "Map kiezen…",
     "Find layers": "Lagen zoeken",
     "Find Layers": "Lagen zoeken",
+    "Search…": "Zoeken…",
+    "Search tools and commands…": "Gereedschappen en opdrachten zoeken…",
     "Name or text": "Naam of tekst",
     "Text layers": "Tekstlagen",
     "Pixel layers": "Pixellagen",

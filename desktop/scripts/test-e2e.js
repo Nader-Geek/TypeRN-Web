@@ -334,6 +334,47 @@ const main = async () => {
     step("Photoshop's keys are shown, and left to the page", shortcuts["CmdOrCtrl+T"] === false && shortcuts["Shift+CmdOrCtrl+N"] === false && shortcuts["CmdOrCtrl+W"] === false, Object.keys(shortcuts).length + " shortcuts");
   }
 
+  /* --------------------------- text keys, Search, the wheel ---------------------------- */
+  {
+    const M = process.platform === "darwin" ? "Meta" : "Control";
+    const start = await page.evaluate(() => window.TypeRPhotoshop.app.doc.historyIndex);
+    await page.evaluate(() => {
+      window.TypeRPhotoshop.ops.newText(200, 200, "Keys", { width: 300, height: 200 });
+      if (document.activeElement) document.activeElement.blur();
+    });
+    const typed = () => page.evaluate(() => {
+      const doc = window.TypeRPhotoshop.app.doc;
+      const layer = doc.state.layers.find((one) => one.kind === "text" && doc.state.activeIds.includes(one.id));
+      return { align: layer.params.layerText.paragraphStyleRange[0].paragraphStyle.alignment, style: layer.params.layerText.textStyleRange[0].textStyle };
+    });
+    const before = (await typed()).style;
+    await page.keyboard.press(`${M}+Shift+KeyR`);
+    await page.keyboard.press("Alt+ArrowDown");
+    await page.keyboard.press("Shift+Alt+ArrowUp");
+    const after = await typed();
+    const auto = Math.round(((before.impliedFontSize || before.size) * 1.2 + 2) * 100) / 100;
+    step("Photoshop's keys align a text, step its leading from Auto and its baseline", after.align === "right" && after.style.autoLeading === false && after.style.leading === auto && after.style.baselineShift === 2, JSON.stringify({ align: after.align, leading: after.style.leading, shift: after.style.baselineShift }));
+    await page.keyboard.press(`${M}+KeyF`);
+    await page.keyboard.type("image size");
+    const found = await page.$$eval(".search__item", (rows) => rows.map((row) => row.textContent));
+    await page.keyboard.press("Enter");
+    const field = await page.waitForSelector("dialog[open] input[type=number]", { timeout: 5000 }).catch(() => null);
+    let wheeled = null;
+    if (field) {
+      const box = await field.boundingBox();
+      const was = Number(await field.evaluate((el) => el.value));
+      await page.mouse.move(box.x + 8, box.y + box.height / 2);
+      await page.mouse.wheel(0, -100);
+      await wait(100);
+      wheeled = [was, Number(await field.evaluate((el) => el.value))];
+      await page.keyboard.press("Escape");
+    }
+    step("Edit > Search finds a command by its English name and runs it; the wheel steps a dialog's number", found.length > 0 && Boolean(wheeled) && wheeled[1] === wheeled[0] + 1, JSON.stringify({ found: found.slice(0, 2), wheeled }));
+    await page.evaluate((index) => {
+      while (window.TypeRPhotoshop.app.doc.historyIndex > index) window.TypeRPhotoshop.ops.undo();
+    }, start);
+  }
+
   /* ---------------------------- the Smudge and the Blur tools --------------------------- */
   {
     const start = await page.evaluate(() => window.TypeRPhotoshop.app.doc.historyIndex);

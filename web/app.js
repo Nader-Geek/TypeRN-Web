@@ -15522,6 +15522,7 @@
       else toast(styleRefusal() || T("This layer has no style to clear."));
     } },
   ];
+  const searchItem = { label: "Search…", keys: "Cmd+F", anywhere: true, keepsTransform: true, enabled: () => !panelModal(), action: () => openSearch() };
   const MENUS = [
     ["File", [
       { label: "New…", keys: DESKTOP ? "Cmd+N" : "Alt+Cmd+N", action: newDocument },
@@ -15561,6 +15562,10 @@
       { label: "Generative Fill…", enabled: () => Boolean(Gen) && hasSelection(), action: openGenerative },
       ...(TextMask ? [{ label: "Remove Text on Several Pages…", enabled: hasDoc, action: startTextBatch }] : []),
       { label: "Clear", keys: "Backspace", enabled: () => hasSelection() || hasLayer(), action: () => clearOrDelete() },
+      null,
+      // Photoshop's Search, here for the tools and commands. Not over TypeR's own dialogs: its
+      // Settings have a search of their own on these keys.
+      searchItem,
       null,
       // A browser tab keeps Ctrl+T for itself: Photoshop's shortcut only arrives in the installed app or full screen
       { label: "Free Transform", keys: DESKTOP ? "Cmd+T" : "Alt+Cmd+T", alias: DESKTOP ? undefined : "Cmd+T", keepsTransform: true, enabled: () => !Shell.touch && canTransform(), action: beginTransform },
@@ -16518,6 +16523,174 @@
     }
   }, true);
   window.addEventListener("blur", closeContextMenu);
+
+  /* ---- Edit > Search: a tool or a command, found by its name ---- */
+
+  // As Photoshop's Search: every tool, every menu's command (TypeR's too) and the other
+  // shortcuts, by their name in the app's language or in English, with where they live and
+  // their keys. Made at each opening: what is added to a menu is found at once. What its menu
+  // would grey is greyed, and does nothing.
+  const panelModal = () => {
+    const doc = panelDoc();
+    return doc ? doc.querySelector(".app-modal:not(.app-modal--walkthrough):not(.app-modal--coached)") : null;
+  };
+  let searchBox = null;
+  const searchCommands = () => {
+    const found = [];
+    const add = (item, place) => {
+      if (!item || item.submenu || item === searchItem || item.mouse !== undefined) return;
+      found.push({ item, place, name: menuLabel(item), english: item.label, keys: item.keys ? keyLabel(item.keys) : item.shownKeys ? item.shownKeys() : "" });
+    };
+    TOOL_ITEMS.forEach((item) => add(item, T("Tools")));
+    MENUS.forEach(([menu, items]) => items.forEach((item) => {
+      if (item && item.submenu) item.submenu.forEach((sub) => add(sub, `${T(menu)} › ${T(item.label)}`));
+      else add(item, T(menu));
+    }));
+    MORE_ITEMS.forEach((item) => add(item, T("Colours and brush")));
+    LAYER_AND_TEXT_ITEMS.forEach((item) => add(item, T("Layers and text")));
+    return found;
+  };
+  // The names that start with what is typed first, then those with a word that does, then the
+  // rest, and what needs its menu's name too last
+  const searchMatches = (commands, query) => {
+    const words = query.trim().split(/\s+/).map(folded).filter(Boolean);
+    if (!words.length) return [];
+    const whole = folded(query);
+    const startsAWord = (text) => text.toLowerCase().split(/[\s›:…/(),.-]+/).some((word) => folded(word).startsWith(words[0]));
+    return commands.map((entry, index) => {
+      const names = `${folded(entry.name)}|${folded(entry.english)}`;
+      // The menu's name only narrows down: "mask delete", not "brush" for the brush's colours
+      if (!words.some((word) => names.includes(word)) || !words.every((word) => names.includes(word) || folded(entry.place).includes(word))) return null;
+      const rank = folded(entry.name).startsWith(whole) || folded(entry.english).startsWith(whole) ? 0 : startsAWord(entry.name) || startsAWord(entry.english) ? 1 : words.every((word) => names.includes(word)) ? 2 : 3;
+      return { entry, rank, index };
+    }).filter(Boolean).sort((a, b) => a.rank - b.rank || a.index - b.index).map(({ entry }) => entry);
+  };
+  const closeSearch = (giveBack) => {
+    if (!searchBox) return;
+    const { box, back, outside } = searchBox;
+    searchBox = null;
+    document.removeEventListener("pointerdown", outside, true);
+    box.remove();
+    if (!giveBack) return;
+    // Where the keys were: the text being typed, the page
+    if (back && back.isConnected && back !== document.body && !back.closest(".menu") && !(back === ui.editor && ui.editor.hidden)) back.focus({ preventScroll: true });
+    else ui.stage.focus({ preventScroll: true });
+  };
+  const openSearch = () => {
+    if (searchBox) {
+      searchBox.field.select();
+      return;
+    }
+    if (ui.modal.open || ui.layerStyle || panelModal()) return;
+    closeMenus();
+    closeContextMenu();
+    const commands = searchCommands();
+    const box = document.createElement("div");
+    box.className = "font-menu search";
+    if (lang === "ar") box.dir = "rtl";
+    const field = document.createElement("input");
+    field.type = "text";
+    field.className = "font-menu__search";
+    field.placeholder = T("Search tools and commands…");
+    field.setAttribute("aria-label", T("Search tools and commands…"));
+    field.setAttribute("role", "combobox");
+    field.setAttribute("aria-controls", "search-list");
+    field.setAttribute("aria-expanded", "false");
+    field.autocomplete = "off";
+    field.spellcheck = false;
+    const list = document.createElement("ul");
+    list.className = "font-menu__list search__list";
+    list.id = "search-list";
+    list.setAttribute("role", "listbox");
+    box.append(field, list);
+    let shown = [];
+    let at = -1;
+    const usable = (entry) => !entry.item.enabled || entry.item.enabled();
+    const mark = (index) => {
+      at = index;
+      Array.from(list.children).forEach((row, n) => {
+        row.classList.toggle("is-active", n === at);
+        row.setAttribute("aria-selected", String(n === at));
+      });
+      const row = list.children[at];
+      if (row && row.id) {
+        field.setAttribute("aria-activedescendant", row.id);
+        row.scrollIntoView({ block: "nearest" });
+      } else field.removeAttribute("aria-activedescendant");
+    };
+    const run = (entry) => {
+      if (!usable(entry)) return;
+      closeSearch(true);
+      if (entry.item.virtual) entry.item.action();
+      else runMenuItem(entry.item);
+    };
+    const render = () => {
+      list.textContent = "";
+      shown = searchMatches(commands, field.value).slice(0, 60);
+      shown.forEach((entry, n) => {
+        const row = document.createElement("li");
+        row.className = "search__item";
+        row.id = `search-item-${n}`;
+        row.setAttribute("role", "option");
+        const on = usable(entry);
+        if (!on) {
+          row.classList.add("is-off");
+          row.setAttribute("aria-disabled", "true");
+        }
+        const name = document.createElement("span");
+        name.className = "search__name";
+        name.textContent = `${entry.item.check ? (entry.item.check() ? "✓ " : "   ") : ""}${entry.name}`;
+        const place = document.createElement("span");
+        place.className = "search__place";
+        place.textContent = entry.place;
+        row.append(name, place);
+        if (entry.keys) {
+          const keys = document.createElement("kbd");
+          keys.textContent = entry.keys;
+          row.appendChild(keys);
+        }
+        // The field keeps the focus
+        row.addEventListener("pointerdown", (event) => event.preventDefault());
+        row.addEventListener("pointermove", () => { if (on && at !== n) mark(n); });
+        row.addEventListener("click", () => run(entry));
+        list.appendChild(row);
+      });
+      if (field.value.trim() && !shown.length) {
+        const none = document.createElement("li");
+        none.className = "font-menu__empty";
+        none.textContent = T("Nothing found.");
+        list.appendChild(none);
+      }
+      field.setAttribute("aria-expanded", String(shown.length > 0));
+      mark(shown.findIndex(usable));
+    };
+    field.addEventListener("input", render);
+    field.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        event.stopPropagation();
+        const ways = shown.map((entry, n) => n).filter((n) => usable(shown[n]));
+        if (!ways.length) return;
+        const now = ways.indexOf(at);
+        mark(ways[(now + (event.key === "ArrowDown" ? 1 : now < 0 ? 0 : -1) + ways.length) % ways.length]);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (shown[at]) run(shown[at]);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSearch(true);
+      } else if (event.key === "Tab") event.preventDefault();
+    });
+    const outside = (event) => {
+      if (!box.contains(event.target)) closeSearch(false);
+    };
+    document.addEventListener("pointerdown", outside, true);
+    searchBox = { box, field, back: document.activeElement, outside };
+    document.body.appendChild(box);
+    field.focus();
+  };
 
 
   /* ------------------------------- keyboard ------------------------------- */
