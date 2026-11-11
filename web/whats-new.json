@@ -1,4 +1,5 @@
 {"notes": [
+  {"id":"222019ab630b","at":"2026-11-11T18:07:27+01:00","kind":"feat","text":"Help > Check for Updates… downloads a new version and offers to restart","lang":{"fr":"Aide > Rechercher des mises à jour… télécharge la nouvelle version et propose de redémarrer"}},
   {"id":"36dd95d738fe","at":"2026-11-11T17:49:52+01:00","kind":"feat","text":"Styles panel (Window > Styles): keep layer styles, apply them in a click, import Photoshop .asl files","lang":{"fr":"Nouveau panneau Styles (Fenêtre > Styles) : gardez vos styles de calque, appliquez-les d’un clic, importez les fichiers .asl de Photoshop"}},
   {"id":"337ec8c8a85e","at":"2026-11-11T17:49:47+01:00","kind":"feat","text":"Smart Paste's Hyphenation offers Turkish, German, Russian and every language it knows","lang":{"fr":"La Césure du Collage intelligent propose le turc, l’allemand, le russe et toutes les langues qu’elle connaît"}},
   {"id":"e422697eef57","at":"2026-11-11T17:49:38+01:00","kind":"fix","text":"Spot Healing Brush no longer paints a black patch on an empty layer","lang":{"fr":"Le Correcteur localisé ne peint plus de tache noire sur un calque vide"}},
