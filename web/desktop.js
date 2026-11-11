@@ -312,6 +312,8 @@
       ok: App.T("OK"),
       discard: App.T("Don't save"),
       cancel: App.T("Cancel"),
+      // The title of the system's dialog that Locate Photoshop… opens
+      locatePhotoshop: App.T("Locate Photoshop…").replace(/…$/, ""),
     });
     watchPresence();
     if (Desktop.platform === "mac") {

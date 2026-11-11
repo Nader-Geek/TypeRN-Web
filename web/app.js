@@ -12608,21 +12608,68 @@
     return text.trim() ? { name: typeof tab.name === "string" ? tab.name : "", text } : null;
   };
 
-  const askOpenInPhotoshop = async (apps) => {
-    let kept = {};
+  const keptForPhotoshop = () => {
     try {
-      kept = JSON.parse(window.localStorage.getItem(PHOTOSHOP_STORE)) || {};
+      return JSON.parse(window.localStorage.getItem(PHOTOSHOP_STORE)) || {};
+    } catch (error) {
+      return {};
+    }
+  };
+
+  // Locate Photoshop… (an app too old to offer it doesn't): the user picks the Photoshop to use in
+  // the system's dialog, when none is found or not the right one. The Photoshops then, the one
+  // picked chosen next time, or null when nothing changed.
+  const canLocate = Boolean(Studio && Studio.locate);
+  const LOCATE = "locate";
+  const locatePhotoshop = async () => {
+    const result = await Studio.locate().catch((error) => ({ ok: false, message: String(error.message || error) }));
+    if (!result || result.canceled) return null;
+    if (!result.ok) {
+      if (result.notPhotoshop) await dialog({ title: T("Locate Photoshop…"), body: T("This is not Photoshop. Choose Photoshop.exe on Windows, or the Adobe Photoshop app on a Mac."), cancel: false });
+      else toast(fill(T("{app} could not be opened: {error}"), { app: "Photoshop", error: result.message || "?" }), true);
+      return null;
+    }
+    try {
+      window.localStorage.setItem(PHOTOSHOP_STORE, JSON.stringify(Object.assign(keptForPhotoshop(), result.id ? { app: result.id } : {})));
     } catch (error) {}
+    return Array.isArray(result.list) ? result.list : null;
+  };
+
+  // Which pages, in which Photoshop: { docs, target, script }, { apps } when the Photoshops changed
+  // (one located or forgotten) and it's to be asked again, or null
+  const askOpenInPhotoshop = async (apps) => {
+    const kept = keptForPhotoshop();
     // TypeR in Photoshop takes the script into a tab of its own: an app too old to send it doesn't offer it
     const script = Studio.sendsScript ? panelScript() : null;
     const fields = [];
     if (app.docs.length > 1) fields.push({ id: "pages", label: T("Pages"), value: kept.pages === "all" ? "all" : "one", options: [["one", T("This page")], ["all", fill(T("All open pages ({count})"), { count: app.docs.length })]] });
-    if (apps.length > 1) fields.push({ id: "app", label: T("Open with"), value: apps.some((one) => one.id === kept.app) ? kept.app : apps[0].id, options: apps.map((one) => [one.id, one.version ? `${one.name} (${one.version})` : one.name]) });
+    // Where another Photoshop can be located: whenever there's a choice to make anyway
+    const located = apps.find((one) => one.located);
+    if (apps.length > 1 || (canLocate && fields.length + (script ? 1 : 0) > 0)) {
+      fields.push({
+        id: "app",
+        label: T("Open with"),
+        value: apps.some((one) => one.id === kept.app) ? kept.app : apps[0].id,
+        options: apps.map((one) => [one.id, one.version ? `${one.name} (${one.version})` : one.name]).concat(canLocate ? [[LOCATE, T("Locate Photoshop…")]] : []),
+      });
+    }
     if (script) fields.push({ id: "script", label: T("Import the script"), type: "checkbox", checked: kept.script === true, hint: () => T("TypeR in Photoshop opens it in a new tab, or in the tab that already holds it.") });
     let answer = { pages: "one", app: apps[0].id, script: false };
     if (fields.length) {
-      answer = await dialog({ title: T("Open in Photoshop"), body: T("Unsaved changes are saved first. Pages without a Photoshop file yet are saved as PSD in a folder you choose."), fields, ok: T("Open in Photoshop") });
+      answer = await dialog({
+        title: T("Open in Photoshop"),
+        body: T("Unsaved changes are saved first. Pages without a Photoshop file yet are saved as PSD in a folder you choose."),
+        fields,
+        ok: T("Open in Photoshop"),
+        also: located && canLocate ? T("Forget the Located Photoshop") : undefined,
+        // Locate Photoshop… goes to the system's dialog at once
+        ready: (inputs, form) => {
+          if (inputs.app) inputs.app.addEventListener("change", () => { if (inputs.app.value === LOCATE) form.requestSubmit(); });
+        },
+      });
       if (!answer) return null;
+      if (answer.also) return { apps: await Studio.forget().catch(() => []) };
+      if (answer.app === LOCATE) return { apps: (await locatePhotoshop()) || apps };
       answer = Object.assign({ pages: "one", app: apps[0].id, script: false }, answer);
       try {
         window.localStorage.setItem(PHOTOSHOP_STORE, JSON.stringify({ pages: answer.pages, app: answer.app, script: script ? answer.script : kept.script === true }));
@@ -12687,6 +12734,7 @@
           ops.markSaved(doc, built.savedId);
           Recent.add([handle]);
         }
+        // A page whose place isn't found is said so with the others, after
         const where = await whereIs(handle);
         if (where) placed.push([doc, where]);
       } catch (error) {
@@ -12700,6 +12748,21 @@
     return placed;
   };
 
+  // Opening failed: why, with the log and, where it can be, another Photoshop to locate. True when
+  // one was located, to try again with it.
+  const photoshopFailed = async (target, message) => {
+    const answer = await dialog({
+      title: T("Open in Photoshop"),
+      body: fill(T("{app} could not be opened: {error}"), { app: target.name, error: message || "?" }),
+      cancel: canLocate ? T("Close") : false,
+      also: window.TypeRDesktop.showLog ? T("Show Log File") : undefined,
+      ok: canLocate ? T("Locate Photoshop…") : T("OK"),
+    });
+    if (answer && answer.also) window.TypeRDesktop.showLog();
+    else if (answer && canLocate) return Boolean(await locatePhotoshop());
+    return false;
+  };
+
   let sendingToPhotoshop = false;
   const openInPhotoshop = async () => {
     if (!Studio || sendingToPhotoshop) return;
@@ -12710,14 +12773,30 @@
     }
     if (!ui.editor.hidden) endEdit();
     sendingToPhotoshop = true;
+    let again = false;
     try {
-      const apps = await Studio.list().catch(() => []);
-      if (!apps.length) {
-        await dialog({ title: T("Open in Photoshop"), body: T("No Photoshop was found on this computer."), cancel: false });
-        return;
+      let apps = await Studio.list().catch(() => []);
+      let choice = null;
+      // Asked again whenever a Photoshop is located or forgotten on the way
+      while (!choice) {
+        if (!apps.length) {
+          const answer = await dialog({
+            title: T("Open in Photoshop"),
+            body: T("No Photoshop was found on this computer."),
+            cancel: canLocate ? undefined : false,
+            ok: canLocate ? T("Locate Photoshop…") : T("OK"),
+          });
+          if (!answer || !canLocate) return;
+          apps = await locatePhotoshop();
+          if (!apps || !apps.length) return;
+        }
+        choice = await askOpenInPhotoshop(apps);
+        if (!choice) return;
+        if (choice.apps) {
+          apps = choice.apps;
+          choice = null;
+        }
       }
-      const choice = await askOpenInPhotoshop(apps);
-      if (!choice) return;
       const { docs, target, script } = choice;
       for (const doc of docs) {
         if (app.docs.includes(doc) && ownPsd(doc) && PS.isDirty(doc) && !(await save(doc))) return;
@@ -12736,9 +12815,24 @@
         placed.forEach(([doc, where]) => places.set(doc, where));
       }
       const opening = docs.filter((doc) => places.has(doc));
-      if (!opening.length) return;
+      // Photoshop needs a file's place on the disk, which the system may not tell
+      const unplaced = docs.filter((doc) => app.docs.includes(doc) && !places.has(doc)).map((doc) => doc.name);
+      const notPlaced = unplaced.length ? fill(T("Not found on the disk, so not opened in Photoshop: {names}. Save with Save As… and try again."), { names: unplaced.join(", ") }) : "";
+      if (!opening.length) {
+        if (notPlaced) await dialog({ title: T("Open in Photoshop"), body: notPlaced, cancel: false });
+        return;
+      }
       const paths = opening.map((doc) => places.get(doc));
-      let result = await Studio.open(target.id, paths, script);
+      // Photoshop takes a moment to say whether it started
+      working(opening.length === 1
+        ? fill(T("Opening {name} in {app}…"), { name: opening[0].name, app: target.name })
+        : fill(T("Opening {count} pages in {app}…"), { count: opening.length, app: target.name }));
+      let result;
+      try {
+        result = await Studio.open(target.id, paths, script);
+      } finally {
+        working(null);
+      }
       // Already open in Photoshop with changes of its own: they'd be lost
       if (result && !result.ok && Array.isArray(result.unsaved) && result.unsaved.length) {
         const replace = await dialog({
@@ -12750,11 +12844,15 @@
         result = await Studio.open(target.id, paths, script, true);
       }
       if (!result || !result.ok) {
-        toast(fill(T("{app} could not be opened: {error}"), { app: target.name, error: (result && result.message) || "?" }), true);
+        again = await photoshopFailed(target, result && result.message);
         return;
       }
       if (result.scriptError) {
         toast(fill(T("The script could not be sent to TypeR: {error}"), { error: result.scriptError }), true);
+        return;
+      }
+      if (notPlaced) {
+        toast(notPlaced, true);
         return;
       }
       toast(opening.length === 1
@@ -12763,6 +12861,8 @@
     } finally {
       sendingToPhotoshop = false;
     }
+    // A Photoshop located after a failure: the same question again, with it
+    if (again) await openInPhotoshop();
   };
 
   const closeDoc = async (doc = app.doc) => {

@@ -186,7 +186,9 @@ const main = async () => {
   const sending = page.evaluate(() => window.TypeRApp.openInPhotoshop());
   await page.waitForSelector("#modal[open] select", { timeout: 5000 });
   const psAsked = await page.evaluate(() => Array.from(document.querySelectorAll("#modal[open] select")).map((select) => Array.from(select.options).map((option) => option.textContent)));
-  step("Open in Photoshop asks for this page or all of them, and which Photoshop", psAsked.length === 2 && psAsked[0].length === 2 && psAsked[1].length === 2, JSON.stringify(psAsked));
+  // Which Photoshop: the two found, then Locate Photoshop… where there is a Photoshop to locate
+  const canLocate = process.platform === "darwin" || process.platform === "win32";
+  step("Open in Photoshop asks for this page or all of them, and which Photoshop", psAsked.length === 2 && psAsked[0].length === 2 && psAsked[1].length === (canLocate ? 3 : 2), JSON.stringify(psAsked));
   await page.selectOption("#modal[open] select >> nth=0", "one");
   await page.selectOption("#modal[open] select >> nth=1", listed2[1].id);
   await page.click("#modal[open] .modal__foot .btn--main");
@@ -273,6 +275,138 @@ const main = async () => {
   });
   await waitDocs(page, 2);
   step("a PSD of a folder opened whole opens in Photoshop, with no folder to choose", !pickedFolder && sentFolder && sentFolder.files.length === 1 && fs.realpathSync(sentFolder.files[0]) === fs.realpathSync(path.join(folderPages, "01.psd")), JSON.stringify({ pickedFolder, sentFolder }));
+
+  /* -------------------------------- Locate Photoshop… -------------------------------- */
+  if (canLocate) {
+    // A Photoshop the search doesn't find, as a copy somewhere else would be, and a program that
+    // isn't Photoshop. The system's dialog answers what the test says.
+    const isMacHere = process.platform === "darwin";
+    const fakeApp = (bundle, id) => {
+      fs.mkdirSync(path.join(bundle, "Contents"), { recursive: true });
+      fs.writeFileSync(path.join(bundle, "Contents", "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${id}</string><key>CFBundleShortVersionString</key><string>27.1</string></dict></plist>
+`);
+    };
+    const portable = isMacHere ? path.join(WORK, "Elsewhere", "My Photoshop.app") : path.join(WORK, "PhotoshopPortable", "Photoshop.exe");
+    const other = isMacHere ? path.join(WORK, "Elsewhere", "Other.app") : path.join(WORK, "Elsewhere", "Other.exe");
+    const portableLabel = isMacHere ? "My Photoshop (27.1)" : "PhotoshopPortable";
+    if (isMacHere) {
+      fakeApp(portable, "com.adobe.Photoshop");
+      fakeApp(other, "com.example.other");
+    } else {
+      [portable, other].forEach((file) => {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, "MZ");
+      });
+    }
+    await run.app.evaluate(({ dialog, shell }) => {
+      process.env.TYPER_TEST_PHOTOSHOP = "[]";
+      global.typerPick = null;
+      dialog.showOpenDialog = async () => ({ canceled: !global.typerPick, filePaths: global.typerPick ? [global.typerPick] : [] });
+      global.typerShown = [];
+      shell.showItemInFolder = (file) => { global.typerShown.push(file); };
+    });
+    const pick = (file) => run.app.evaluate((_, given) => { global.typerPick = given; }, file);
+    const setEnding = (ending) => run.app.evaluate((_, given) => {
+      if (given) process.env.TYPER_TEST_PHOTOSHOP_EXIT = given;
+      else delete process.env.TYPER_TEST_PHOTOSHOP_EXIT;
+    }, ending);
+    const openedCount = () => run.app.evaluate(() => (global.typerPhotoshopOpened || []).length);
+    const modalButtons = () => page.evaluate(() => Array.from(document.querySelectorAll("#modal[open] .modal__foot .btn")).map((button) => button.textContent));
+    const clickButton = (text) => page.evaluate((wanted) => Array.from(document.querySelectorAll("#modal[open] .modal__foot .btn")).find((button) => button.textContent === window.TypeRApp.T(wanted)).click(), text);
+    // The interface's words, in the language the app is in
+    const says = {};
+    for (const text of ["No Photoshop was found on this computer.", "Locate Photoshop…", "Forget the Located Photoshop", "Show Log File"]) says[text] = await page.evaluate((english) => window.TypeRApp.T(english), text);
+    // The chooser: this page, in the Photoshop shown
+    const chooseThisPage = async () => {
+      await page.waitForSelector("#modal[open] select", { timeout: 5000 });
+      await page.selectOption("#modal[open] select >> nth=0", "one");
+      await page.click("#modal[open] .modal__foot .btn--main");
+    };
+    await page.evaluate(() => {
+      const { app } = window.TypeRPhotoshop;
+      window.TypeRPhotoshop.setActiveDoc(app.docs.find((one) => one.name === "page 2.psd"));
+    });
+
+    await pick(other);
+    const wrong = await page.evaluate(() => window.TypeRDesktop.photoshop.locate());
+    step("Locate Photoshop… refuses a program that isn't Photoshop", wrong && wrong.ok === false && wrong.notPhotoshop === true && !fs.existsSync(path.join(profile, "photoshop.json")), JSON.stringify(wrong));
+
+    // None found: the dialog offers Locate Photoshop…, then asks as usual, with the one picked
+    await pick(portable);
+    const sentBeforeLocate = await openedCount();
+    const locating = page.evaluate(() => window.TypeRApp.openInPhotoshop());
+    const noneAsked = await page.waitForFunction((found) => {
+      const modal = document.querySelector("#modal[open]");
+      return Boolean(modal && !modal.querySelector("select") && modal.textContent.includes(found));
+    }, says["No Photoshop was found on this computer."], { timeout: 5000 }).then(() => true, () => false);
+    const noneButtons = await modalButtons();
+    if (noneAsked) await page.click("#modal[open] .modal__foot .btn--main");
+    await page.waitForSelector("#modal[open] select", { timeout: 5000 });
+    const offered = await page.evaluate(() => Array.from(document.querySelectorAll("#modal[open] select")[1].options).map((option) => [option.value, option.textContent]));
+    const withLocated = await modalButtons();
+    await chooseThisPage();
+    await locating;
+    const listedLocated = await page.evaluate(() => window.TypeRDesktop.photoshop.list());
+    const sentLocated = await run.app.evaluate(() => (global.typerPhotoshopOpened || []).slice(-1)[0] || null);
+    step("with no Photoshop found, Locate Photoshop… adds the one picked, and the page opens in it", noneAsked && noneButtons.includes(says["Locate Photoshop…"]) && offered.length === 2 && offered[0][1] === portableLabel && offered[1][0] === "locate" && withLocated.includes(says["Forget the Located Photoshop"]) && listedLocated.length === 1 && listedLocated[0].located === true && (await openedCount()) === sentBeforeLocate + 1 && sentLocated.app === listedLocated[0].id, JSON.stringify({ noneButtons, offered, listedLocated, sentLocated }));
+
+    // A Photoshop that closes right after starting: said, with its reason, the log and Locate Photoshop…
+    await setEnding("3");
+    const sentBeforeFail = await openedCount();
+    const failing = page.evaluate(() => window.TypeRApp.openInPhotoshop());
+    await chooseThisPage();
+    const failedText = await page.waitForFunction(() => {
+      const modal = document.querySelector("#modal[open]");
+      return modal && !modal.querySelector("select") && modal.textContent.includes("exit code 3") ? modal.querySelector(".modal__body").textContent : null;
+    }, null, { timeout: 10000 }).then((handle) => handle.jsonValue(), () => null);
+    const failButtons = await modalButtons();
+    if (failedText) await clickButton("Show Log File");
+    await failing;
+    const shownLog = await run.app.evaluate(() => global.typerShown);
+    const logPath = path.join(profile, "logs", "main.log");
+    const logText = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "";
+    step("a Photoshop that closes right after starting is reported, not taken for opened", Boolean(failedText) && failButtons.includes(says["Locate Photoshop…"]) && failButtons.includes(says["Show Log File"]) && (await openedCount()) === sentBeforeFail, JSON.stringify({ failedText, failButtons }));
+    step("Show Log File shows the log, which says what failed", shownLog.length === 1 && shownLog[0] === logPath && /Open in Photoshop \((My Photoshop|PhotoshopPortable)\)/.test(logText) && /exit code 3/.test(logText) && /^.*TypeR Studio \d/m.test(logText), JSON.stringify({ shownLog, log: logText.split("\n").slice(-4) }));
+    // One that hands the pages to a Photoshop already open and leaves with 0, or that stays: opened
+    for (const ending of ["0", "stay"]) {
+      await setEnding(ending);
+      const sentBefore = await openedCount();
+      const opening = page.evaluate(() => window.TypeRApp.openInPhotoshop());
+      await chooseThisPage();
+      await opening;
+      const opened = await page.evaluate((name) => window.TypeRApp.T("Opening {name} in {app}…").replace("{name}", "page 2.psd").replace("{app}", name), isMacHere ? "My Photoshop" : "PhotoshopPortable");
+      const after = await page.evaluate(() => ({ modal: Boolean(document.querySelector("#modal[open]")), toast: document.getElementById("toast").textContent }));
+      step(`a Photoshop that ${ending === "0" ? "leaves at once with 0" : "keeps running"} is taken for opened`, !after.modal && after.toast === opened && (await openedCount()) === sentBefore + 1, JSON.stringify(after));
+    }
+    await setEnding(null);
+
+    // With Photoshops found too: the one located is listed with them, and can be forgotten
+    await run.app.evaluate((_, list) => { process.env.TYPER_TEST_PHOTOSHOP = list; }, JSON.stringify(photoshops));
+    const forgetting = page.evaluate(() => window.TypeRApp.openInPhotoshop());
+    await page.waitForSelector("#modal[open] select", { timeout: 5000 });
+    const allOffered = await page.evaluate(() => document.querySelectorAll("#modal[open] select")[1].options.length);
+    await clickButton("Forget the Located Photoshop");
+    const forgotten = await page.waitForFunction(() => {
+      const select = document.querySelectorAll("#modal[open] select")[1];
+      return Boolean(select && select.options.length === 3);
+    }, null, { timeout: 5000 }).then(() => true, () => false);
+    const afterForget = await modalButtons();
+    await clickButton("Cancel");
+    await forgetting;
+    const listedAfterForget = await page.evaluate(() => window.TypeRDesktop.photoshop.list());
+    step("Forget the Located Photoshop takes it off the list", allOffered === 4 && forgotten && !afterForget.includes(says["Forget the Located Photoshop"]) && listedAfterForget.length === 2 && !listedAfterForget.some((one) => one.located) && !fs.existsSync(path.join(profile, "photoshop.json")), JSON.stringify({ allOffered, afterForget, listedAfterForget }));
+
+    // Located again, then gone from the disk: gone from the list, and can't be opened
+    const again = await page.evaluate(() => window.TypeRDesktop.photoshop.locate());
+    fs.rmSync(isMacHere ? portable : path.dirname(portable), { recursive: true, force: true });
+    const listedGone = await page.evaluate(() => window.TypeRDesktop.photoshop.list());
+    const openGone = await page.evaluate((id) => window.TypeRDesktop.photoshop.open(id, []), again && again.id);
+    step("a located Photoshop no longer there is no longer listed", again && again.ok && again.list.length === 3 && listedGone.length === 2 && openGone.ok === false, JSON.stringify({ listedGone, openGone }));
+    await page.evaluate(() => window.TypeRDesktop.photoshop.forget());
+    await run.app.evaluate(() => { global.typerPick = null; });
+  }
 
   // The other process that the system starts when the app is already open
   const clean = { ...process.env };

@@ -744,6 +744,13 @@ const execText = (file, args) => new Promise((resolve) => {
 const exists = (file) => fs.promises.access(file).then(() => true, () => false);
 const childrenOf = (folder) => fs.promises.readdir(folder).catch(() => []);
 const PHOTOSHOP_ID = /^com\.adobe\.photoshop/i;
+// An app bundle, if it says it is Photoshop: { path, name, version }, or null
+const macPhotoshopAt = async (bundle) => {
+  const plist = path.join(bundle, "Contents", "Info.plist");
+  const value = async (key) => (await execText("/usr/bin/plutil", ["-extract", key, "raw", "-o", "-", plist])).trim();
+  if (!PHOTOSHOP_ID.test(await value("CFBundleIdentifier"))) return null;
+  return { path: bundle, name: path.basename(bundle).replace(/\.app$/i, ""), version: await value("CFBundleShortVersionString") };
+};
 const findMacPhotoshops = async () => {
   const bundles = [];
   for (const root of ["/Applications", path.join(app.getPath("home"), "Applications")]) {
@@ -757,31 +764,72 @@ const findMacPhotoshops = async () => {
     .filter((line) => /\.app$/i.test(line) && !line.includes("/.Trash/")).forEach((line) => bundles.push(line));
   const found = [];
   for (const bundle of bundles) {
-    const plist = path.join(bundle, "Contents", "Info.plist");
-    const value = async (key) => (await execText("/usr/bin/plutil", ["-extract", key, "raw", "-o", "-", plist])).trim();
-    if (!PHOTOSHOP_ID.test(await value("CFBundleIdentifier"))) continue;
-    found.push({ path: bundle, name: path.basename(bundle).replace(/\.app$/i, ""), version: await value("CFBundleShortVersionString") });
+    const one = await macPhotoshopAt(bundle);
+    if (one) found.push(one);
   }
   return found;
+};
+// Where Windows says Photoshop is: Adobe's own key, with ApplicationPath, in the 64-bit and
+// 32-bit (WOW6432Node) views and for this user, and the App Paths key Windows reads to start
+// Photoshop.exe by its name, for the machine and for this user. The queries run side by side.
+const PHOTOSHOP_KEYS = ["HKLM\\SOFTWARE\\Adobe\\Photoshop", "HKLM\\SOFTWARE\\WOW6432Node\\Adobe\\Photoshop", "HKCU\\SOFTWARE\\Adobe\\Photoshop"];
+const APP_PATHS_KEYS = ["HKLM", "HKCU"].map((root) => `${root}\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\Photoshop.exe`);
+const registryText = (line) => {
+  const match = /\sREG_(?:EXPAND_)?SZ\s+(.+?)\s*$/.exec(line);
+  return match ? match[1].replace(/^"(.*)"$/, "$1").replace(/%([^%]+)%/g, (all, name) => process.env[name] || all) : null;
+};
+const windowsPhotoshopAt = async (exe) => {
+  if (path.win32.basename(exe).toLowerCase() !== "photoshop.exe") return null;
+  const stat = await fs.promises.stat(exe).catch(() => null);
+  return stat && stat.isFile() ? { path: exe, name: path.win32.basename(path.win32.dirname(exe)), version: "" } : null;
 };
 const findWindowsPhotoshops = async () => {
-  const folders = [];
-  const listed = await execText("reg", ["query", "HKLM\\SOFTWARE\\Adobe\\Photoshop", "/s", "/v", "ApplicationPath"]);
-  listed.split(/\r?\n/).forEach((line) => {
-    const match = /^\s*ApplicationPath\s+REG_SZ\s+(.+?)\s*$/.exec(line);
-    if (match) folders.push(match[1]);
+  const exes = [];
+  const [adobe, appPaths] = await Promise.all([
+    Promise.all(PHOTOSHOP_KEYS.map((key) => execText("reg", ["query", key, "/s", "/v", "ApplicationPath"]))),
+    Promise.all(APP_PATHS_KEYS.map((key) => execText("reg", ["query", key, "/ve"]))),
+  ]);
+  adobe.join("\n").split(/\r?\n/).forEach((line) => {
+    const folder = /^\s*ApplicationPath\s/i.test(line) && registryText(line);
+    if (folder) exes.push(path.win32.join(folder, "Photoshop.exe"));
   });
-  for (const programs of [process.env.ProgramW6432, process.env.ProgramFiles].filter(Boolean)) {
-    const adobe = path.join(programs, "Adobe");
-    (await childrenOf(adobe)).filter((name) => /^Adobe Photoshop/i.test(name)).forEach((name) => folders.push(path.join(adobe, name)));
+  // The default value, the whole path to the program; its name, "(Default)", is in the system's language
+  appPaths.join("\n").split(/\r?\n/).forEach((line) => {
+    const exe = registryText(line);
+    if (exe && path.win32.isAbsolute(exe)) exes.push(exe);
+  });
+  for (const programs of [process.env.ProgramW6432, process.env.ProgramFiles, process.env["ProgramFiles(x86)"]].filter(Boolean)) {
+    const folder = path.join(programs, "Adobe");
+    (await childrenOf(folder)).filter((name) => /^Adobe Photoshop/i.test(name)).forEach((name) => exes.push(path.join(folder, name, "Photoshop.exe")));
   }
   const found = [];
-  for (const folder of folders) {
-    const exe = path.join(folder, "Photoshop.exe");
-    if (await exists(exe)) found.push({ path: exe, name: path.basename(folder.replace(/[\\/]+$/, "")), version: "" });
+  for (const exe of exes) {
+    const one = await windowsPhotoshopAt(exe);
+    if (one) found.push(one);
   }
   return found;
 };
+
+// Locate Photoshop…: one the user points at in the system's dialog, when none is found or not
+// the right one. Kept in userData, and listed with the others while it's still Photoshop and
+// there. Only that dialog sets it: the page never gives a path.
+const canLocate = isMac || process.platform === "win32";
+const locatedFile = () => path.join(app.getPath("userData"), "photoshop.json");
+const readLocated = async () => {
+  try {
+    const value = JSON.parse(await fs.promises.readFile(locatedFile(), "utf8"));
+    return value && typeof value.path === "string" && path.isAbsolute(value.path) ? value.path : null;
+  } catch (error) {
+    return null;
+  }
+};
+// The Photoshop at a place the user gave, checked as the search does, or null
+const photoshopAt = async (place) => {
+  if (isMac) return /\.app$/i.test(place) ? macPhotoshopAt(place) : null;
+  if (process.platform === "win32") return windowsPhotoshopAt(place);
+  return null;
+};
+
 const findPhotoshops = async () => {
   let found = [];
   if (process.env.TYPER_TEST_PHOTOSHOP) found = JSON.parse(process.env.TYPER_TEST_PHOTOSHOP);
@@ -789,21 +837,65 @@ const findPhotoshops = async () => {
   else if (isTest) found = [];
   else if (isMac) found = await findMacPhotoshops();
   else if (process.platform === "win32") found = await findWindowsPhotoshops();
+  // The one the user located comes first, so that it's the one kept when the search finds it too
+  const located = canLocate ? await readLocated() : null;
+  const mine = located ? await photoshopAt(located) : null;
+  if (located && !mine) console.warn("Locate Photoshop: the Photoshop located is no longer there, or no longer Photoshop");
+  if (mine) found = [{ ...mine, located: true }, ...found];
   const byPlace = new Map();
   for (const one of found) {
     let place = one.path;
     try {
       place = await fs.promises.realpath(one.path);
     } catch (error) {}
-    if (!byPlace.has(place.toLowerCase())) byPlace.set(place.toLowerCase(), { id: place, name: one.name, version: one.version || "" });
+    if (!byPlace.has(place.toLowerCase())) byPlace.set(place.toLowerCase(), { id: place, name: one.name, version: one.version || "", located: one.located === true });
   }
   if (!byPlace.size) console.warn(`Finding Photoshop: none found (${process.platform})`);
   const order = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   return [...byPlace.values()].sort((a, b) => order.compare(b.name, a.name));
 };
 
+// Starts a program, and says whether it did: a Photoshop already open takes the files from the
+// one started here, which then leaves at once with 0. One that leaves within a moment with any
+// other code, or can't start at all, failed, and the error says how.
+const LAUNCH_WATCH = 2500;
+const exitText = (code, signal) => {
+  if (signal) return signal;
+  // Windows's own errors (0xC0000135: a DLL missing) read as their hexadecimal code
+  return code > 255 || code < 0 ? `0x${(code >>> 0).toString(16).toUpperCase()}` : String(code);
+};
+const watchLaunch = (file, args, env) => new Promise((resolve, reject) => {
+  const { spawn } = require("child_process");
+  let child;
+  let timer = null;
+  let settled = false;
+  const settle = (error) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    if (child) child.unref();
+    if (error) reject(error);
+    else resolve();
+  };
+  try {
+    child = spawn(file, args, { detached: true, stdio: "ignore", ...(env ? { env: { ...process.env, ...env } } : {}) });
+  } catch (error) {
+    settle(error);
+    return;
+  }
+  child.once("error", (error) => settle(new Error(`Photoshop could not start (${error.code || error.message}).`)));
+  child.once("exit", (code, signal) => settle(code === 0 ? null : new Error(`Photoshop closed right after starting (exit code ${exitText(code, signal)}).`)));
+  child.once("spawn", () => { timer = setTimeout(() => settle(null), LAUNCH_WATCH); });
+});
+
 const openInPhotoshop = async (target, files) => {
   if (isTest) {
+    // How a start ends, on a stand-in the test gives the exit code of ("stay": still running)
+    const ending = process.env.TYPER_TEST_PHOTOSHOP_EXIT;
+    if (ending) {
+      const code = ending === "stay" ? "setTimeout(() => {}, 4000)" : `process.exit(${Number(ending) || 0})`;
+      await watchLaunch(process.execPath, ["-e", code], { ELECTRON_RUN_AS_NODE: "1" });
+    }
     global.typerPhotoshopOpened = (global.typerPhotoshopOpened || []).concat([{ app: target.id, files }]);
     return;
   }
@@ -814,16 +906,8 @@ const openInPhotoshop = async (target, files) => {
     });
     return;
   }
-  // A Photoshop already open takes the files from the one started here
-  const { spawn } = require("child_process");
-  await new Promise((resolve, reject) => {
-    const child = spawn(target.id, files, { detached: true, stdio: "ignore" });
-    child.once("error", reject);
-    child.once("spawn", () => {
-      child.unref();
-      resolve();
-    });
-  });
+  if (process.platform !== "win32") throw new Error("Photoshop can't be opened from here on this system.");
+  await watchLaunch(target.id, files);
 };
 
 // A document Photoshop already has open only comes to the front when its file is opened again,
@@ -941,9 +1025,13 @@ ipcMain.handle("photoshop-list", async (event) => {
 });
 ipcMain.handle("photoshop-open", async (event, id, paths, script, replace) => {
   if (!fromPage(event)) return { ok: false, message: "Not allowed." };
+  let target = null;
   try {
-    const target = (await findPhotoshops()).find((one) => one.id === id);
-    if (!target) return { ok: false, message: "This Photoshop is no longer on this computer." };
+    target = (await findPhotoshops()).find((one) => one.id === id);
+    if (!target) {
+      console.warn("Open in Photoshop: this Photoshop is no longer on this computer");
+      return { ok: false, message: "This Photoshop is no longer on this computer." };
+    }
     const files = [];
     for (const file of Array.isArray(paths) ? paths : []) {
       if (typeof file === "string" && knownPaths.has(file) && /\.ps[db]$/i.test(file) && (await exists(file)) && !files.includes(file)) files.push(file);
@@ -969,8 +1057,48 @@ ipcMain.handle("photoshop-open", async (event, id, paths, script, replace) => {
     for (const file of files) lastSent.set(file, await modifiedAt(file));
     return { ok: true, count: files.length, scriptError };
   } catch (error) {
-    console.warn("Open in Photoshop:", error);
+    console.warn(`Open in Photoshop (${target ? target.name : "?"}):`, error);
     return { ok: false, message: String(error.message || error).slice(0, 300) };
+  }
+});
+// The system's dialog, for the Photoshop to use: { ok, id, list } with the Photoshops then, the
+// one picked among them, or { ok: false } and canceled, notPhotoshop or a message
+let locating = false;
+ipcMain.handle("photoshop-locate", async (event) => {
+  if (!fromPage(event) || !canLocate || locating) return { ok: false, canceled: true };
+  locating = true;
+  try {
+    const title = strings.locatePhotoshop || "Locate Photoshop";
+    const picked = await dialog.showOpenDialog(win, isMac
+      ? { title, message: title, defaultPath: "/Applications", properties: ["openFile"], filters: [{ name: "Photoshop", extensions: ["app"] }] }
+      : { title, defaultPath: process.env.ProgramFiles || undefined, properties: ["openFile", "dontAddToRecent"], filters: [{ name: "Photoshop.exe", extensions: ["exe"] }] });
+    if (!picked || picked.canceled || !picked.filePaths || !picked.filePaths.length) return { ok: false, canceled: true };
+    const place = picked.filePaths[0];
+    if (!(await photoshopAt(place))) {
+      console.warn(`Locate Photoshop: ${path.basename(place)} is not Photoshop`);
+      return { ok: false, notPhotoshop: true };
+    }
+    await fs.promises.mkdir(path.dirname(locatedFile()), { recursive: true });
+    await fs.promises.writeFile(locatedFile(), JSON.stringify({ path: place }), "utf8");
+    const list = await findPhotoshops();
+    const mine = list.find((one) => one.located);
+    return { ok: true, id: mine ? mine.id : null, list };
+  } catch (error) {
+    console.warn("Locate Photoshop:", error);
+    return { ok: false, message: String(error.message || error).slice(0, 300) };
+  } finally {
+    locating = false;
+  }
+});
+// The Photoshop located is forgotten: the Photoshops then
+ipcMain.handle("photoshop-forget", async (event) => {
+  if (!fromPage(event)) return [];
+  try {
+    await fs.promises.rm(locatedFile(), { force: true });
+    return await findPhotoshops();
+  } catch (error) {
+    console.warn("Forget Photoshop:", error);
+    return [];
   }
 });
 // Help > Show Log File: the log, shown in the Finder or the Explorer

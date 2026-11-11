@@ -2,7 +2,8 @@
 // the same pickers and handles as in a browser, so a download from the site can do no more here.
 // The exceptions: reading, never writing, the Photoshop plugin's settings files, at fixed places,
 // installing a font file in the user's own font folder, as the plugin's Font FindeR does, and
-// opening in Photoshop the PSD files the page already holds.
+// opening in Photoshop the PSD files the page already holds, in the Photoshop found or the one the
+// user picked in the system's own dialog.
 
 const { contextBridge, ipcRenderer, webFrame } = require("electron");
 
@@ -45,6 +46,12 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
     sendsScript: true,
     whereStart: (name, directory) => ipcRenderer.invoke("where-start", name, directory),
     whereEnd: (token) => ipcRenderer.invoke("where-end", token),
+    // Locate Photoshop…: the system's dialog, where the user picks the Photoshop to use, kept by
+    // the app; forget lets it go. The page gives no path. Not on Linux, which has no Photoshop.
+    ...(process.platform === "darwin" || process.platform === "win32" ? {
+      locate: () => ipcRenderer.invoke("photoshop-locate"),
+      forget: () => ipcRenderer.invoke("photoshop-forget"),
+    } : {}),
   },
   // Help > Show Log File: the app's log, shown in the Finder or the Explorer
   showLog: () => ipcRenderer.invoke("show-log"),
