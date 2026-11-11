@@ -3387,8 +3387,11 @@
     const style = layer ? styleShown(layer) : null;
     const paragraph = layer ? layer.params.layerText.paragraphStyleRange[0].paragraphStyle : {};
     const d = app.textDefaults;
-    const currentFamily = style ? style.fontName : d.family;
     const currentPs = style ? style.fontPostScriptName : d.font;
+    // The family the font list files the font under, when it knows it: a PSD's text only
+    // knows its font by its PostScript name
+    const known = Fonts.get(currentPs);
+    const currentFamily = (known && !known.guessed && known.family) || (style ? style.fontName : d.family);
     const family = document.createElement("button");
     family.type = "button";
     family.className = "font-field obar__wide";
@@ -3414,13 +3417,15 @@
       option.textContent = face.style;
       faces.appendChild(option);
     });
-    if (!faces.options.length) {
+    // The text's own face is always there and shown, even when the family's list doesn't have
+    // it (a missing font, or a family only partly known)
+    if (!Array.from(faces.options).some((option) => option.value === currentPs)) {
       const option = document.createElement("option");
       option.value = currentPs || "";
-      option.textContent = style ? style.fontStyleName || "Regular" : d.style;
+      option.textContent = (known && !known.guessed && known.style) || (style ? style.fontStyleName || "Regular" : d.style);
       faces.appendChild(option);
     }
-    faces.value = currentPs;
+    faces.value = currentPs || "";
     faces.addEventListener("change", () => {
       const face = Fonts.get(faces.value);
       if (!face) return;

@@ -40,11 +40,26 @@
   const cssNameOf = (ps) => "TR-" + String(ps).replace(/[^\w-]/g, "_");
   const quote = (name) => `"${String(name).replace(/["\\]/g, "")}"`;
 
-  // A font known by name but not loaded yet: the browser looks it up on the computer
-  const ensure = (ps, fullName) => {
+  // A font found on the computer by its PostScript name alone has no family of its own: it's
+  // filed under that name (guessed), until a text style or the computer's list of fonts says
+  // which family and style it is. Without that, the Font style list can't find it in its family.
+  const realName = (family, ps) => Boolean(family) && family !== ps;
+  const nameFont = (ps, family, style) => {
+    const known = fonts.get(ps);
+    if (!known || !known.guessed || !realName(family, ps)) return false;
+    put(ps, Object.assign({}, known, { family, style: style || "Regular", guessed: false }));
+    return true;
+  };
+
+  // A font known by name but not loaded yet: the browser looks it up on the computer.
+  // family and style: what a text style calls it, when it says.
+  const ensure = (ps, fullName, family, style) => {
     if (!ps) return Promise.resolve(false);
     const known = fonts.get(ps);
-    if (known && known.ready) return Promise.resolve(true);
+    if (known && known.ready) {
+      if (nameFont(ps, family, style)) changed();
+      return Promise.resolve(true);
+    }
     if (sameFont(ps)) return Promise.resolve(true);
     if (pending.has(ps)) return pending.get(ps);
     const stored = known && known.source === "file" ? known : storedFont(ps, fullName);
@@ -56,7 +71,8 @@
     const face = new FontFace(css, src);
     const promise = face.load().then(() => {
       document.fonts.add(face);
-      put(ps, Object.assign({ name: fullName || ps, postScriptName: ps, family: ps, style: "Regular", source: "local", weight: 400, italic: false }, known, { css, src, ready: true }));
+      const named = realName(family, ps);
+      put(ps, Object.assign({ name: fullName || ps, postScriptName: ps, family: named ? family : ps, style: (named && style) || "Regular", guessed: !named && !known, source: "local", weight: 400, italic: false }, known, { css, src, ready: true }));
       missing.delete(ps);
       pending.delete(ps);
       changed();
@@ -158,7 +174,15 @@
   const resolve = (textStyle) => {
     const ps = textStyle.fontPostScriptName;
     const known = ps && fonts.get(ps);
-    if (known && known.ready) return known;
+    if (known && known.ready) {
+      // Loaded by its name alone (a style's text, before it was drawn): its text style knows
+      // its family. Said after the drawing, which the change starts again.
+      if (known.guessed && nameFont(ps, textStyle.fontName, textStyle.fontStyleName)) {
+        queueMicrotask(changed);
+        return fonts.get(ps);
+      }
+      return known;
+    }
     if (resolvedVersion !== version) {
       resolved.clear();
       resolvedVersion = version;
@@ -170,7 +194,7 @@
     if (!found) {
       const stored = storedFont(ps, textStyle.fontName, textStyle.fontStyleName);
       if (stored) loadStored(stored.postScriptName);
-      else if (ps) ensure(ps, textStyle.fontName);
+      else if (ps) ensure(ps, textStyle.fontName, textStyle.fontName, textStyle.fontStyleName);
       const { ready } = indexOf();
       const name = textStyle.fontName || "";
       const byName = textStyle.fontStyleName ? ready.exact.get(`${name}\u0000${textStyle.fontStyleName}`) : ready.family.get(name);
@@ -241,7 +265,17 @@
     let added = 0;
     entries.forEach((entry) => {
       const ps = entry.postscriptName;
-      if (!ps || fonts.has(ps)) return;
+      if (!ps) return;
+      const known = fonts.get(ps);
+      if (known) {
+        // Loaded by its name before the list was read: it takes the family and style the
+        // computer gives it, and stays loaded
+        if (known.source === "local" && entry.family && (known.family !== entry.family || known.style !== (entry.style || "Regular") || known.guessed)) {
+          put(ps, Object.assign({}, known, { name: entry.fullName || known.name, family: entry.family, style: entry.style || "Regular", guessed: false }));
+          added++;
+        }
+        return;
+      }
       put(ps, { name: entry.fullName || ps, postScriptName: ps, family: entry.family || ps, style: entry.style || "Regular", source: "local", css: cssNameOf(ps), weight: 400, italic: false, ready: false });
       added++;
     });
