@@ -87,6 +87,18 @@
     render();
     shortcuts();
   };
+  // An action's keys: any the user gave it (`keys`), else the function key of a Photoshop file
+  const keysOf = (action) => {
+    if (typeof action.keys === "string") return action.keys;
+    if (!action.index) return "";
+    return [action.shiftKey ? "Shift" : "", action.commandKey ? "Cmd" : "", `F${action.index}`].filter(Boolean).join("+");
+  };
+  // A .atn only knows F1 to F15, with Shift and Cmd (Ctrl): other keys stay TypeR's alone
+  const giveKeys = (action, keys) => {
+    const fn = /^(Shift\+)?(Cmd\+)?F(\d{1,2})$/.exec(keys || "");
+    const index = fn && Number(fn[3]) >= 1 && Number(fn[3]) <= 15 ? Number(fn[3]) : 0;
+    Object.assign(action, { keys: keys || "", index, shiftKey: Boolean(index && fn[1]), commandKey: Boolean(index && fn[2]) });
+  };
 
   /* ------------------------------ what a step says ------------------------------ */
 
@@ -1665,14 +1677,7 @@
       render();
     });
   };
-  const keyText = (action) => {
-    if (!action.index) return "";
-    const parts = [];
-    if (action.shiftKey) parts.push("Shift");
-    if (action.commandKey) parts.push("Cmd");
-    parts.push(`F${action.index}`);
-    return host.keyLabel(parts.join("+"));
-  };
+  const keyText = (action) => host.keyLabel(keysOf(action));
   // A name typed in place, from a double click
   const rename = (row, thing) => {
     const label = row.querySelector(".actions__name");
@@ -1934,30 +1939,34 @@
     changed();
     return set;
   };
-  // New Action: its name, its set, its function key; then it records, as in Photoshop
-  const FUNCTION_KEYS = [["0", T("None")], ...Array.from({ length: 12 }, (_, n) => [String(n + 1), `F${n + 1}`])];
+  // New Action: its name, its set, its shortcut, any keys as in Keyboard Shortcuts (a shortcut
+  // that had them loses them); then it records, as in Photoshop
   const actionOptions = async (title, action, ok) => {
     if (!sets.length) sets.push(ATN.file(fill(T("Set {n}"), { n: 1 }), []));
     const current = action ? setOfAction(action) : chosenSet() || sets[0];
+    const keys = host.keysField(action ? keysOf(action) : "", (item) => Boolean(action) && item.target === action);
     const values = await A.dialog({
       title,
       ok,
       fields: [
         { id: "name", label: T("Name"), value: action ? ATN.displayName(action.name) : numbered("Action {n}", current.actions.map((one) => one.name)) },
         { id: "set", label: TL("Actions:Set", "Set"), value: String(sets.indexOf(current)), options: sets.map((set, at) => [String(at), ATN.displayName(set.name)]) },
-        { id: "key", label: T("Function Key"), value: String(action ? action.index || 0 : 0), options: FUNCTION_KEYS },
-        { id: "shift", label: "Shift", type: "checkbox", checked: Boolean(action && action.shiftKey) },
-        { id: "command", label: host.keyLabel("Cmd+").replace(/\+$/, "") || "Cmd", type: "checkbox", checked: Boolean(action && action.commandKey) },
       ],
+      ready: (inputs) => {
+        inputs.set.closest("label").after(...keys.nodes);
+        keys.listen();
+      },
     });
     if (!values || !values.name.trim()) return null;
-    return { name: values.name.trim(), set: sets[Number(values.set)] || current, index: Number(values.key) || 0, shiftKey: Boolean(values.shift), commandKey: Boolean(values.command) };
+    return { name: values.name.trim(), set: sets[Number(values.set)] || current, keys: keys.keys(), take: keys.take };
   };
   const newAction = async () => {
     if (running || recorder.on) return null;
     const answer = await actionOptions(T("New Action"), null, T("Record"));
     if (!answer) return null;
-    const action = ATN.action(answer.name, [], { index: answer.index, shiftKey: answer.shiftKey, commandKey: answer.commandKey, expanded: true });
+    answer.take();
+    const action = ATN.action(answer.name, [], { expanded: true });
+    giveKeys(action, answer.keys);
     const at = selection.action && setOfAction(selection.action) === answer.set ? answer.set.actions.indexOf(selection.action) + 1 : answer.set.actions.length;
     answer.set.actions.splice(at, 0, action);
     answer.set.expanded = true;
@@ -1970,7 +1979,9 @@
     if (!action) return;
     const answer = await actionOptions(T("Action Options"), action, "OK");
     if (!answer) return;
-    Object.assign(action, { name: answer.name, index: answer.index, shiftKey: answer.shiftKey, commandKey: answer.commandKey });
+    answer.take();
+    action.name = answer.name;
+    if (answer.keys !== keysOf(action)) giveKeys(action, answer.keys);
     const from = setOfAction(action);
     if (from !== answer.set) {
       from.actions.splice(from.actions.indexOf(action), 1);
@@ -1986,7 +1997,7 @@
       choose({ step: copy });
     } else if (selection.action) {
       const set = setOfAction(selection.action);
-      const copy = Object.assign(clone(selection.action), { name: `${ATN.displayName(selection.action.name)} ${T("copy")}`, index: 0 });
+      const copy = Object.assign(clone(selection.action), { name: `${ATN.displayName(selection.action.name)} ${T("copy")}`, keys: "", index: 0, shiftKey: false, commandKey: false });
       set.actions.splice(set.actions.indexOf(selection.action) + 1, 0, copy);
       choose({ action: copy });
     } else if (selection.set) {
@@ -2093,13 +2104,18 @@
 
   /* -------------------------------- shortcuts -------------------------------- */
 
-  // Each action in Keyboard Shortcuts and Edit > Search; its function key plays it
+  // Each action in Keyboard Shortcuts and Edit > Search, where its keys can be changed too; its
+  // keys play it
   const shortcuts = () => {
     const items = [];
     sets.forEach((set) => set.actions.forEach((action) => {
       const name = ATN.displayName(action.name);
-      const keys = action.index ? [action.shiftKey ? "Shift" : "", action.commandKey ? "Cmd" : "", `F${action.index}`].filter(Boolean).join("+") : "";
-      items.push({ id: `${ATN.displayName(set.name)}/${name}`, label: name, title: () => `${name} (${ATN.displayName(set.name)})`, keys, enabled: () => Boolean(app.doc) && !running && !recorder.on, action: () => playAction(action) });
+      const setKeys = (keys) => {
+        if (keys === keysOf(action)) return;
+        giveKeys(action, keys);
+        changed();
+      };
+      items.push({ id: `${ATN.displayName(set.name)}/${name}`, label: name, title: () => `${name} (${ATN.displayName(set.name)})`, keys: keysOf(action), target: action, setKeys, enabled: () => Boolean(app.doc) && !running && !recorder.on, action: () => playAction(action) });
     }));
     host.setActionItems(items);
   };

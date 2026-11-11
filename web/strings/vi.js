@@ -332,7 +332,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Set {n}": "Bộ {n}",
     "Action {n}": "Thao tác {n}",
     "Actions:Set": "Bộ",
-    "Function Key": "Phím chức năng",
+    "Shortcut": "Phím tắt",
     "New Action": "Thao tác mới",
     "Record": "Ghi",
     "Action Options": "Tùy chọn thao tác",

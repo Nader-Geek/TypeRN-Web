@@ -16015,8 +16015,9 @@
   // A submenu's items take their place in their menu's group, named after it too
   const menuGroupItems = (items) => items.filter(Boolean).flatMap((item) => (item.submenu ? item.submenu.filter(Boolean).map((sub) => Object.assign(sub, { parent: item })) : [item]));
   // The TypeR menu's keys are TypeR's own, set in its settings: not here too
-  // The user's own actions (Actions panel), each with its function key if it has one: filled
-  // by setActionItems as the actions change
+  // The user's own actions (Actions panel), each with its keys if it has some: filled by
+  // setActionItems as the actions change. Their keys are the action's own (item.setKeys), kept
+  // with it, never in customShortcuts.
   const ACTION_ITEMS = [];
   const SHORTCUT_GROUPS = [["Tools", TOOL_ITEMS], ...MENUS.filter(([name]) => name !== "TypeR").map(([name, items]) => [name, menuGroupItems(items)]), ["Colours and brush", MORE_ITEMS], ["Layers and text", LAYER_AND_TEXT_ITEMS], ["Actions", ACTION_ITEMS], ["Mouse", MOUSE_ITEMS]];
   const SHORTCUTS = SHORTCUT_GROUPS.flatMap(([group, items]) => items.map((item) => ({ id: `${group}:${item.id || item.label}`, group, item, keys: item.keys || "", alias: item.alias })));
@@ -16034,6 +16035,8 @@
     "Layers and text:Increase text size", "Layers and text:Decrease text size", "Layers and text:One line less", "Layers and text:One line more",
     "Mouse:Left click", "Mouse:Right click",
   ]);
+  // The actions too: the user made them, they come first
+  const featuredShortcut = (one) => one.group === "Actions" || FEATURED_SHORTCUTS.has(one.id);
   const STORE_MORE_SHORTCUTS = "typer.web.shortcutsMore";
   const shortcutName = (item) => (item.parent ? `${T(item.parent.label)} › ${T(item.label)}` : T(item.label));
   const STORE_SHORTCUTS = "typer.web.shortcuts";
@@ -16044,17 +16047,25 @@
   } catch (error) {
     console.warn("TypeR web: could not read the shortcuts", error);
   }
+  const storeShortcuts = () => {
+    try {
+      window.localStorage.setItem(STORE_SHORTCUTS, JSON.stringify(customShortcuts));
+    } catch (error) {
+      console.warn("TypeR web: could not keep the shortcuts", error);
+    }
+  };
   const toolTitle = (name, key) => (key ? `${T(name)} (${keyLabel(key)})` : T(name));
   const applyShortcuts = () => {
     SHORTCUTS.forEach(({ id, item, keys, alias }) => {
-      const mine = typeof customShortcuts[id] === "string";
+      const mine = !item.setKeys && typeof customShortcuts[id] === "string";
       item.keys = mine ? customShortcuts[id] : keys;
       item.alias = mine ? undefined : alias;
       if (item.entry) item.entry[2] = item.keys;
     });
   };
   const allShortcuts = () => SHORTCUTS.map(({ item }) => item).filter((item) => item.keys && item.mouse === undefined);
-  // The actions as shortcuts, Keyboard Shortcuts and Edit > Search: { id, label, keys, action }
+  // The actions as shortcuts, Keyboard Shortcuts and Edit > Search: { id, label, keys, action,
+  // target (the action), setKeys }
   const setActionItems = (items) => {
     for (let at = SHORTCUTS.length - 1; at >= 0; at--) if (SHORTCUTS[at].group === "Actions") SHORTCUTS.splice(at, 1);
     ACTION_ITEMS.length = 0;
@@ -16063,6 +16074,12 @@
       SHORTCUTS.push({ id: `Actions:${item.id}`, group: "Actions", item, keys: item.keys || "", alias: undefined });
     });
     applyShortcuts();
+    // Keys given to an action in Keyboard Shortcuts before the actions kept their own: now its own
+    const given = items.filter((item) => item.setKeys && typeof customShortcuts[`Actions:${item.id}`] === "string").map((item) => [item, customShortcuts[`Actions:${item.id}`]]);
+    if (!given.length) return;
+    given.forEach(([item]) => delete customShortcuts[`Actions:${item.id}`]);
+    storeShortcuts();
+    given.forEach(([item, keys]) => item.setKeys(keys));
   };
   // The id a command is known by in the shortcuts, which the Actions panel records it by
   const commandIdOf = (item) => {
@@ -16169,7 +16186,7 @@
         more.className = "sk__more";
         more.open = moreOpen;
         const summary = make("summary", "sk__more-head", more, T("Other shortcuts"));
-        make("span", "sk__more-count", summary, String(SHORTCUTS.filter((one) => !FEATURED_SHORTCUTS.has(one.id)).length));
+        make("span", "sk__more-count", summary, String(SHORTCUTS.filter((one) => !featuredShortcut(one)).length));
         more.addEventListener("toggle", () => {
           moreOpen = more.open;
           try {
@@ -16182,7 +16199,7 @@
       const moreBody = more ? make("div", "sk__more-body", more) : null;
       const placeOf = (featured) => (more && !featured ? moreBody : list);
       [true, false].forEach((featured) => SHORTCUT_GROUPS.forEach(([group]) => {
-        const rows = SHORTCUTS.filter((one) => one.group === group && (words ? shortcutName(one.item).toLowerCase().includes(words) || valueOf(one).toLowerCase().includes(words) : FEATURED_SHORTCUTS.has(one.id) === featured));
+        const rows = SHORTCUTS.filter((one) => one.group === group && (words ? shortcutName(one.item).toLowerCase().includes(words) || valueOf(one).toLowerCase().includes(words) : featuredShortcut(one) === featured));
         if (!rows.length || (words && !featured)) return;
         const host = placeOf(featured);
         make("div", "sk__group", host, T(group));
@@ -16361,17 +16378,135 @@
       stopRecording,
       save: () => {
         customShortcuts = {};
+        // An action's keys go to the action, once the rest is kept
+        const given = [];
         SHORTCUTS.forEach((one) => {
-          if (typeof draft[one.id] === "string" && draft[one.id] !== one.keys) customShortcuts[one.id] = draft[one.id];
+          if (typeof draft[one.id] !== "string" || draft[one.id] === one.keys) return;
+          if (one.item.setKeys) given.push([one.item, draft[one.id]]);
+          else customShortcuts[one.id] = draft[one.id];
         });
-        try {
-          window.localStorage.setItem(STORE_SHORTCUTS, JSON.stringify(customShortcuts));
-        } catch (error) {
-          console.warn("TypeR web: could not keep the shortcuts", error);
-        }
+        storeShortcuts();
         applyShortcuts();
         buildMenus();
         renderToolSlots();
+        given.forEach(([item, keys]) => item.setKeys(keys));
+      },
+    };
+  };
+
+  // The keys of one thing, in its own dialog (an action's): click, press them. What has them
+  // already is said as they're pressed, and loses them on OK (take). `self(item)` is the thing's
+  // own shortcut, which keeps them.
+  const keysField = (keys, self) => {
+    let value = keys || "";
+    let recording = false;
+    const row = document.createElement("label");
+    row.className = "keys-field";
+    const name = document.createElement("span");
+    name.textContent = T("Shortcut");
+    const box = document.createElement("span");
+    box.className = "keys-field__box";
+    const field = document.createElement("button");
+    field.type = "button";
+    field.className = "sk__field";
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "sk__act";
+    clear.textContent = "×";
+    clear.title = T("Clear");
+    clear.setAttribute("aria-label", T("Clear"));
+    box.append(field, clear);
+    row.append(name, box);
+    const note = document.createElement("p");
+    note.className = "sk__note keys-field__note";
+    note.hidden = true;
+    const say = (text) => {
+      note.textContent = text || "";
+      note.hidden = !text;
+    };
+    const others = (combo) => SHORTCUTS.filter((one) => combo && one.item.keys === combo && !self(one.item));
+    const render = () => {
+      field.textContent = "";
+      field.classList.toggle("is-recording", recording);
+      clear.disabled = !value || recording;
+      if (recording) field.textContent = T("Press the keys…");
+      else if (!value) {
+        const none = document.createElement("span");
+        none.className = "sk__none";
+        none.textContent = T("Not set");
+        field.appendChild(none);
+      } else keyCaps(value).forEach((cap, index) => {
+        if (index) {
+          const plus = document.createElement("span");
+          plus.className = "sk__plus";
+          plus.textContent = "+";
+          field.appendChild(plus);
+        }
+        const kbd = document.createElement("kbd");
+        kbd.className = "sk__cap";
+        kbd.textContent = cap;
+        field.appendChild(kbd);
+      });
+    };
+    const stop = () => {
+      recording = false;
+      render();
+    };
+    field.addEventListener("click", (event) => {
+      event.preventDefault();
+      recording = !recording;
+      if (recording) say("");
+      render();
+      field.focus();
+    });
+    clear.addEventListener("click", (event) => {
+      event.preventDefault();
+      value = "";
+      say("");
+      render();
+    });
+    render();
+    return {
+      nodes: [row, note],
+      // From the dialog's ready: dialog() starts clean
+      listen: () => {
+        ui.modal.onkeydown = (event) => {
+          if (!recording) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.key === "Escape") return stop();
+          if (RESERVED_KEYS.test(event.key)) {
+            say(T("This key is reserved."));
+            return stop();
+          }
+          const combo = comboOf(event);
+          if (!combo) return;
+          value = combo;
+          const said = others(combo).map((one) => fill(T("Taken from {name}."), { name: shortcutName(one.item) }));
+          typerShortcutsOn(combo).forEach((one) => said.push(fill(T("TypeR uses these keys for {name}: TypeR's command runs."), { name: typerShortcutName(one.id) })));
+          if (!DESKTOP && BROWSER_KEEPS.has(combo)) said.push(T("The browser keeps this shortcut in a tab: it may not work there."));
+          say(said.join(" "));
+          stop();
+        };
+        ui.modal.onpointerdown = (event) => {
+          if (recording && event.target !== field && !field.contains(event.target)) stop();
+        };
+      },
+      keys: () => value,
+      take: () => {
+        const taken = others(value);
+        if (!taken.length) return;
+        const actions = taken.filter((one) => one.item.setKeys);
+        if (actions.length < taken.length) {
+          taken.forEach((one) => {
+            if (!one.item.setKeys) customShortcuts[one.id] = "";
+          });
+          storeShortcuts();
+          applyShortcuts();
+          buildMenus();
+          renderToolSlots();
+        }
+        actions.forEach((one) => one.item.setKeys(""));
       },
     };
   };
@@ -18184,6 +18319,7 @@
       commandById,
       setActionItems,
       keyLabel,
+      keysField,
       openContextMenu,
       closeMenus,
       background,

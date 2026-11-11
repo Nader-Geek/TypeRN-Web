@@ -332,7 +332,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Set {n}": "مجموعة {n}",
     "Action {n}": "إجراء {n}",
     "Actions:Set": "المجموعة",
-    "Function Key": "مفتاح الوظيفة",
+    "Shortcut": "اختصار",
     "New Action": "إجراء جديد",
     "Record": "تسجيل",
     "Action Options": "خيارات الإجراء",
