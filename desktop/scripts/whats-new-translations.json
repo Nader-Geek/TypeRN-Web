@@ -59,6 +59,7 @@
     "478f41bc35a0": "Nouvelle interface tactile, alignée sur TypeR 3.0",
     "f08cb7fc5575": "TextShapeR apprend de vos PSD terminés (Paramètres > Apprentissage TextShapeR > Importer des PSD)",
     "bb3d00c6b104": "Après Détecter le texte, un clic sur un texte avec un outil de sélection le retire seul de la sélection",
-    "06e2432aedc9": "Effacer le texte n’envoie plus les bulles unies au Remplissage génératif quand les lettres frôlent le contour"
+    "06e2432aedc9": "Effacer le texte n’envoie plus les bulles unies au Remplissage génératif quand les lettres frôlent le contour",
+    "5bb49bd55327": "Nouveau panneau Actions (Alt+F9) : enregistrez des étapes, rejouez-les sur chaque page, chargez des fichiers .atn"
   }
 }
