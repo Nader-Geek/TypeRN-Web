@@ -10566,6 +10566,8 @@
       const alone = !(sampleAll || !layer);
       paintDoc(doc, ctx, { x: -left, y: -top, skip: (item) => item.kind === "text" || (alone && item.id !== layer.id) });
       const data = ctx.getImageData(0, 0, width, height).data;
+      // An empty layer, read alone, has nothing to heal from: not a black patch
+      if (!mask.some((hole, i) => !hole && data[i * 4 + 3] >= 128)) return "none";
       const source = healSource(data, mask, width, height);
       const result = await inpaint({ data, width, height, mask, source }, { adapt: true }, progress);
       // Meanwhile the page may have closed, or the layer gone
