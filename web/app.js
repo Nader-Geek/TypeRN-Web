@@ -2677,33 +2677,84 @@
     return Math.max(min, Math.min(max, value));
   };
   // The wheel over a number changes it, one per notch. A panel that scrolls keeps the wheel
-  // until the field has the focus: scrolling past a number must not change it.
+  // over the name and the rest of the row, unless the field has the focus: scrolling past a
+  // number must not change it. Over the field itself, the wheel is meant for the number.
   const addSteps = (input) => (steps, shift) => {
     input.value = Math.round(withinLimits(input, (Number(input.value) || 0) + steps * (shift ? 10 : 1)) * 100) / 100;
     input.dispatchEvent(new Event("change"));
   };
+  // The steps a turn of the wheel makes: one per notch
+  const wheelSteps = (event) => {
+    // Asked before the deltas: Firefox reports a mouse's notches in lines only then
+    const mouse = wheelIsMouse(event);
+    // With Shift, some browsers turn the wheel sideways
+    const delta = (event.deltaY || event.deltaX) * WHEEL_PIXELS[event.deltaMode];
+    // A big movement is a notch, from a mouse the browser didn't give away: one step. Only a
+    // trackpad's small movements add up.
+    if (mouse || Math.abs(delta) >= 40) {
+      wheelRest = 0;
+      return -Math.sign(delta);
+    }
+    wheelRest -= delta / 20;
+    const steps = Math.trunc(wheelRest);
+    wheelRest -= steps;
+    return steps;
+  };
+  const wheelOwned = new WeakSet();
   const wheelChanges = (target, input, step = addSteps(input)) => {
+    wheelOwned.add(input);
     target.addEventListener("wheel", (event) => {
       if (event.ctrlKey || event.metaKey) return;
       const panel = target.closest(".character");
-      if (document.activeElement !== input && panel && panel.scrollHeight > panel.clientHeight) return;
+      if (document.activeElement !== input && !input.contains(event.target) && panel && panel.scrollHeight > panel.clientHeight) return;
       event.preventDefault();
-      // Asked before the deltas: Firefox reports a mouse's notches in lines only then
-      const mouse = wheelIsMouse(event);
-      // With Shift, some browsers turn the wheel sideways
-      const delta = (event.deltaY || event.deltaX) * WHEEL_PIXELS[event.deltaMode];
-      let steps = -Math.sign(delta);
-      // A big movement is a notch, from a mouse the browser didn't give away: one step. Only a
-      // trackpad's small movements add up.
-      if (mouse || Math.abs(delta) >= 40) wheelRest = 0;
-      else {
-        wheelRest -= delta / 20;
-        steps = Math.trunc(wheelRest);
-        wheelRest -= steps;
-      }
+      const steps = wheelSteps(event);
       if (steps) step(steps, event.shiftKey);
     }, { passive: false });
   };
+  // Every other number and slider, in the dialogs, the options bar and the panels, the same
+  // way: over the field itself, a step per notch (its own step: 0.01 for a gamma), ten with
+  // Shift, within its limits, told as its arrows would tell it (input, then change). A slider
+  // in a list that scrolls waits to be chosen: the wheel there is for scrolling past it. A knob
+  // of the page's own (role="slider") gets the arrow keys it already knows.
+  const scrollsPast = (el) => {
+    for (let at = el.parentElement; at && at !== document.body; at = at.parentElement) {
+      if (at.scrollHeight > at.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(at).overflowY)) return true;
+    }
+    return false;
+  };
+  const stepField = (input, steps, shift) => {
+    const step = Number(input.step) > 0 ? Number(input.step) : 1;
+    const places = Math.max(2, (String(step).split(".")[1] || "").length);
+    const typed = input.value !== "" && Number.isFinite(Number(input.value));
+    const from = typed ? Number(input.value) : 0;
+    const next = Math.round(withinLimits(input, from + steps * step * (shift ? 10 : 1)) * 10 ** places) / 10 ** places;
+    if (typed && next === from) return;
+    input.value = String(next);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  document.addEventListener("wheel", (event) => {
+    if (event.ctrlKey || event.metaKey || event.defaultPrevented || !event.target.closest) return;
+    const field = event.target;
+    const number = field.tagName === "INPUT" && field.type === "number";
+    const slider = field.tagName === "INPUT" && field.type === "range";
+    const knob = !number && !slider && field.closest('[role="slider"]');
+    if (!number && !slider && !knob) return;
+    if (wheelOwned.has(field) || field.disabled || field.readOnly) return;
+    if (!number && document.activeElement !== (knob || field) && scrollsPast(knob || field)) return;
+    const steps = wheelSteps(event);
+    if (knob) {
+      // Only a knob that knows the keys keeps the wheel
+      let known = !steps;
+      for (let n = 0; n < Math.abs(steps); n++) {
+        if (!knob.dispatchEvent(new KeyboardEvent("keydown", { key: steps > 0 ? "ArrowUp" : "ArrowDown", shiftKey: event.shiftKey, cancelable: true }))) known = true;
+      }
+      if (!known) return;
+    } else if (steps) stepField(field, steps, event.shiftKey);
+    event.preventDefault();
+    event.stopPropagation();
+  }, { capture: true, passive: false });
   const scrubbed = (text, input, control = input) => {
     const label = labelled(text, control);
     wheelChanges(label, input);
