@@ -1372,7 +1372,8 @@
     ui.result.hidden = true;
     ui.result.classList.remove("is-keys");
     ui.foot.textContent = "";
-    run.card.classList.remove("is-passed");
+    run.card.classList.remove("is-passed", "is-finished");
+    backButton(ui.foot);
     if (step.action) cardButton(ui.foot, T(step.action.label), () => step.action.run(), "btn btn--main");
     if ((step.targets || []).some((target) => target.spot || target.panel || target.el) && !step.next) cardButton(ui.foot, T("Show me"), showMe);
     if (step.next || step.canNext) cardButton(ui.foot, T("Next"), () => pass(), "btn btn--main");
@@ -1387,6 +1388,7 @@
       finishLesson();
       return;
     }
+    run.furthest = Math.max(run.furthest, run.at);
     const step = run.steps[run.at];
     run.since = historyIds();
     run.memo = {};
@@ -1401,22 +1403,51 @@
     run.at++;
     startStep();
   };
+  // The step shown before this one: those left out are still left out
+  const previousStep = () => {
+    for (let i = Math.min(run.at, run.steps.length) - 1; i >= 0; i--) {
+      const step = run.steps[i];
+      let skipped = false;
+      try {
+        skipped = Boolean(step.skip && step.skip(look(), run));
+      } catch (error) {
+        skipped = false;
+      }
+      if (!skipped) return i;
+    }
+    return -1;
+  };
+  const back = () => {
+    if (!run || run.busy) return;
+    const at = previousStep();
+    if (at < 0) return;
+    clearTimeout(run.timer);
+    run.at = at;
+    startStep();
+  };
+  const backButton = (parent) => {
+    if (previousStep() < 0) return;
+    cardButton(parent, T("Back"), back, "btn guide-coach__back");
+  };
   const pass = (ctx) => {
     if (!run || run.passed) return;
     const step = run.steps[run.at];
+    // A step gone back to, passed by itself, waits for Next: it may be passed already as it starts
+    const again = Boolean(ctx) && run.at < run.furthest;
     run.passed = true;
     run.card.classList.add("is-passed");
     run.ui.count.textContent = T("Well done!");
     const result = step.result ? words(step.result, ctx || look()) : "";
     run.ui.foot.textContent = "";
+    backButton(run.ui.foot);
     if (result) {
       run.ui.result.textContent = "";
       sentence(run.ui.result, result);
       run.ui.result.hidden = false;
-      // Time to read it, or a click to go on
-      cardButton(run.ui.foot, T("Next"), () => advance(), "btn btn--main");
-      run.timer = setTimeout(advance, Math.min(9000, 2600 + result.length * 45));
-    } else run.timer = setTimeout(advance, 900);
+    }
+    // Time to read it, or a click to go on
+    if (result || again) cardButton(run.ui.foot, T("Next"), () => advance(), "btn btn--main");
+    if (!again) run.timer = setTimeout(advance, result ? Math.min(9000, 2600 + result.length * 45) : 900);
     drawRings();
   };
   // The panel's tips about a feature would hide the button a step points at
@@ -1532,6 +1563,7 @@
     }
     cheer(run.card);
     ui.foot.textContent = "";
+    backButton(ui.foot);
     cardButton(ui.foot, T("All lessons"), () => {
       endLesson();
       show();
@@ -1566,7 +1598,7 @@
     if (window.TypeRSFXGuide) window.TypeRSFXGuide.endPractice();
     remember({ last: lesson.id });
     const ui = buildCard();
-    run = { lesson, ui, card: ui.card, steps: lesson.steps, at: 0, memo: {}, flags: {}, since: new Set(), lessonSince: new Set(), busy: true };
+    run = { lesson, ui, card: ui.card, steps: lesson.steps, at: 0, furthest: 0, memo: {}, flags: {}, since: new Set(), lessonSince: new Set(), busy: true };
     ui.title.textContent = T(lesson.title);
     ui.count.textContent = T("Getting the practice chapter ready…");
     ui.text.textContent = "";
