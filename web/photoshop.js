@@ -5615,9 +5615,13 @@
     return { layers: rest.slice(0, at).concat(copies, rest.slice(at)), activeIds: chosen.map((id) => fresh.get(id)) };
   };
 
+  // What a move takes along: linked layers, a folder's layers, and what is clipped to a layer that
+  // moves, as a gradient on a text: it is part of how the text looks, and stays on its letters
   const movableIds = (doc, ids) => {
     const out = new Set();
     withLinked(doc.state.layers, ids).forEach((id) => familyOf(doc.state.layers, id).forEach((member) => out.add(member)));
+    const clip = clippingOf(doc.state.layers);
+    clip.baseOf.forEach((base, id) => { if (out.has(base.id)) out.add(id); });
     return Array.from(out).filter((id) => {
       const layer = doc.state.layers.find((item) => item.id === id);
       return layer && !lockOf(layer, "position") && !layer.isBackground && layer.kind !== "group";
@@ -6881,9 +6885,12 @@
         }
         return found;
       };
+      // A clipped layer shows only on its base: a click there picks the base, as a gradient
+      // clipped to a text gives the text, and moving the text takes the gradient along
+      const clipped = clippingOf(layers).clipped;
       for (let i = layers.length - 1; i >= 0; i--) {
         const layer = layers[i];
-        if (layer.kind === "group" || layer.locked || layer.isBackground || !chainOf(layer, byId).visible) continue;
+        if (layer.kind === "group" || layer.locked || layer.isBackground || clipped.has(layer.id) || !chainOf(layer, byId).visible) continue;
         if (layer.kind === "text") {
           // A turned letter answers inside its own turned box, not the square around it
           let inside;
