@@ -414,7 +414,7 @@
       const fx = fxFirst(effects, name);
       if (!fx || typeof fx !== "object") return;
       const common = { enabled: !off && fx.enabled !== false, blend: fxBlendIn(fx.blendMode) };
-      if (name === "dropShadow") out[name] = Object.assign(common, { color: color(fx), opacity: percent(fx.opacity), angle: angle(fx), distance: length(fx.distance), spread: round(unitValue(fx.choke), 2), size: length(fx.size) });
+      if (name === "dropShadow") out[name] = Object.assign(common, { color: color(fx), opacity: percent(fx.opacity), angle: angle(fx), distance: length(fx.distance), spread: round(unitValue(fx.choke), 2), size: length(fx.size) }, fx.layerConceals === false ? { knockout: false } : null);
       else if (name === "outerGlow") out[name] = Object.assign(common, { color: color(fx), opacity: percent(fx.opacity), spread: round(unitValue(fx.choke), 2), size: length(fx.size) });
       else if (name === "innerShadow") out[name] = Object.assign(common, { color: color(fx), opacity: percent(fx.opacity), angle: angle(fx), distance: length(fx.distance), choke: round(unitValue(fx.choke), 2), size: length(fx.size) });
       else if (name === "innerGlow") out[name] = Object.assign(common, { color: color(fx), opacity: percent(fx.opacity), choke: round(unitValue(fx.choke), 2), size: length(fx.size) });
@@ -915,6 +915,8 @@
       out.useGlobalLight = false;
     }
     if ((name === "dropShadow" || name === "innerShadow") && changed("distance")) out.distance = pixels((ours.distance || 0) / scale);
+    // Layer Knocks Out Drop Shadow: on unless TypeR's says off
+    if (name === "dropShadow" && changed("knockout")) out.layerConceals = ours.knockout !== false;
     if (name !== "colorOverlay" && changed("size")) out.size = pixels((ours.size || 0) / scale);
     // Spread and choke are percents, which Photoshop keeps in a field of pixels
     const amount = name === "dropShadow" || name === "outerGlow" ? "spread" : "choke";

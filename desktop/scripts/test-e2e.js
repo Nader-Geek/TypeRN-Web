@@ -452,6 +452,53 @@ const main = async () => {
     }, start);
   }
 
+  /* ------------------- Layer Style from the fx button, Filter > Gaussian Blur ------------------- */
+  {
+    const start = await page.evaluate(() => window.TypeRPhotoshop.app.doc.historyIndex);
+    const id = await page.evaluate(() => {
+      const { ops, app } = window.TypeRPhotoshop;
+      app.fg = { r: 30, g: 30, b: 30 };
+      const layer = ops.newText(Math.round(app.doc.width / 2), Math.round(app.doc.height / 3), "Blur me");
+      return layer.id;
+    });
+    await page.click("#layers-foot .layers__fxbtn");
+    await page.click(`.menu__list--context .menu__item:has-text("${await page.evaluate(() => window.TypeRApp.T("Drop Shadow…"))}")`);
+    await page.waitForSelector("dialog.fxdlg[open]");
+    const pane = await page.evaluate(() => ({ current: document.querySelector(".fxdlg__item.is-current").dataset.fx, on: document.querySelector('.fxdlg__item[data-fx="dropShadow"] .fxdlg__switch').checked }));
+    await page.click("dialog.fxdlg .modal__foot .btn:not(.btn--main)");
+    step("the Layers panel's fx button opens Layer Style on the effect picked, turned on", pane.current === "dropShadow" && pane.on, JSON.stringify(pane));
+    // A pixel layer: Photoshop's Radius is the Gaussian's sigma, an edge becomes its curve
+    const blurred = await page.evaluate(() => {
+      const { ops, app } = window.TypeRPhotoshop;
+      const canvas = document.createElement("canvas");
+      canvas.width = app.doc.width;
+      canvas.height = app.doc.height;
+      canvas.getContext("2d").fillRect(0, 0, Math.round(app.doc.width / 2), app.doc.height);
+      ops.newLayer("Edge", undefined, { bitmap: canvas });
+      ops.gaussianBlur(8);
+      const layer = app.doc.state.layers.find((one) => one.name === "Edge");
+      const y = Math.round(app.doc.height / 2);
+      const x0 = Math.round(app.doc.width / 2);
+      const alpha = (dx) => layer.bitmap.getContext("2d").getImageData(x0 + dx - layer.left, y - layer.top, 1, 1).data[3];
+      return { history: app.doc.history[app.doc.historyIndex].name, alpha: [-8, -1, 0, 8].map(alpha) };
+    });
+    // The normal curve at the pixels' centres, 7.5 and 0.5 px either side of the edge: 211, 134, 121, 37
+    step("Filter > Gaussian Blur blurs a pixel layer by a true Gaussian of that radius, in one step", blurred.history === "Gaussian Blur" && [211, 134, 121, 37].every((want, i) => Math.abs(blurred.alpha[i] - want) <= 2), JSON.stringify(blurred));
+    // A text stays a text, the same blur back from its PSD
+    const text = await page.evaluate(async (id) => {
+      const { ops, app } = window.TypeRPhotoshop;
+      ops.blurText([id], 3);
+      const layer = app.doc.state.layers.find((one) => one.id === id);
+      const read = await window.TypeRPSD.read(await window.TypeRPSD.write(app.doc, "blur.psd"), "blur.psd");
+      const back = read.layers.find((one) => one.kind === "text" && one.name === layer.name);
+      return { kind: layer.kind, radius: ops.textBlur(layer), back: back ? ops.textBlur(back) : null, knockout: back && back.effects.dropShadow.knockout };
+    }, id);
+    step("Gaussian Blur on a text keeps it editable, and its PSD keeps the blur for Photoshop", text.kind === "text" && text.radius > 2.5 && text.back === text.radius && text.knockout === false, JSON.stringify(text));
+    await page.evaluate((index) => {
+      while (window.TypeRPhotoshop.app.doc.historyIndex > index) window.TypeRPhotoshop.ops.undo();
+    }, start);
+  }
+
   /* ---------------------------------- leaving the app --------------------------------- */
   const windows = () => run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
   await run.app.evaluate(({ shell }) => {

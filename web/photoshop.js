@@ -3275,7 +3275,8 @@
     const merged = !shadow || !glow || (fxBlendOf(shadow) === "source-over" && fxBlendOf(glow) === "source-over");
     const around = (effect, amount, dx, dy, ranged) => {
       spread(effect, amount, dx, dy, false);
-      const keep = normal ? 1 - fill : 1;
+      // Layer Knocks Out Drop Shadow off (`knockout: false`): the shadow stays whole under them
+      const keep = effect.knockout === false ? 0 : normal ? 1 - fill : 1;
       for (let i = 0; i < N; i++) {
         let v = work[i];
         if (ranged) v = v >= 0.5 ? 1 : v * 2;
@@ -7573,6 +7574,381 @@
     maskedVisuals.delete(session.id);
   };
 
+  /* ---- Filter > Gaussian Blur ---- */
+  // Photoshop's Radius is the Gaussian's standard deviation; under 4 px its kernel is a little
+  // wider than that, and under 0.2 px it leaves the pixels as they are. Measured in Photoshop
+  // 2026 on a blurred 16-bit edge: [radius, variance of its kernel].
+  const BLUR_VARIANCES = [[0, 0], [0.1, 0], [0.2, 0.078], [0.3, 0.289], [0.4, 0.383], [0.5, 0.461], [0.7, 0.688], [1, 1.172], [1.5, 2.461], [2, 4.375], [3, 8.666], [4, 16]];
+  const BLUR_MAX = 1000;
+  const blurVariance = (radius) => {
+    const r = Math.max(0, Math.min(BLUR_MAX, Number(radius) || 0));
+    if (r >= 4) return r * r;
+    const at = BLUR_VARIANCES.findIndex(([x]) => x >= r);
+    if (at <= 0) return 0;
+    const [x0, v0] = BLUR_VARIANCES[at - 1];
+    const [x1, v1] = BLUR_VARIANCES[at];
+    return v0 + ((v1 - v0) * (r - x0)) / (x1 - x0);
+  };
+  // How far a pixel's blur reaches: past 4.5 standard deviations, less than 1/100 000th of it
+  const blurReach = (variance) => (variance > 0 ? Math.ceil(Math.sqrt(variance) * 4.5) + 1 : 0);
+  // A preview blurs only the part of a larger layer that is on screen
+  const BLUR_PREVIEW_PIXELS = 4e6;
+  // Small blurs: the sampled Gaussian of that variance, its width found by halving
+  const blurKernels = new Map();
+  const blurKernel = (variance) => {
+    const key = Math.round(variance * 1e4);
+    if (blurKernels.has(key)) return blurKernels.get(key);
+    const make = (s) => {
+      const r = Math.ceil(s * 5) + 1;
+      const k = new Float64Array(r * 2 + 1);
+      let sum = 0;
+      for (let x = -r; x <= r; x++) sum += k[x + r] = Math.exp((-x * x) / (2 * s * s));
+      let v = 0;
+      for (let x = -r; x <= r; x++) {
+        k[x + r] /= sum;
+        v += k[x + r] * x * x;
+      }
+      return { k, r, v };
+    };
+    let lo = 0.01;
+    let hi = 4;
+    for (let i = 0; i < 48; i++) {
+      const mid = (lo + hi) / 2;
+      if (make(mid).v < variance) lo = mid;
+      else hi = mid;
+    }
+    const kernel = make((lo + hi) / 2);
+    blurKernels.set(key, kernel);
+    return kernel;
+  };
+  // One line through the kernel, from `src` into `dst`. Past the ends: nothing, or (`clamp`)
+  // the end pixel again, as on a Background.
+  const blurLineFir = (src, dst, n, k, r, clamp) => {
+    const last = n - 1;
+    for (let x = 0; x < n; x++) {
+      const a = x - r;
+      let sum = 0;
+      if (a >= 0 && x + r <= last) {
+        for (let j = 0, i = a; j < k.length; j++, i++) sum += k[j] * src[i];
+      } else {
+        for (let j = 0; j < k.length; j++) {
+          let i = a + j;
+          if (i < 0 || i > last) {
+            if (!clamp) continue;
+            i = i < 0 ? 0 : last;
+          }
+          sum += k[j] * src[i];
+        }
+      }
+      dst[x] = sum;
+    }
+  };
+  // Larger blurs: Deriche's recursive filter of order 4, as many sums a pixel whatever the
+  // radius, within a few thousandths of the Gaussian (coefficients from Getreuer, "A Survey of
+  // Gaussian Convolution Algorithms", IPOL 2013), scaled so that a flat colour stays the same
+  const dericheOf = (sigma) => {
+    const [a0, a1, b0, b1, w0, w1, c0, c1] = [1.68, 3.735, 1.783, 1.723, 0.6318, 1.997, -0.6803, -0.2598];
+    const e0 = Math.exp(-b0 / sigma);
+    const e1 = Math.exp(-b1 / sigma);
+    const cw0 = Math.cos(w0 / sigma);
+    const sw0 = Math.sin(w0 / sigma);
+    const cw1 = Math.cos(w1 / sigma);
+    const sw1 = Math.sin(w1 / sigma);
+    const n0 = a0 + c0;
+    const n1 = e1 * (c1 * sw1 - (c0 + 2 * a0) * cw1) + e0 * (a1 * sw0 - (2 * c0 + a0) * cw0);
+    const n2 = 2 * e0 * e1 * ((a0 + c0) * cw1 * cw0 - a1 * cw1 * sw0 - c1 * cw0 * sw1) + c0 * e0 * e0 + a0 * e1 * e1;
+    const n3 = e1 * e0 * e0 * (c1 * sw1 - c0 * cw1) + e0 * e1 * e1 * (a1 * sw0 - a0 * cw0);
+    const d1 = -2 * e1 * cw1 - 2 * e0 * cw0;
+    const d2 = 4 * cw1 * cw0 * e0 * e1 + e1 * e1 + e0 * e0;
+    const d3 = -2 * cw0 * e0 * e1 * e1 - 2 * cw1 * e1 * e0 * e0;
+    const d4 = e0 * e0 * e1 * e1;
+    const m1 = n1 - d1 * n0;
+    const m2 = n2 - d2 * n0;
+    const m3 = n3 - d3 * n0;
+    const m4 = -d4 * n0;
+    const poles = 1 + d1 + d2 + d3 + d4;
+    const gain = (n0 + n1 + n2 + n3 + m1 + m2 + m3 + m4) / poles;
+    const f = { n0: n0 / gain, n1: n1 / gain, n2: n2 / gain, n3: n3 / gain, m1: m1 / gain, m2: m2 / gain, m3: m3 / gain, m4: m4 / gain, d1, d2, d3, d4 };
+    // What each pass settles at on a flat line of 1, for the ends
+    f.causal = (f.n0 + f.n1 + f.n2 + f.n3) / poles;
+    f.anti = (f.m1 + f.m2 + f.m3 + f.m4) / poles;
+    return f;
+  };
+  const blurLineIir = (src, dst, n, f, clamp, tmp) => {
+    const { n0, n1, n2, n3, m1, m2, m3, m4, d1, d2, d3, d4 } = f;
+    const left = clamp ? src[0] : 0;
+    let x1 = left;
+    let x2 = left;
+    let x3 = left;
+    let y1 = left * f.causal;
+    let y2 = y1;
+    let y3 = y1;
+    let y4 = y1;
+    for (let i = 0; i < n; i++) {
+      const x0 = src[i];
+      const y = n0 * x0 + n1 * x1 + n2 * x2 + n3 * x3 - d1 * y1 - d2 * y2 - d3 * y3 - d4 * y4;
+      tmp[i] = y;
+      x3 = x2;
+      x2 = x1;
+      x1 = x0;
+      y4 = y3;
+      y3 = y2;
+      y2 = y1;
+      y1 = y;
+    }
+    const right = clamp ? src[n - 1] : 0;
+    x1 = x2 = x3 = right;
+    let x4 = right;
+    y1 = y2 = y3 = y4 = right * f.anti;
+    for (let i = n - 1; i >= 0; i--) {
+      const y = m1 * x1 + m2 * x2 + m3 * x3 + m4 * x4 - d1 * y1 - d2 * y2 - d3 * y3 - d4 * y4;
+      dst[i] = tmp[i] + y;
+      x4 = x3;
+      x3 = x2;
+      x2 = x1;
+      x1 = src[i];
+      y4 = y3;
+      y3 = y2;
+      y2 = y1;
+      y1 = y;
+    }
+  };
+  // A plane of W × H values blurred in place, across then down. Lines of nothing are skipped.
+  const blurPlane = (plane, W, H, variance, clamp = true) => {
+    if (!(variance > 1e-3)) return;
+    const n = Math.max(W, H);
+    const a = new Float64Array(n);
+    const b = new Float64Array(n);
+    const t = new Float64Array(n);
+    const fir = variance < 9 ? blurKernel(variance) : null;
+    const iir = fir ? null : dericheOf(Math.sqrt(variance));
+    const run = (len) => (fir ? blurLineFir(a, b, len, fir.k, fir.r, clamp) : blurLineIir(a, b, len, iir, clamp, t));
+    for (let y = 0; y < H; y++) {
+      const row = y * W;
+      let any = false;
+      for (let x = 0; x < W; x++) if ((a[x] = plane[row + x]) !== 0) any = true;
+      if (!any) continue;
+      run(W);
+      for (let x = 0; x < W; x++) plane[row + x] = b[x];
+    }
+    for (let x = 0; x < W; x++) {
+      let any = false;
+      for (let y = 0, i = x; y < H; y++, i += W) if ((a[y] = plane[i]) !== 0) any = true;
+      if (!any) continue;
+      run(H);
+      for (let y = 0, i = x; y < H; y++, i += W) plane[i] = b[y];
+    }
+  };
+  // An ImageData blurred in place within `out` (a rectangle of it), as Photoshop's filter: each
+  // colour weighed by its alpha, so that the transparent round the pixels doesn't darken them,
+  // and the edges carrying on past it, as Photoshop's do at the page's edges (a green square in
+  // a corner stays green there). `weight` (a byte a pixel of `out`): how much of the blur each
+  // one takes, the selection's; what is outside it doesn't change, but is blurred in. `opaque`:
+  // a Background, no alpha to weigh by. `keepAlpha`: Lock Transparent Pixels, only the colours.
+  const blurImage = (image, variance, out, weight, opaque, keepAlpha) => {
+    const { width: W, height: H, data } = image;
+    const N = W * H;
+    const ow = out.right - out.left;
+    let alpha = null;
+    if (!opaque) {
+      alpha = new Float32Array(N);
+      for (let i = 0; i < N; i++) alpha[i] = data[i * 4 + 3];
+      blurPlane(alpha, W, H, variance);
+    }
+    const plane = new Float32Array(N);
+    for (let c = 0; c < 3; c++) {
+      if (opaque) for (let i = 0; i < N; i++) plane[i] = data[i * 4 + c];
+      else for (let i = 0; i < N; i++) plane[i] = (data[i * 4 + c] * data[i * 4 + 3]) / 255;
+      blurPlane(plane, W, H, variance);
+      for (let y = out.top; y < out.bottom; y++) {
+        for (let x = out.left, i = y * W + out.left, k = (y - out.top) * ow; x < out.right; x++, i++, k++) {
+          const s = weight ? weight[k] / 255 : 1;
+          if (!s) continue;
+          const o = i * 4;
+          const was = data[o + c];
+          if (opaque) {
+            data[o + c] = was + (plane[i] - was) * s;
+            continue;
+          }
+          const a = data[o + 3];
+          const ab = alpha[i];
+          if (keepAlpha) {
+            data[o + c] = was + ((ab > 1e-3 ? (plane[i] * 255) / ab : was) - was) * s;
+            continue;
+          }
+          const am = a + (ab - a) * s;
+          const pm = (was * a) / 255 + (plane[i] - (was * a) / 255) * s;
+          data[o + c] = am > 1e-3 ? (pm * 255) / am : 0;
+        }
+      }
+    }
+    if (opaque || keepAlpha) return;
+    for (let y = out.top; y < out.bottom; y++) {
+      for (let x = out.left, i = y * W + out.left, k = (y - out.top) * ow; x < out.right; x++, i++, k++) {
+        const s = weight ? weight[k] / 255 : 1;
+        if (s) data[i * 4 + 3] += (alpha[i] - data[i * 4 + 3]) * s;
+      }
+    }
+  };
+  const blurClip = (a, b) => ({ left: Math.max(a.left, Math.floor(b.left)), top: Math.max(a.top, Math.floor(b.top)), right: Math.min(a.right, Math.ceil(b.right)), bottom: Math.min(a.bottom, Math.ceil(b.bottom)) });
+  const blurGrow = (a, by) => ({ left: a.left - by, top: a.top - by, right: a.right + by, bottom: a.bottom + by });
+  // The selection over a rectangle of the page, a byte a pixel: 255 inside
+  const selectionWeights = (selection, rect) => {
+    const w = rect.right - rect.left;
+    const h = rect.bottom - rect.top;
+    const weight = new Uint8Array(w * h);
+    const b = selection.bounds;
+    const m = selection.mask;
+    for (let y = 0; y < h; y++) {
+      const py = rect.top + y;
+      for (let x = 0; x < w; x++) {
+        const px = rect.left + x;
+        let inside;
+        if (m) {
+          const mx = px - m.left;
+          const my = py - m.top;
+          inside = mx >= 0 && my >= 0 && mx < m.width && my < m.height && m.data[my * m.width + mx];
+        } else inside = px >= b.left && px < b.right && py >= b.top && py < b.bottom;
+        if (inside) weight[y * w + x] = 255;
+      }
+    }
+    return weight;
+  };
+  // Where the blur changes a picture at `vis` (page pixels): all the page, as in Photoshop (and
+  // the picture where it is past the page), within the selection, and within `area` too for the
+  // preview of a large one; `grows` false: the picture only. Then what it reads for that: round
+  // it as far as the blur reaches, within the page and the picture, whose edges carry on past
+  // them. Null when nothing is left.
+  const blurRegions = (doc, vis, variance, grows, area) => {
+    const margin = blurReach(variance);
+    const whole = unionOf(vis, { left: 0, top: 0, right: doc.width, bottom: doc.height });
+    let out = grows ? whole : vis;
+    const selection = doc.state.selection;
+    if (selection) out = blurClip(out, selection.bounds);
+    let partial = false;
+    if (area && (out.right - out.left) * (out.bottom - out.top) > BLUR_PREVIEW_PIXELS) {
+      out = blurClip(out, area);
+      partial = true;
+    }
+    if (emptyRect(out)) return null;
+    const read = blurClip(blurGrow(out, margin), whole);
+    const local = { left: out.left - read.left, top: out.top - read.top, right: out.right - read.left, bottom: out.bottom - read.top };
+    return { out, read, local, partial, weight: selection ? selectionWeights(selection, out) : null };
+  };
+  // A pixel layer's own pixels blurred: { canvas, x, y } on the page, the part that changed
+  const blurredRaster = (doc, layer, variance, area) => {
+    const visual = rasterVisual(layer, doc);
+    if (!visual || !visual.canvas.width || !visual.canvas.height) return { error: "empty" };
+    const vis = { left: Math.floor(visual.x), top: Math.floor(visual.y), right: Math.floor(visual.x) + visual.canvas.width, bottom: Math.floor(visual.y) + visual.canvas.height };
+    const opaque = Boolean(layer.isBackground);
+    const keepAlpha = !opaque && lockOf(layer, "transparency");
+    const regions = blurRegions(doc, vis, variance, !opaque && !keepAlpha, area);
+    if (!regions) return { error: "outside" };
+    const { out, read, local, partial, weight } = regions;
+    const image = new ImageData(read.right - read.left, read.bottom - read.top);
+    const from = blurClip(read, vis);
+    if (!emptyRect(from)) {
+      const fw = from.right - from.left;
+      const part = visual.canvas.getContext("2d").getImageData(from.left - vis.left, from.top - vis.top, fw, from.bottom - from.top).data;
+      for (let y = from.top; y < from.bottom; y++) image.data.set(part.subarray((y - from.top) * fw * 4, (y - from.top + 1) * fw * 4), ((y - read.top) * image.width + from.left - read.left) * 4);
+    }
+    blurImage(image, variance, local, weight, opaque, keepAlpha);
+    const box = unionOf(vis, out);
+    const canvas = canvasLike(visual.canvas, box.right - box.left, box.bottom - box.top);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(visual.canvas, vis.left - box.left, vis.top - box.top);
+    ctx.putImageData(image, read.left - box.left, read.top - box.top, local.left, local.top, local.right - local.left, local.bottom - local.top);
+    return { canvas, x: box.left, y: box.top, rect: out, partial };
+  };
+  // A mask (a layer's or the Quick Mask) blurred, the colour all round it too: its new settings
+  const blurredMask = (doc, holder, variance, area) => {
+    const picture = maskPicture(holder, doc, true);
+    if (!picture.canvas || !picture.canvas.width || !picture.canvas.height) return { error: "plain" };
+    const outside = Math.round(picture.outside * 255);
+    const pw = picture.canvas.width;
+    const ph = picture.canvas.height;
+    const vis = { left: Math.floor(picture.x), top: Math.floor(picture.y), right: Math.floor(picture.x) + pw, bottom: Math.floor(picture.y) + ph };
+    const regions = blurRegions(doc, vis, variance, true, area);
+    if (!regions) return { error: "outside" };
+    const { out, read, partial, weight } = regions;
+    const W = read.right - read.left;
+    const H = read.bottom - read.top;
+    const own = picture.canvas.getContext("2d").getImageData(0, 0, pw, ph).data;
+    // Blurred as what differs from the colour all round the picture
+    const plane = new Float32Array(W * H);
+    const from = blurClip(read, vis);
+    for (let y = from.top; y < from.bottom; y++) {
+      for (let x = from.left; x < from.right; x++) plane[(y - read.top) * W + x - read.left] = own[((y - vis.top) * pw + x - vis.left) * 4 + 3] - outside;
+    }
+    blurPlane(plane, W, H, variance);
+    const box = unionOf(vis, out);
+    const bw = box.right - box.left;
+    const result = new ImageData(bw, box.bottom - box.top);
+    const px = result.data;
+    if (outside) for (let i = 3; i < px.length; i += 4) px[i] = outside;
+    for (let y = vis.top; y < vis.bottom; y++) {
+      for (let x = vis.left, o = ((y - vis.top) * pw) * 4 + 3, p = ((y - box.top) * bw + vis.left - box.left) * 4 + 3; x < vis.right; x++, o += 4, p += 4) px[p] = own[o];
+    }
+    const ow = out.right - out.left;
+    for (let y = out.top; y < out.bottom; y++) {
+      for (let x = out.left, k = (y - out.top) * ow; x < out.right; x++, k++) {
+        const s = weight ? weight[k] / 255 : 1;
+        if (!s) continue;
+        const p = ((y - box.top) * bw + x - box.left) * 4 + 3;
+        px[p] += (plane[(y - read.top) * W + x - read.left] + outside - px[p]) * s;
+      }
+    }
+    const canvas = newCanvas(bw, box.bottom - box.top);
+    canvas.getContext("2d", { willReadFrequently: true }).putImageData(result, 0, 0);
+    const file = maskForFile({ canvas, x: box.left, y: box.top }, holder.mask.defaultColor);
+    const [sx, sy] = maskShift(holder);
+    const mask = Object.assign({}, holder.mask, { paint: NONE, canvas: file ? file.canvas : null, left: file ? file.left - sx : 0, top: file ? file.top - sy : 0 });
+    mask.right = mask.left + (file ? file.canvas.width : 0);
+    mask.bottom = mask.top + (file ? file.canvas.height : 0);
+    return { mask, rect: out, partial };
+  };
+
+  // Filter > Gaussian Blur on a text that stays a text. Photoshop has no blur among its layer
+  // effects, but a Drop Shadow in the letters' colour right under them (distance and spread 0),
+  // with the letters at Fill 0% and Layer Knocks Out Drop Shadow off, is the letters blurred,
+  // in Photoshop as here. A shadow of size S spreads as a Gaussian of S / 2.385 there (measured
+  // in Photoshop 2026). The shadow's opacity keeps the Fill the letters had.
+  const TEXT_BLUR_SIZE = 2.385;
+  const TEXT_BLUR_MAX = Math.floor((FX_MAX_SIZE / TEXT_BLUR_SIZE) * 10) / 10;
+  // The letters' one colour, or null when they have several
+  const textColourOf = (layer) => {
+    const colours = (layer.params.layerText.textStyleRange || []).map((range) => {
+      const c = (range.textStyle && range.textStyle.color) || { red: 0, green: 0, blue: 0 };
+      return { r: Math.round(c.red || 0), g: Math.round(c.green || 0), b: Math.round(c.blue || 0) };
+    });
+    if (!colours.length) return { r: 0, g: 0, b: 0 };
+    return colours.every((c) => c.r === colours[0].r && c.g === colours[0].g && c.b === colours[0].b) ? colours[0] : null;
+  };
+  // The radius a text is blurred by, 0 when it isn't
+  const textBlurOf = (layer) => {
+    if (!layer || layer.kind !== "text" || fillOf(layer) > 0) return 0;
+    const shadow = layer.effects && layer.effects.dropShadow;
+    if (!shadow || shadow.enabled === false || shadow.knockout !== false || shadow.distance || shadow.spread || (shadow.blend && shadow.blend !== "normal") || !(shadow.size > 0)) return 0;
+    const colour = textColourOf(layer);
+    const c = shadow.color || {};
+    if (!colour || c.r !== colour.r || c.g !== colour.g || c.b !== colour.b) return 0;
+    return Math.round((shadow.size / TEXT_BLUR_SIZE) * 10) / 10;
+  };
+  // Why a text can't be blurred and stay a text, or null: its look would change otherwise
+  const textBlurRefusal = (layer) => {
+    if (!layer || layer.kind !== "text") return "none";
+    if (textBlurOf(layer)) return null;
+    if (!textColourOf(layer)) return "colours";
+    // Photoshop draws the shadow differently inside letters that have a stroke (measured in
+    // Photoshop 2026: darker by up to a third), and the stroke would stay sharp
+    if (layer.stroke && layer.stroke.enabled !== false && layer.stroke.size > 0) return "stroke";
+    const effects = layer.effects || {};
+    if (effects.dropShadow && effects.dropShadow.enabled !== false) return "shadow";
+    if (FX_INSIDE.some((name) => effects[name] && effects[name].enabled !== false)) return "effects";
+    if (fillOf(layer) <= 0) return "fill";
+    return null;
+  };
+
   // Edit > Auto-Align Layers works in align-worker.js, away from the page: one worker per run
   const startAligner = () => new Promise((resolve, reject) => {
     let worker;
@@ -8760,6 +9136,8 @@
         effects: layer.kind === "text" && layer.effects ? clone(layer.effects) : null,
         blend: layer.blend,
         opacity: layer.opacity,
+        // Fill too, as Photoshop's blending options: a text's blur (see textBlurOf) goes with it
+        fill: layer.kind === "text" ? fillOf(layer) : 1,
       };
       return true;
     },
@@ -8794,7 +9172,10 @@
         lt.paragraphStyleRange.forEach((range) => { range.paragraphStyle = Object.assign(range.paragraphStyle, clone(held.paragraph)); });
         if (held.antiAlias) lt.antiAlias = held.antiAlias;
         next.stroke = held.stroke ? clone(held.stroke) : null;
-        if (!inSfx(layer)) next.effects = held.effects ? clone(held.effects) : undefined;
+        if (!inSfx(layer)) {
+          next.effects = held.effects ? clone(held.effects) : undefined;
+          if (held.fill !== undefined) Object.assign(next, { knockout: held.fill <= 0, fill: held.fill > 0 && held.fill < 1 ? held.fill : undefined });
+        }
         next.raster = null;
         return boxShape(lt) ? next : centredOn(next, doc, box.xMid, box.yMid);
       });
@@ -10803,6 +11184,93 @@
       commitState(doc, "Levels", { layers: replaceLayer(doc, layer, withPixels(layer, session.canvas, session.visual.x, session.visual.y, pageMask(layer, doc))) });
       firePanelEvent(EVENT_HISTORY);
     },
+    /* ---- Filter > Gaussian Blur ---- */
+    // What it works on, as in Photoshop: the Quick Mask, the mask targeted in the Layers panel,
+    // or the active layer: pixels, or a text (see blurText). { kind, id, name } or { error }.
+    gaussianBlurTarget() {
+      const doc = app.doc;
+      if (!doc) return { error: "none" };
+      if (doc.state.quickMask) return { kind: "quick", name: "Quick Mask" };
+      const masked = ops.maskTarget(doc);
+      if (masked) {
+        if (masked.part === "vector") return { error: "vector" };
+        if (masked.layer.locked) return { error: "locked" };
+        return { kind: "mask", id: masked.id, name: masked.layer.name };
+      }
+      const id = doc.state.activeIds[doc.state.activeIds.length - 1];
+      const layer = doc.state.layers.find((item) => item.id === id);
+      if (layer && layer.kind === "text") return { kind: "text", id, name: layer.name };
+      if (!layer || layer.kind !== "raster" || layer.adjustment) return { error: "none" };
+      if (lockOf(layer, "pixels")) return { error: "locked" };
+      return { kind: "pixels", id, name: layer.name };
+    },
+    // Filter > Gaussian Blur on that target, `radius` in pixels as Photoshop's (0.1 to 1000).
+    // `options.id`: a pixel layer of one's own choosing; `options.coalesce`: the step a dialog
+    // tries it out in; `options.area`: a part of the page, for a quick look at a large layer
+    // (only that part is blurred). { partial } when done, { error } when not.
+    gaussianBlur(radius, options = {}) {
+      const doc = app.doc;
+      const target = options.id !== undefined ? { kind: "pixels", id: options.id } : ops.gaussianBlurTarget();
+      if (target.error) return target;
+      if (target.kind === "text") return { error: "text" };
+      const variance = blurVariance(radius);
+      if (!variance) return { partial: false };
+      let done;
+      if (target.kind === "pixels") {
+        const layer = doc.state.layers.find((item) => item.id === target.id && item.kind === "raster");
+        if (!layer) return { error: "none" };
+        if (lockOf(layer, "pixels")) return { error: "locked" };
+        done = blurredRaster(doc, layer, variance, options.area);
+        if (done.error) return done;
+        commitState(doc, "Gaussian Blur", { layers: replaceLayer(doc, layer, withPixels(layer, done.canvas, done.x, done.y, pageMask(layer, doc))) }, options.coalesce, () => pageRect(doc, done.rect.left, done.rect.top, done.rect.right, done.rect.bottom));
+      } else {
+        const holder = maskHolder(doc, target.kind === "quick" ? "quick" : "mask", target.id);
+        if (!holder) return { error: "none" };
+        done = blurredMask(doc, holder, variance, options.area);
+        if (done.error) return done;
+        const change = target.kind === "quick" ? { quickMask: done.mask } : { layers: replaceLayer(doc, holder, { mask: done.mask }) };
+        commitState(doc, "Gaussian Blur", change, options.coalesce, () => pageRect(doc, done.rect.left, done.rect.top, done.rect.right, done.rect.bottom));
+      }
+      if (!options.coalesce) firePanelEvent(EVENT_HISTORY);
+      return { partial: done.partial };
+    },
+    // Filter > Gaussian Blur on texts that stay texts (see TEXT_BLUR_SIZE): `radius` up to
+    // textBlurMax, 0 to take a text's blur off and give it its Fill back. Texts that can't
+    // (textBlurRefusal) are left as they are. The number of texts changed.
+    blurText(ids, radius, coalesce) {
+      const doc = app.doc;
+      if (!doc) return 0;
+      const chosen = new Set(ids);
+      const size = Math.round(Math.max(0, Math.min(TEXT_BLUR_MAX, Number(radius) || 0)) * TEXT_BLUR_SIZE);
+      let count = 0;
+      const layers = doc.state.layers.map((layer) => {
+        if (!chosen.has(layer.id) || layer.kind !== "text") return layer;
+        const blurred = textBlurOf(layer) > 0;
+        if (!blurred && (!size || textBlurRefusal(layer))) return layer;
+        const was = blurred ? layer.effects.dropShadow : null;
+        count++;
+        if (!size) {
+          const effects = Object.assign({}, layer.effects);
+          delete effects.dropShadow;
+          const fill = Math.max(0, Math.min(1, (was.opacity === undefined ? 100 : was.opacity) / 100));
+          return Object.assign({}, layer, { effects: FX_DRAWN.some((name) => effects[name]) ? effects : undefined, knockout: fill <= 0, fill: fill > 0 && fill < 1 ? fill : undefined, raster: null });
+        }
+        const shadow = { enabled: true, blend: "normal", color: textColourOf(layer), opacity: was ? was.opacity : Math.round(fillOf(layer) * 100), angle: was ? was.angle : 90, distance: 0, spread: 0, size, knockout: false };
+        return Object.assign({}, layer, { effects: Object.assign({}, layer.effects, { dropShadow: shadow }), knockout: true, fill: undefined, raster: null });
+      });
+      if (!count) return 0;
+      commitState(doc, "Gaussian Blur", { layers }, coalesce);
+      if (!coalesce) firePanelEvent(EVENT_HISTORY);
+      return count;
+    },
+    // A text's blur as a radius (0: none), and why one can't be given to it as a text (null: it can)
+    textBlur(layer) {
+      return textBlurOf(layer);
+    },
+    textBlurRefusal(layer) {
+      return textBlurRefusal(layer);
+    },
+    textBlurMax: TEXT_BLUR_MAX,
     // Layer > Layer Style > Clear Layer Style: no stroke, no effects, and the blending back to
     // Normal at 100%, Fill 100%, as Photoshop clears it. On texts and folders (an SFX keeps its
     // own). The number of layers cleared.

@@ -13711,6 +13711,292 @@
     ops.levelsEnd(answer && !plain() ? levelsTables(channels) : null);
   };
 
+  /* ---- Filter > Gaussian Blur: Photoshop's, on pixels, a mask, or a text that stays one ---- */
+  // The last one run, for Filter > Last Filter: its radius, and how a text was blurred
+  let lastFilter = null;
+  const blurWhy = (error) => ({
+    none: T("Select a pixel layer, a text or a mask first."),
+    locked: T("This layer is locked."),
+    empty: T("This layer has no pixels."),
+    outside: T("The selection is outside this layer."),
+    vector: T("This is a vector mask: rasterize it to blur it (Layer > Vector Mask > Rasterize)."),
+    plain: T("This mask is all one grey: a blur changes nothing on it."),
+  })[error] || "";
+  const textBlurWhy = (reason) => ({
+    colours: T("Its letters have several colours: it can only be blurred rasterized."),
+    stroke: T("It has a stroke: it can only be blurred rasterized, its stroke with it."),
+    shadow: T("It has a Drop Shadow already: it can only be blurred rasterized."),
+    effects: T("Its overlays and inner effects would stay sharp: it can only be blurred rasterized."),
+    fill: T("It is at Fill 0%: it can only be blurred rasterized."),
+  })[reason] || "";
+  // The slider goes as Photoshop's: finely for the small radii, faster for the large ones
+  const sliderOfRadius = (r) => Math.round((Math.log10(Math.max(0.1, r) / 0.1) / 4) * 1000);
+  const radiusOfSlider = (v) => Math.round(0.1 * 10 ** ((v / 1000) * 4) * 10) / 10;
+  // A text blurred as pixels: rasterized first, each, as Photoshop asks to. Their new ids.
+  const rasterizeForBlur = (ids) => ids.map((id) => {
+    ops.rasterizeText(id);
+    return app.doc.state.activeIds[app.doc.state.activeIds.length - 1];
+  });
+
+  // `preset`: an action's radius to start from. Resolves with { radius } once applied, null when
+  // cancelled or not possible.
+  const showGaussianBlur = async (preset) => {
+    const doc = app.doc;
+    if (!doc) return null;
+    settleForResize();
+    const target = ops.gaussianBlurTarget();
+    if (target.error) {
+      toast(blurWhy(target.error));
+      return null;
+    }
+    const texts = target.kind === "text" ? styleTargets() : [];
+    if (target.kind === "text" && !texts.length) {
+      toast(styleRefusal());
+      return null;
+    }
+    const ids = texts.map((layer) => layer.id);
+    const lead = texts.find((layer) => layer.id === target.id) || texts[0];
+    const blurred = lead ? ops.textBlur(lead) : 0;
+    const refused = texts.map((layer) => ops.textBlurRefusal(layer)).find(Boolean) || null;
+    let mode = refused ? "rasterize" : "editable";
+    let radius = preset > 0 ? preset : blurred || (lastFilter ? lastFilter.radius : 2);
+    let previewOn = true;
+    // The step before the dialog, by itself (see openLayerStyle); in Rasterize, the step once the
+    // texts are pixels. Each try starts again from there, so that it blurs the pixels as they were.
+    const base = doc.history[doc.historyIndex];
+    let rasterBase = null;
+    let rasterIds = [];
+    const backTo = (step) => {
+      const at = doc.history.indexOf(step);
+      if (at >= 0) ops.rollbackHistory(at);
+    };
+    const token = `gesture:gaussian-blur:${Date.now()}`;
+    const editable = () => texts.length > 0 && mode === "editable";
+    const maxRadius = () => (editable() ? ops.textBlurMax : 1000);
+    const onScreen = () => {
+      const v = view();
+      return { left: -v.x / v.zoom, top: -v.y / v.zoom, right: (stageW - v.x) / v.zoom, bottom: (stageH - v.y) / v.zoom };
+    };
+    let partial = false;
+    const run = (full) => {
+      if (app.doc !== doc) return null;
+      backTo(rasterBase || base);
+      partial = false;
+      if (!previewOn && !full) return null;
+      if (editable()) {
+        ops.blurText(ids, radius, token);
+        return null;
+      }
+      let error = null;
+      (texts.length ? rasterIds.map((id) => ({ id })) : [{}]).forEach((options) => {
+        const done = ops.gaussianBlur(radius, Object.assign({ coalesce: token, area: full ? null : onScreen() }, options));
+        if (done.error) error = error || done.error;
+        if (done.partial) partial = true;
+      });
+      return error;
+    };
+
+    const make = (tag, className, parent, text) => {
+      const el = document.createElement(tag);
+      if (className) el.className = className;
+      if (text !== undefined) el.textContent = text;
+      if (parent) parent.appendChild(el);
+      return el;
+    };
+    const body = make("div", "mask-props blur-props");
+    const line = make("label", "mask-props__row", body);
+    make("span", "", line, T("Radius"));
+    const range = make("input", "", line);
+    range.type = "range";
+    range.min = "0";
+    range.max = "1000";
+    range.setAttribute("aria-label", T("Radius"));
+    const number = make("input", "", line);
+    number.type = "number";
+    number.min = "0.1";
+    number.step = "0.1";
+    number.setAttribute("aria-label", T("Radius"));
+    make("span", "mask-props__unit", line, "px");
+    let modeNote = null;
+    let modeInputs = [];
+    if (texts.length) {
+      const modes = make("div", "blur-props__modes", body);
+      modes.setAttribute("role", "radiogroup");
+      modeInputs = [["editable", T("Keep the text editable")], ["rasterize", T("Rasterize")]].map(([value, text]) => {
+        const label = make("label", "blur-props__mode", modes);
+        const input = make("input", "", label);
+        input.type = "radio";
+        input.name = "blur-mode";
+        input.value = value;
+        input.checked = value === mode;
+        input.disabled = value === "editable" && Boolean(refused);
+        make("span", "", label, text);
+        input.addEventListener("change", () => { if (input.checked) setMode(value); });
+        return input;
+      });
+      modeNote = make("p", "modal__hint", body);
+    }
+    const partNote = make("p", "modal__hint", body, T("The preview blurs the part of the page on screen; OK blurs it all."));
+    partNote.hidden = true;
+    const previewRow = make("label", "levels__preview", body);
+    const previewBox = make("input", "", previewRow);
+    previewBox.type = "checkbox";
+    previewBox.checked = true;
+    make("span", "", previewRow, T("Preview"));
+
+    const showNotes = () => {
+      partNote.hidden = !partial;
+      if (!modeNote) return;
+      if (refused) modeNote.textContent = textBlurWhy(refused);
+      else if (editable()) modeNote.textContent = `${T("Photoshop shows the same blur: the letters at Fill 0% and a Drop Shadow in their colour (Layer Style).")} ${fill(T("Up to {max} px."), { max: ops.textBlurMax })}`;
+      else modeNote.textContent = T("The text becomes pixels: its words can't be edited any more.");
+    };
+    let frame = 0;
+    let timer = 0;
+    let slow = false;
+    const queue = () => {
+      const go = () => {
+        frame = 0;
+        timer = 0;
+        const t0 = performance.now();
+        run(false);
+        slow = performance.now() - t0 > 60;
+        showNotes();
+      };
+      if (slow) {
+        clearTimeout(timer);
+        timer = setTimeout(go, 150);
+      } else if (!frame) frame = requestAnimationFrame(go);
+    };
+    const setRadius = (value, from) => {
+      radius = Math.max(0.1, Math.min(maxRadius(), Math.round((Number(value) || 0.1) * 10) / 10));
+      if (from !== range) range.value = String(sliderOfRadius(radius));
+      if (from !== number) number.value = String(radius);
+      number.max = String(maxRadius());
+      showSliderFill(range);
+      queue();
+    };
+    range.addEventListener("input", () => setRadius(radiusOfSlider(Number(range.value)), range));
+    number.addEventListener("input", () => { if (number.value !== "" && !Number.isNaN(Number(number.value))) setRadius(number.value, number); });
+    number.addEventListener("change", () => setRadius(number.value));
+    previewBox.addEventListener("change", () => {
+      previewOn = previewBox.checked;
+      queue();
+    });
+    function setMode(next) {
+      if (next === mode || app.doc !== doc) return;
+      mode = next;
+      backTo(base);
+      rasterBase = null;
+      rasterIds = [];
+      if (mode === "rasterize" && texts.length) {
+        rasterIds = rasterizeForBlur(ids);
+        rasterBase = doc.history[doc.historyIndex];
+      }
+      setRadius(radius);
+    }
+    if (mode === "rasterize" && texts.length) {
+      rasterIds = rasterizeForBlur(ids);
+      rasterBase = doc.history[doc.historyIndex];
+    }
+    setRadius(radius);
+    showNotes();
+
+    const pending = dialog({
+      title: T("Gaussian Blur"),
+      body,
+      also: blurred ? T("Remove the Blur") : undefined,
+      ready: () => ui.modal.classList.add("modal--levels"),
+    });
+    // The page has to be seen: the window moves by its title, as Levels'
+    const modal = ui.modal;
+    const head = modal.querySelector(".modal__head");
+    head.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      const [x0, y0] = (modal.style.translate || "0px 0px").split(" ").map((value) => parseFloat(value) || 0);
+      const { clientX, clientY } = event;
+      head.setPointerCapture(event.pointerId);
+      const move = (e) => { modal.style.translate = `${x0 + e.clientX - clientX}px ${y0 + e.clientY - clientY}px`; };
+      const stop = () => {
+        head.removeEventListener("pointermove", move);
+        head.removeEventListener("pointerup", stop);
+        head.removeEventListener("pointercancel", stop);
+      };
+      head.addEventListener("pointermove", move);
+      head.addEventListener("pointerup", stop);
+      head.addEventListener("pointercancel", stop);
+    });
+    number.focus();
+    number.select();
+    const answer = await pending;
+    modal.style.translate = "";
+    if (frame) cancelAnimationFrame(frame);
+    clearTimeout(timer);
+    if (app.doc !== doc) return null;
+    if (!answer) {
+      backTo(base);
+      return null;
+    }
+    if (answer.also) {
+      backTo(base);
+      ops.blurText(ids, 0);
+      return null;
+    }
+    const error = run(true);
+    ops.sealHistory();
+    if (error) toast(blurWhy(error));
+    lastFilter = { radius, mode: texts.length ? mode : (lastFilter && lastFilter.mode) || "editable" };
+    renderMenusState();
+    return error ? null : { radius };
+  };
+  // Gaussian Blur without its dialog, as an action plays it: on a text, kept a text when it can
+  // be, as the dialog would start
+  const applyGaussianBlur = (radius) => {
+    if (!app.doc) return;
+    settleForResize();
+    const target = ops.gaussianBlurTarget();
+    if (target.error) throw new Error(blurWhy(target.error));
+    if (target.kind !== "text") {
+      const done = ops.gaussianBlur(radius);
+      if (done.error) throw new Error(blurWhy(done.error));
+      return;
+    }
+    const texts = styleTargets();
+    if (!texts.length) throw new Error(styleRefusal());
+    const ids = texts.map((layer) => layer.id);
+    if (texts.some((layer) => ops.textBlurRefusal(layer)) || radius > ops.textBlurMax) rasterizeForBlur(ids).forEach((id) => ops.gaussianBlur(radius, { id }));
+    else ops.blurText(ids, radius);
+  };
+  // Filter > Last Filter: the same blur again, on what is chosen now
+  const runLastFilter = () => {
+    if (!lastFilter || !app.doc) return;
+    settleForResize();
+    const target = ops.gaussianBlurTarget();
+    if (target.error) {
+      toast(blurWhy(target.error));
+      return;
+    }
+    // Recorded as the filter itself, as Photoshop records Last Filter
+    const { radius } = lastFilter;
+    if (target.kind !== "text") {
+      const done = ops.gaussianBlur(radius);
+      if (done.error) toast(blurWhy(done.error));
+      return;
+    }
+    const ids = styleTargets().map((layer) => layer.id);
+    if (!ids.length) {
+      toast(styleRefusal());
+      return;
+    }
+    // A text that can't stay one is asked about first
+    if (lastFilter.mode === "editable") {
+      if (styleTargets().some((layer) => ops.textBlurRefusal(layer))) showGaussianBlur();
+      else ops.blurText(ids, Math.min(radius, ops.textBlurMax));
+      return;
+    }
+    rasterizeForBlur(ids).forEach((id) => ops.gaussianBlur(radius, { id }));
+  };
+
   const isParagraph = (layer) => {
     const shape = layer.params.layerText.textShape && layer.params.layerText.textShape[0];
     return Boolean(shape && shape.textType === "box" && shape.box);
@@ -14770,6 +15056,11 @@
           else if (key === "blend") blendRow(parent, fx.blend || "normal", (v) => setFx(name, { blend: v }), effectBlendPreview(name));
           else slider(parent, T(label || FX_RANGES[key][0]), fx[key], FX_RANGES[key].slice(1), (v) => setFx(name, { [key]: v }));
         });
+        if (name === "dropShadow") {
+          // Off, the shadow shows under letters at a Fill below 100%: how a text's blur is made
+          switchRow(more, T("Layer Knocks Out Drop Shadow"), fx.knockout !== false, (on) => setFx(name, { knockout: on ? undefined : false }));
+          if (ops.textBlur(lead())) hint(fields, T("This shadow is the text's Gaussian Blur (Filter menu), its letters at Fill 0%."));
+        }
       }
       if (more.childNodes.length) {
         const toggle = make("button", "fxdlg__more", pane);
@@ -15336,6 +15627,12 @@
       { label: "All Layers", keys: "Alt+Cmd+A", enabled: () => hasDoc() && app.doc.state.layers.some((layer) => !layer.isBackground), action: () => selectLayers(app.doc.state.layers.filter((layer) => !layer.isBackground).map((layer) => layer.id)) },
       { label: "Similar Layers", enabled: hasLayer, action: () => selectLayers(app.doc.state.layers.filter((layer) => !layer.isBackground && kindOfLayer(layer) === kindOfLayer(activeLayer())).map((layer) => layer.id)) },
       findItem,
+    ]],
+    // After Select, as in Photoshop
+    ["Filter", [
+      { label: "Last Filter", keys: "Alt+Cmd+F", enabled: () => hasDoc() && Boolean(lastFilter), action: runLastFilter },
+      null,
+      { label: "Gaussian Blur…", enabled: hasDoc, action: () => showGaussianBlur() },
     ]],
     ["View", [
       { label: "Zoom In", keys: "Cmd+=", enabled: hasDoc, browserWhenOff: true, action: () => zoomStep(1) },
