@@ -662,6 +662,24 @@
   document.addEventListener("input", (event) => {
     if (event.target.type === "range") showSliderFill(event.target);
   }, true);
+  // A finger on a slider doesn't give it the focus as the mouse does, and the bars and panels
+  // aren't built again only while one of their fields has it: the first step of the drag would
+  // put a new slider under the finger, and the drag would end there. It has it until let go.
+  document.addEventListener("pointerdown", (event) => {
+    const slider = event.target;
+    if (event.pointerType === "mouse" || slider.type !== "range" || document.activeElement === slider) return;
+    slider.focus({ preventScroll: true });
+    const release = () => {
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+      // After the slider's own change, which may build its bar again
+      setTimeout(() => {
+        if (document.activeElement === slider) slider.blur();
+      }, 0);
+    };
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+  }, true);
   // The stage's place on screen, measured once per event however many ask (a measure after a
   // write to the page costs a layout)
   let measuredFor = null;
