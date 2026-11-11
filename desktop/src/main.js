@@ -23,6 +23,42 @@ const isTest = process.env.TYPER_TEST === "1";
 // Keeps a test's data apart from the real app's. Must be set before anything reads it.
 if (process.env.TYPER_USER_DATA) app.setPath("userData", process.env.TYPER_USER_DATA);
 
+/* -------------------------------------- the log ------------------------------------- */
+
+// The warnings and errors of this process, for the user to send with a problem (Help > Show Log
+// File): a small file in userData/logs, the one before it kept beside it. The user's home folder
+// is written ~, and what goes in is only what the messages say, never a page's content.
+const LOG_LIMIT = 256 * 1024;
+const logFile = () => path.join(app.getPath("userData"), "logs", "main.log");
+let logStarted = false;
+const writeLog = (level, args) => {
+  try {
+    const file = logFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if ((fs.statSync(file, { throwIfNoEntry: false }) || { size: 0 }).size > LOG_LIMIT) fs.renameSync(file, path.join(path.dirname(file), "main.old.log"));
+    const words = args.map((one) => {
+      if (one instanceof Error) return one.stack || one.message;
+      if (typeof one === "string") return one;
+      try {
+        return JSON.stringify(one);
+      } catch (error) {
+        return String(one);
+      }
+    });
+    const text = words.join(" ").split(app.getPath("home")).join("~").slice(0, 4000);
+    const head = logStarted ? "" : `${new Date().toISOString()} TypeR Studio ${app.getVersion()}, ${process.platform} ${require("os").release()} ${process.arch}, Electron ${process.versions.electron}\n`;
+    logStarted = true;
+    fs.appendFileSync(file, `${head}${level ? `${new Date().toISOString()} ${level} ${text}\n` : ""}`);
+  } catch (error) {}
+};
+for (const level of ["warn", "error"]) {
+  const original = console[level].bind(console);
+  console[level] = (...args) => {
+    original(...args);
+    writeLog(level, args);
+  };
+}
+
 protocol.registerSchemesAsPrivileged([{
   scheme: SCHEME,
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true },
@@ -688,7 +724,10 @@ ipcMain.handle("where-end", async (event, token) => {
   const asked = whereAsked;
   if (!fromPage(event) || !asked || asked.token !== token) return null;
   whereAsked = null;
-  if (asked.paths.size !== 1) return null;
+  if (asked.paths.size !== 1) {
+    console.warn(`Open in Photoshop: a file's place wasn't found (${asked.paths.size} answers)`);
+    return null;
+  }
   const [found] = asked.paths;
   const stat = await fs.promises.stat(found).catch(() => null);
   if (!stat || stat.isDirectory() !== asked.directory) return null;
@@ -758,6 +797,7 @@ const findPhotoshops = async () => {
     } catch (error) {}
     if (!byPlace.has(place.toLowerCase())) byPlace.set(place.toLowerCase(), { id: place, name: one.name, version: one.version || "" });
   }
+  if (!byPlace.size) console.warn(`Finding Photoshop: none found (${process.platform})`);
   const order = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
   return [...byPlace.values()].sort((a, b) => order.compare(b.name, a.name));
 };
@@ -908,7 +948,10 @@ ipcMain.handle("photoshop-open", async (event, id, paths, script, replace) => {
     for (const file of Array.isArray(paths) ? paths : []) {
       if (typeof file === "string" && knownPaths.has(file) && /\.ps[db]$/i.test(file) && (await exists(file)) && !files.includes(file)) files.push(file);
     }
-    if (!files.length) return { ok: false, message: "No file to open." };
+    if (!files.length) {
+      console.warn(`Open in Photoshop: none of the ${Array.isArray(paths) ? paths.length : 0} files given can be opened`);
+      return { ok: false, message: "No file to open." };
+    }
     // Already open in Photoshop: opened again as they are now, Photoshop's own changes asked about
     const unsaved = await reloadInPhotoshop(target, files, replace === true);
     if (unsaved.length) return { ok: false, unsaved, message: `Not saved in Photoshop: ${unsaved.join(", ")}` };
@@ -929,6 +972,14 @@ ipcMain.handle("photoshop-open", async (event, id, paths, script, replace) => {
     console.warn("Open in Photoshop:", error);
     return { ok: false, message: String(error.message || error).slice(0, 300) };
   }
+});
+// Help > Show Log File: the log, shown in the Finder or the Explorer
+ipcMain.handle("show-log", (event) => {
+  if (!fromPage(event)) return false;
+  writeLog(null, []);
+  if (!fs.existsSync(logFile())) return false;
+  shell.showItemInFolder(logFile());
+  return true;
 });
 
 // Discord's Rich Presence (discord.js): only what the page is on, the rest is set there

@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
     whereStart: (name, directory) => ipcRenderer.invoke("where-start", name, directory),
     whereEnd: (token) => ipcRenderer.invoke("where-end", token),
   },
+  // Help > Show Log File: the app's log, shown in the Finder or the Explorer
+  showLog: () => ipcRenderer.invoke("show-log"),
   // What Discord friends see while TypeR Studio is open (Settings > Discord activity): the
   // page says which page it is on, or null for nothing
   discord: {

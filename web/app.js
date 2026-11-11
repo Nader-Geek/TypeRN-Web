@@ -15721,6 +15721,8 @@
         : { label: "Download…", action: () => showDownloads() },
       { label: "Send Feedback…", action: () => window.TypeRFeedback && window.TypeRFeedback.show() },
       { label: "Report a Problem", action: () => window.open("https://github.com/ScanR/TypeR/issues/new", "_blank", "noopener") },
+      // The desktop app's log, to send with a problem (an app too old to keep one doesn't offer it)
+      ...(DESKTOP && window.TypeRDesktop.showLog ? [{ label: "Show Log File", action: () => window.TypeRDesktop.showLog() }] : []),
       { label: "Discord Server", action: () => window.open(DISCORD, "_blank", "noopener") },
       { label: "Support the Project", action: () => window.open(KOFI, "_blank", "noopener") },
       { label: "About TypeR Studio…", action: () => showAbout() },

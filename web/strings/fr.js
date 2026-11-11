@@ -480,6 +480,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Rename Layer": "Renommer le calque",
     "Reorder Layer": "Ordre des calques",
     "Report a Problem": "Signaler un problème",
+    "Show Log File": "Afficher le fichier journal",
     "Reselect": "Resélectionner",
     "Resolution (ppi)": "Résolution (ppp)",
     "Sample all layers": "Tous les calques",

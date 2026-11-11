@@ -463,6 +463,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Rename Layer": "Laag hernoemen",
     "Reorder Layer": "Laagvolgorde",
     "Report a Problem": "Een probleem melden",
+    "Show Log File": "Logbestand tonen",
     "Reselect": "Opnieuw selecteren",
     "Resolution (ppi)": "Resolutie (ppi)",
     "Sample all layers": "Alle lagen samplen",

@@ -463,6 +463,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Rename Layer": "Katmanı Yeniden Adlandır",
     "Reorder Layer": "Katman Sırası",
     "Report a Problem": "Sorun Bildir",
+    "Show Log File": "Günlük Dosyasını Göster",
     "Reselect": "Yeniden Seç",
     "Resolution (ppi)": "Çözünürlük (ppi)",
     "Sample all layers": "Tüm katmanları örnekle",
