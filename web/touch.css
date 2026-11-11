@@ -253,6 +253,13 @@ html[data-shell="phone"][data-sheet="bottom"] .layers__foot { padding-bottom: 4p
 /* history */
 html.touch .history li { height: 44px; padding: 0 14px; font-size: 15px; line-height: 44px; }
 
+/* styles: thumbnails a finger can hit */
+html.touch .styles { --tile: 52px; gap: 8px; padding: 10px; }
+html.touch .styles--large { --tile: 76px; }
+html.touch .styles--list { --tile: 40px; gap: 0; padding: 0; }
+html.touch .styles--list .styles__item { min-height: 52px; padding: 5px 14px; font-size: 15px; }
+html.touch .styles__item { padding: 3px; }
+
 /* character */
 html.touch .character { gap: 10px 12px; padding: 12px; grid-template-columns: 1fr; font-size: 14px; }
 html.touch .character label { flex-wrap: nowrap; gap: 8px; }

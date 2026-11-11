@@ -10629,7 +10629,7 @@
   /* -------------------------------- files --------------------------------- */
 
   const canPickFiles = typeof window.showOpenFilePicker === "function";
-  const OPEN_TYPES = [{ description: "Photoshop, InDesign, PNG, JPEG", accept: { "image/vnd.adobe.photoshop": [".psd", ".psb"], "application/vnd.adobe.indesign-idml-package": [".idml"], "application/x-indesign": [".indd", ".indt"], "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"], "application/octet-stream": [".atn"] } }];
+  const OPEN_TYPES = [{ description: "Photoshop, InDesign, PNG, JPEG", accept: { "image/vnd.adobe.photoshop": [".psd", ".psb"], "application/vnd.adobe.indesign-idml-package": [".idml"], "application/x-indesign": [".indd", ".indt"], "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"], "application/octet-stream": [".atn", ".asl"] } }];
   const InDesign = window.TypeRInDesign;
 
   const tooLargeText = (width, height) => fill(T("This page is too large for this browser: {width} × {height} px."), { width, height });
@@ -10703,9 +10703,13 @@
     for (const entry of inOrder) {
       const file = entry.file || entry;
       const handle = entry.handle || null;
-      // Photoshop's actions go to the Actions panel
+      // Photoshop's actions go to the Actions panel, its styles to the Styles panel
       if (/\.atn$/i.test(file.name) && window.TypeRActions) {
         await window.TypeRActions.loadFile(file);
+        continue;
+      }
+      if (/\.asl$/i.test(file.name) && window.TypeRStyles) {
+        await window.TypeRStyles.loadFile(file);
         continue;
       }
       if (!/\.(psd|psb|png|jpe?g|webp)$/i.test(file.name) && !/^image\/(png|jpeg|webp)$/.test(file.type) && !InDesign.isInDesignName(file.name)) {
@@ -14765,6 +14769,17 @@
     no.type = "button";
     const yes = make("button", "btn btn--main", foot, "OK");
     yes.type = "button";
+    // Photoshop's New Style…: the look tried out here, kept in the Styles panel (styles.js)
+    if (window.TypeRStyles) {
+      const keepStyle = make("button", "btn fxdlg__newstyle", null, T("New Style…"));
+      keepStyle.type = "button";
+      keepStyle.addEventListener("click", () => {
+        flush();
+        const layer = lead();
+        if (layer) window.TypeRStyles.newStyle(withoutFx(layer, { stroke: turnedOff.has("stroke"), effects: Array.from(turnedOff).filter((name) => name !== "stroke") }));
+      });
+      foot.insertBefore(keepStyle, no);
+    }
 
     /* the rail: Blending, then each effect with its switch */
     const railItems = {};
@@ -15937,6 +15952,8 @@
       { label: "History", check: () => Workspace().isVisible("history"), action: () => Workspace().toggle("history") },
       // Photoshop's Actions, Alt+F9 as there (actions.js)
       { label: "Actions", keys: "Alt+F9", check: () => Workspace().isVisible("actions"), action: () => Workspace().toggle("actions") },
+      // Photoshop's Styles: layer styles kept, a click away (styles.js)
+      { label: "Styles", check: () => Workspace().isVisible("styles"), action: () => Workspace().toggle("styles") },
       { label: "Line Breaks", keys: "Shift+L", check: () => Workspace().isVisible("breaks"), action: () => Workspace().toggle("breaks") },
       ...(Shell.touch ? [] : [{ label: "Contextual Task Bar", check: () => settings.taskBar, action: () => setTaskBar(!settings.taskBar) }]),
       null,

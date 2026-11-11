@@ -69,7 +69,8 @@
 //
 //   parse(arrayBufferOrBytes) → file; write(file) → ArrayBuffer. Errors are AtnError, with
 //     the byte where the file went wrong.
-//   parseDescriptor(bytes) / writeDescriptor(descriptor) → Uint8Array (a bare descriptor)
+//   parseDescriptor(bytes) / writeDescriptor(descriptor) → Uint8Array (a bare descriptor);
+//     parseDescriptorAt(bytes, offset) → { descriptor, end }, one followed by other data
 //   parsePalette(bytes) / writePalette(palette): Photoshop's "Actions Palette.psp", every set
 //     of the user's Actions panel at once ({ version, sets, trailing })
 //   Building: file(name, actions, opts), action(name, items, opts), step(event, descriptor or
@@ -785,6 +786,13 @@
     if (r.left()) fail(`${r.left()} bytes follow the descriptor`, r.at);
     return d;
   };
+  // A descriptor inside other data (a Styles file's, asl.js): it and the byte after it
+  const parseDescriptorAt = (input, offset = 0) => {
+    const r = reader(toBytes(input));
+    r.at = offset;
+    const descriptor = modern.descriptor(r, 0);
+    return { descriptor, end: r.at };
+  };
   const writeDescriptor = (d) => {
     const w = writer();
     modern.writeDescriptor(w, d, 0);
@@ -832,7 +840,7 @@
   const TERMS = {
     "#Ang": "angleUnit", "#Mlm": "millimetersUnit", "#Nne": "noneUnit", "#Pnt": "pointsUnit",
     "#Prc": "percentUnit", "#Pxl": "pixelsUnit", "#Rlt": "distanceUnit", "#Rsl": "densityUnit",
-    "ASet": "actionSet", "AccE": "accentedEdges", "Actn": "action", "AdNs": "addNoise", "Add ": "add",
+    "ASet": "actionSet", "ASty": "applyStyle", "AccE": "accentedEdges", "Actn": "action", "AdNs": "addNoise", "Add ": "add",
     "AddT": "addTo", "AdjL": "adjustmentLayer", "Adjs": "adjustment", "Al  ": "allEnum",
     "Alg ": "alignmentType", "Algn": "align", "All ": "all", "AmMn": "amplitudeMin",
     "AmMx": "amplitudeMax", "Amnt": "amount", "AnCr": "antiAliasCrisp", "Angl": "angle",
@@ -1312,6 +1320,8 @@
   event("rasterizeLayer", "", "Rasterize", false, "file+played", `rasterizeLayer{ ${TARGET}, What?: enum rasterizeItem.Type|placed|shape|vectorMask|layerStyle }`, [["What", "What"]]);
   event("rasterizeTypeLayer", "", "Rasterize Type Layer", false, "file", "no descriptor");
   event("disableLayerStyle", "", "Clear Layer Style", false, "played", `disableLayerStyle{ ${TARGET} }`);
+  // A click in the Styles panel (Photoshop 2026 says ASty is applyStyle)
+  event("applyStyle", "ASty", "Apply Style", false, "", 'ASty{ null: ref(name Styl "…"), T: ref(Enmr Lyr Ordn.Trgt) }', [["null", "Style"]]);
   event("copyToLayer", "CpTL", "Layer Via Copy", false, "file", "no descriptor");
   event("cutToLayer", "CtTL", "Layer Via Cut", false, "", "no descriptor");
   event("groupEvent", "GrpL", "Create Clipping Mask", false, "file", "no descriptor");
@@ -1697,6 +1707,8 @@
     setLayerStyle: (effects, scale = 100) =>
       step("set", { null: ref(refProp("Prpr", "Lefx"), target()), "T   ": obj("Lefx", [["Scl ", pct(scale)]].concat(toItems(effects))) }),
     clearLayerStyle: () => step("disableLayerStyle", { null: ref(target()) }),
+    // A style of the Styles panel, by its name ({ name })
+    applyStyle: (o) => step("applyStyle", { null: ref(refName("Styl", o.name)), "T   ": ref(target()) }),
     // { as: "psd" | "png" | "jpeg", path (POSIX, Mac), copy, quality (jpeg, 0–12) }; without a
     // path Photoshop asks where
     save: (o) =>
@@ -1720,6 +1732,7 @@
     parse,
     write,
     parseDescriptor,
+    parseDescriptorAt,
     writeDescriptor,
     parsePalette,
     writePalette,

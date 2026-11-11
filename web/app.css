@@ -739,6 +739,29 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 @keyframes actions-blink { to { visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { .status__actions.is-recording .status__actions-text::before { animation: none; } }
 
+/* the Styles panel (styles.js): Photoshop's grid of styles, or their list. The thumbnails sit
+   on the same light grey in both themes, where a black stroke and a white glow both show. */
+.pane--styles { flex: 0 1 26%; }
+.styles { --tile: 32px; flex: 1; min-height: 40px; display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--tile) + 4px), 1fr)); align-content: start; justify-items: center; gap: 4px; padding: 6px; overflow-y: auto; background: var(--ui-dark); outline: 0; }
+.styles--large { --tile: 56px; }
+.styles--list { display: flex; flex-direction: column; gap: 0; padding: 0; }
+.styles__item { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 2px; border-radius: 3px; color: var(--text); text-align: left; }
+.styles--list .styles__item { width: 100%; padding: 3px 8px; border-bottom: 1px solid rgb(0 0 0 / 0.12); border-radius: 0; }
+.styles__item:hover { background: var(--ui-2); }
+.styles__item.is-on { background: rgb(var(--blue-rgb) / 0.24); box-shadow: inset 0 0 0 1px var(--blue); }
+.styles--list .styles__item.is-on { box-shadow: inset 2px 0 0 var(--blue); color: var(--strong); }
+.styles__item:focus-visible { outline: 2px solid var(--blue); outline-offset: 0; }
+.styles__thumb { position: relative; flex: none; display: block; width: var(--tile); height: var(--tile); overflow: hidden; background: #a4a4a4; border-radius: 2px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.28); }
+.styles__thumb canvas { display: block; width: 100%; height: 100%; }
+.styles__thumb--none { background: #fff; }
+.styles__thumb--none::after { content: ""; position: absolute; left: 50%; top: -15%; width: 2px; height: 130%; margin-left: -1px; background: #e5534b; transform: rotate(45deg); }
+.styles__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.styles__empty { grid-column: 1 / -1; justify-self: stretch; margin: 6px 4px; color: var(--muted); }
+.styles__foot { justify-content: flex-start; }
+.styles__grow { flex: 1; }
+.fxdlg__foot .fxdlg__newstyle { margin-right: auto; }
+[dir="rtl"] .fxdlg__foot .fxdlg__newstyle { margin-right: 0; margin-left: auto; }
+
 /* the workspace, arranged by workspace.js in a wide window */
 .work.is-custom { display: block; position: relative; overflow: hidden; background: var(--gap); }
 .work.is-custom > .dock--side { display: contents; }

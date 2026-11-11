@@ -129,6 +129,7 @@
     const group = same(r.classId, "layerSection");
     if (r.form === "prop" && same(r.key, "fsel")) return say("{event} Selection");
     if (r.form === "prop" && same(r.key, "Lefx")) return T("Set Layer Style");
+    if (r.form === "name" && same(r.classId, "Styl")) return say("{event} “{name}”", { name: r.value });
     if (r.form === "Enmr" && same(r.classId, "HstS") && (r.value === "Prvs" || r.value === "Nxt ")) return say(r.value === "Prvs" ? "{event} previous history state" : "{event} next history state");
     if (r.form === "Enmr" && same(r.classId, "Dcmn")) return say("{event} document");
     if (r.form === "Enmr" && (layer || group) && ORDINAL_TITLES[r.value]) return say(ORDINAL_TITLES[r.value]);
@@ -792,6 +793,20 @@
         ops.clearLayerStyle();
       };
     },
+    // A style of the Styles panel (styles.js), by its name, on the current layers
+    applyStyle(item) {
+      const refs = refsOf(get(item.descriptor, "null"));
+      const to = get(item.descriptor, "T   ");
+      if (!window.TypeRStyles || !refs || !refs[0] || refs[0].form !== "name" || !same(refs[0].classId, "Styl") || (to && !isTargetRef(to))) return null;
+      return () => {
+        needDoc();
+        try {
+          window.TypeRStyles.applyByName(refs[0].value);
+        } catch (error) {
+          unavailable(error.message);
+        }
+      };
+    },
     // Here on a mask or the Quick Mask, as Image > Invert is
     invert: () => () => runCommand("Image:Invert"),
     inverse: () => () => {
@@ -1376,6 +1391,9 @@
       skewY: t.kv ? Math.round((Math.atan(t.kv) * 180000) / Math.PI) / 1000 : 0,
     })],
     contentAwareFill: ({ adapt }) => [ATN.step("fill", { Usng: ATN.enumv("FlCn", "contentAware"), contentAwareColorAdaptationFill: Boolean(adapt), Opct: ATN.pct(100), "Md  ": ATN.enumv("BlnM", "Nrml") })],
+    // The Styles panel (styles.js): a style by its name, and No Style
+    applyStyle: ({ name }) => [ATN.make.applyStyle({ name })],
+    clearStyle: () => [ATN.make.clearLayerStyle()],
   };
   const record = (kind, values) => {
     if (!recording() || !RECORDED[kind]) return;

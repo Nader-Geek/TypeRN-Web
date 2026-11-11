@@ -15,11 +15,11 @@
   const TOOLS = 42;
   const HEAD = 26;
   const MIN_DOCS = 320;
-  const ELEMENTS = { tools: "tools", typer: "dock-typer", layers: "pane-layers", character: "pane-character", sfx: "pane-sfx", breaks: "breaks", history: "pane-history", actions: "pane-actions" };
-  const PANELS = ["typer", "layers", "character", "sfx", "breaks", "history", "actions"];
-  const SIDE = ["layers", "character", "sfx", "breaks", "history", "actions"];
+  const ELEMENTS = { tools: "tools", typer: "dock-typer", layers: "pane-layers", character: "pane-character", sfx: "pane-sfx", breaks: "breaks", history: "pane-history", actions: "pane-actions", styles: "pane-styles" };
+  const PANELS = ["typer", "layers", "character", "sfx", "breaks", "history", "actions", "styles"];
+  const SIDE = ["layers", "character", "sfx", "breaks", "history", "actions", "styles"];
   const SIDES = ["left", "right"];
-  const MIN = { tools: [42, 42], typer: [280, 260], layers: [170, 90], character: [210, 130], sfx: [230, 160], breaks: [210, 120], history: [150, 80], actions: [190, 110] };
+  const MIN = { tools: [42, 42], typer: [280, 260], layers: [170, 90], character: [210, 130], sfx: [230, 160], breaks: [210, 120], history: [150, 80], actions: [190, 110], styles: [150, 90] };
   // How far a drop that makes a new column reaches into what lies on either side of the line:
   // only a sliver of a column, so the rest of it still stacks or floats, more of the page,
   // which is easier to aim at
@@ -43,11 +43,11 @@
     tools: "left",
     docks: {
       left: [],
-      right: [{ id: "middle", width: 360, panels: ["typer"] }, { id: "right", width: 250, panels: ["layers", "character", "sfx", "breaks", "history", "actions"] }],
+      right: [{ id: "middle", width: 360, panels: ["typer"] }, { id: "right", width: 250, panels: ["layers", "character", "sfx", "breaks", "history", "actions", "styles"] }],
     },
-    heights: { typer: 600, layers: 290, character: 240, sfx: 420, breaks: 290, history: 180, actions: 260 },
-    // The SFX panel comes with the SFX tool; History and Actions wait to be asked for
-    hidden: { history: true, sfx: true, actions: true },
+    heights: { typer: 600, layers: 290, character: 240, sfx: 420, breaks: 290, history: 180, actions: 260, styles: 220 },
+    // The SFX panel comes with the SFX tool; History, Actions and Styles wait to be asked for
+    hidden: { history: true, sfx: true, actions: true, styles: true },
     floating: {},
     order: [],
     // Where each panel was docked last: { column, side, at, before, width }
@@ -138,8 +138,8 @@
     PANELS.forEach((id) => {
       if (seen.has(id)) return;
       // A panel this layout never had goes to the column at the far right; the SFX one waits
-      // for its tool, the Actions one to be asked for (Window > Actions)
-      if (id === "sfx" || id === "actions") out.hidden[id] = true;
+      // for its tool, the Actions and Styles ones to be asked for (Window > Actions, Styles)
+      if (id === "sfx" || id === "actions" || id === "styles") out.hidden[id] = true;
       const right = out.docks.right;
       if (right.length) right[right.length - 1].panels.push(id);
       else right.push({ id: newColumnId(out), width: 250, panels: [id] });

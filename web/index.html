@@ -173,6 +173,11 @@
           <div class="actions" id="actions" role="tree"></div>
           <div class="layers__foot actions__foot" id="actions-foot"></div>
         </section>
+        <section class="pane pane--styles" id="pane-styles">
+          <div class="dock__head"><span id="head-styles"></span></div>
+          <div class="styles" id="styles" role="listbox"></div>
+          <div class="layers__foot styles__foot" id="styles-foot"></div>
+        </section>
       </aside>
     </div>
 
@@ -185,7 +190,7 @@
   <div class="busy" id="busy" role="status" hidden></div>
   <div class="toast" id="toast" role="status" hidden></div>
   <dialog class="modal" id="modal"></dialog>
-  <input type="file" id="file-open" accept=".psd,.psb,.idml,.indd,.indt,.atn,image/png,image/jpeg,image/webp" multiple hidden>
+  <input type="file" id="file-open" accept=".psd,.psb,.idml,.indd,.indt,.atn,.asl,image/png,image/jpeg,image/webp" multiple hidden>
   <input type="file" id="file-fonts" accept=".ttf,.otf,.ttc,.otc,.woff,.woff2" multiple hidden>
   <input type="file" id="file-kit" accept=".zip,.json" multiple hidden>
 
@@ -201,6 +206,7 @@
   <script src="photoshop.js"></script>
   <script src="psd.js"></script>
   <script src="atn.js"></script>
+  <script src="asl.js"></script>
   <script src="indesign.js"></script>
   <script src="session.js"></script>
   <script src="recent.js"></script>
@@ -212,6 +218,7 @@
   <script src="onboarding.js"></script>
   <script src="app.js"></script>
   <script src="actions.js"></script>
+  <script src="styles.js"></script>
   <script src="sfx.js"></script>
   <script src="retouch.js"></script>
   <script src="reshape.js"></script>

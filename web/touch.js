@@ -258,6 +258,8 @@
     text: { title: "Character", element: () => $("pane-character"), icon: "font", follows: true },
     lines: { title: "Line Breaks", element: () => $("breaks"), icon: "lines", follows: true },
     history: { title: "History", element: () => $("pane-history") },
+    // Photoshop's Styles panel (styles.js), named apart from TypeR's own text styles
+    layerStyles: { title: "Layer Styles", element: () => $("pane-styles") },
     position: { title: "Position", element: () => NATIVE.position, follows: true },
     pages: { title: "Pages", element: () => NATIVE.pages },
     more: { title: "More", element: () => NATIVE.more, icon: "more", tall: true },
@@ -827,6 +829,7 @@
     view.append(
       row(T("Pages"), () => openSheet("pages"), false, "copy"),
       row(T("History"), () => openSheet("history"), false, "undo"),
+      row(T("Layer Styles"), () => openSheet("layerStyles"), false, `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>`),
       row(T("Line Breaks"), () => openSheet("lines"), false, "lines"),
       row(T("Character"), () => openSheet("text"), false, "font"),
       row("TextShapeR", () => openSheet("shapes"), false, "shapes"),

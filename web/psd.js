@@ -1069,6 +1069,12 @@
       if (visual) place(node, visual.canvas, visual.x, visual.y);
       else delete node.canvas;
     } else if (layer.bitmap === (layer.raw.canvas || null) && (layer.left || 0) === (layer.raw.left || 0) && (layer.top || 0) === (layer.raw.top || 0) && (layer.mask || null) === pixelMaskOf(layer.raw) && (layer.vectorMask || null) === vectorMaskOf(layer.raw)) node.typerRaw = rawParts.get(layer.raw);
+    // A style given here (the Styles panel): its stroke and effects, as a text's. The file's
+    // own stay as they were while TypeR's still say the same.
+    if (!layer.adjustment) {
+      strokesOut(node, layer);
+      effectsOut(node, layer, doc);
+    }
     return node;
   };
 
@@ -1286,5 +1292,5 @@
     return lib.writePsdUint8Array(root, Object.assign({ generateThumbnail: true }, options));
   };
 
-  window.TypeRPSD = { read, readText, write, library, sfxOfXmp, xmpWithSfx, effectsFromPsd };
+  window.TypeRPSD = { read, readText, write, library, sfxOfXmp, xmpWithSfx, effectsFromPsd, strokeFromEffects };
 })();
