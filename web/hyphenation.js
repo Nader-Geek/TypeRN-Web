@@ -92,10 +92,19 @@
     known.clear();
   };
 
+  // The patterns are in small letters. A word in capitals is put in small letters by the rules
+  // of its own language, letter for letter so the cuts stay in place: in Turkish, İ is i and
+  // I is ı. Left to itself, the library would follow the computer's language, and cut a
+  // Turkish word in capitals one letter off.
+  const smallLetters = (word, language) => Array.from(word).map((letter) => {
+    const small = letter.toLocaleLowerCase(language);
+    return small.length === letter.length ? small : small.slice(0, letter.length);
+  }).join("");
+
   const patternPoints = (language, word) => {
     const hyphenator = hyphenators.get(language);
     if (!hyphenator) return [];
-    const sections = hyphenator(word).split("­");
+    const sections = hyphenator(smallLetters(word, language)).split("­");
     const points = [];
     let offset = 0;
     for (let index = 0; index + 1 < sections.length; index++) {
