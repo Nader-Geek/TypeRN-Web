@@ -4024,7 +4024,12 @@
       });
       Gen.adobeStatus().then(showAccount).catch(() => showAccount(null));
       account.append(status, credits, adobeButton, disconnect, hint(T("Your Adobe session stays on this device. Images and selections go directly to Adobe. No API key is needed.")));
-      pane.append(heading("Adobe Firefly"), account);
+      const title = heading("Adobe Firefly");
+      pane.append(title, account);
+      // The Adobe account only shows while Firefly is the service in use
+      const showAdobe = () => { title.hidden = account.hidden = service !== "adobe"; };
+      serviceSelect.addEventListener("change", showAdobe);
+      showAdobe();
     }
     // What comes back brought to the brightness of the page around it
     const tonesSwitch = document.createElement("input");
