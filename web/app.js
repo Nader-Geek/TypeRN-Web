@@ -4475,13 +4475,17 @@
   // finds letters becomes the selection, a little grown so their edges and outlines go too. Its
   // answer is kept while the page's pixels don't change: asking again costs nothing.
   const textFind = { running: false, landing: false, doc: null, data: null, confidence: null, mask: null };
-  // How far around the letters the selection goes, and how close two letters must be to make
-  // one area: both follow the page's size, its longer side. A strip longer than a manga page
-  // (1.45 times as long as it is wide; a webtoon) counts as a page of its width: its letters are
-  // no bigger for being many screens long.
+  // How far around the letters the selection goes, and how close two parts of the selection
+  // must be to make one area: both follow the page's size, its longer side. A strip longer than
+  // a manga page (1.45 times as long as it is wide; a webtoon) counts as a page of its width:
+  // its letters are no bigger for being many screens long.
   const textSize = (doc) => Math.min(Math.max(doc.width, doc.height), Math.round(1.45 * Math.min(doc.width, doc.height)));
   const textGrow = (doc) => Math.max(2, Math.round(textSize(doc) * 0.003));
-  const textLink = (doc) => Math.max(6, Math.round(textSize(doc) * 0.01));
+  // The selection's parts are grown already, so the letters of a word or a balloon touch: two
+  // parts go together only when they almost touch too, no more than about `textGrow` apart (each
+  // is grown by `link` to be joined). Further apart, as the eye sees them, they're two areas: a
+  // sound effect beside a balloon, two sound effects across a panel's border.
+  const textLink = (doc) => Math.max(1, Math.round(textGrow(doc) / 2));
   const textMaskMessage = (error) => {
     const detail = error && error.detail ? ` (${error.detail})` : "";
     switch (error && error.kind) {
