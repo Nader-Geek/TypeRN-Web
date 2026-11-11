@@ -179,13 +179,31 @@ Les installateurs dépassent la limite de 100 Mo par fichier de GitHub : ils von
 dépôt (0.1.1 et avant) cherchent encore `ScanR/TypeR-Web` : GitHub les redirige. Ne jamais recréer
 de dépôt `ScanR/TypeR-Web`, sinon ces apps ne trouveraient plus leurs mises à jour.
 
-```sh
-GH_TOKEN=... CSC_NAME="Adrien Devoe (4A2K68QQ82)" APPLE_KEYCHAIN_PROFILE=typer-studio npx electron-builder --mac --win --publish always
-GH_TOKEN=... npx electron-builder --linux --x64 -c.productName=TypeR-Studio --publish always
-```
+1. Monter `version` dans `package.json`, commiter, pousser `main` (le hook signe la mise à jour du
+   site : relancer le push).
+2. Construire depuis une copie propre de ce commit : `npm run content` copie `web/` tel qu'il est
+   sur le disque, avec ce qui n'est pas commité.
 
-Linux à part, pour son nom de dossier sans espace (voir plus haut). Les deux commandes remplissent
-la même Release.
+   ```sh
+   git worktree add --detach /tmp/typer-release HEAD && cd /tmp/typer-release/desktop && npm ci
+   npm run content
+   CSC_NAME="Adrien Devoe (4A2K68QQ82)" APPLE_KEYCHAIN_PROFILE=typer-studio npx electron-builder --mac --arm64 --x64 --publish never
+   npx electron-builder --win --x64 --publish never
+   npx electron-builder --linux --x64 -c.productName=TypeR-Studio --publish never
+   ```
+
+   Toujours nommer les architectures : sans elles, un Mac à puce Apple ne construit que pour arm64,
+   Windows compris, et cet installateur ne s'ouvre pas sur un PC ordinaire. Linux à part, pour son
+   nom de dossier sans espace (voir plus haut).
+3. Publier une seule Release avec tous les fichiers de `dist/` (les `.dmg`, `.zip`, `.blockmap`,
+   `TypeR-Studio-Setup.exe`, `.AppImage`, `.deb` et les trois `latest*.yml`) :
+
+   ```sh
+   gh release create v<version> --target $(git rev-parse HEAD) --title "TypeR Studio <version>" --notes-file notes.md dist/...
+   ```
+
+   Pas de `--publish always` : quand plusieurs plateformes envoient en même temps, chacune crée son
+   propre brouillon de Release et les fichiers se partagent entre les deux.
 
 Sur Mac, la mise à jour automatique de l'app ne marche que si elle est signée.
 
