@@ -8397,11 +8397,102 @@
     });
   };
 
+  // Whether what is right around the stroke is a screentone: a pattern that repeats itself,
+  // close by, in two directions. A line repeats along itself only; letters, not that closely.
+  // If so, the pixels it was read on (those close to the stroke), else null.
+  const TONE_RING = 10;
+  const TONE_PERIOD = 14;
+  const TONE_LIKE = 0.5;
+  const TONE_DIP = 0.4;
+  const grayAt = (data, i) => data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114;
+  const screentoned = (data, mask, width, height) => {
+    const n = width * height;
+    // The pixels within TONE_RING of the stroke (its steps away from it in `far`)
+    const far = new Uint8Array(n);
+    const walk = new Int32Array(n);
+    let head = 0;
+    let tail = 0;
+    for (let i = 0; i < n; i++) {
+      if (!mask[i]) continue;
+      far[i] = 1;
+      walk[tail++] = i;
+    }
+    const step = (from, to) => {
+      if (far[to] || far[from] > TONE_RING) return;
+      far[to] = far[from] + 1;
+      walk[tail++] = to;
+    };
+    while (head < tail) {
+      const i = walk[head++];
+      const x = i % width;
+      if (x > 0) step(i, i - 1);
+      if (x < width - 1) step(i, i + 1);
+      if (i >= width) step(i, i - width);
+      if (i < n - width) step(i, i + width);
+    }
+    const ring = [];
+    for (let k = 0; k < tail; k++) if (!mask[walk[k]] && data[walk[k] * 4 + 3] >= 128) ring.push(walk[k]);
+    if (ring.length < 200) return null;
+    // A long stroke: one pixel in so many is enough
+    const every = Math.max(1, Math.round(ring.length / 20000));
+    const tone = (i) => grayAt(data, i);
+    let sum = 0;
+    let count = 0;
+    for (let k = 0; k < ring.length; k += every) {
+      sum += tone(ring[k]);
+      count++;
+    }
+    const mean = sum / count;
+    let spread = 0;
+    for (let k = 0; k < ring.length; k += every) spread += (tone(ring[k]) - mean) ** 2;
+    spread /= count;
+    // Flat: nothing repeats
+    if (spread < 100) return null;
+    // How much the tones match, moved by each step (dx, dy) up to TONE_PERIOD: 1 the same
+    const likes = new Map();
+    for (let dy = 0; dy <= TONE_PERIOD; dy++) {
+      for (let dx = -TONE_PERIOD; dx <= TONE_PERIOD; dx++) {
+        if ((dy === 0 && dx <= 0) || dx * dx + dy * dy > TONE_PERIOD * TONE_PERIOD) continue;
+        let product = 0;
+        let pairs = 0;
+        for (let k = 0; k < ring.length; k += every) {
+          const i = ring[k];
+          const x = (i % width) + dx;
+          const y = Math.floor(i / width) + dy;
+          if (x < 0 || x >= width || y >= height) continue;
+          const j = y * width + x;
+          if (mask[j] || data[j * 4 + 3] < 128) continue;
+          product += (tone(i) - mean) * (tone(j) - mean);
+          pairs++;
+        }
+        if (pairs * 2 >= count) likes.set(`${dx},${dy}`, product / pairs / spread);
+      }
+    }
+    const likeAt = (dx, dy) => (dy < 0 || (dy === 0 && dx < 0) ? likes.get(`${-dx},${-dy}`) : likes.get(`${dx},${dy}`));
+    // A step at which it repeats: the same again, after something else on the way (a thick
+    // stroke is the same a step further too, but all along the way)
+    const repeats = [];
+    likes.forEach((like, key) => {
+      const [dx, dy] = key.split(",").map(Number);
+      if (like < TONE_LIKE || dx * dx + dy * dy < 4) return;
+      const between = [0.35, 0.5, 0.65].map((t) => likeAt(Math.round(dx * t), Math.round(dy * t))).filter((value) => value !== undefined);
+      if (between.length && Math.min(...between) <= like - TONE_DIP) repeats.push({ dx, dy, like });
+    });
+    repeats.sort((a, b) => b.like - a.like);
+    const first = repeats[0];
+    if (!first) return null;
+    // And in a second direction, well apart from the first
+    const length = Math.hypot(first.dx, first.dy);
+    return repeats.some((other) => Math.abs(first.dx * other.dy - first.dy * other.dx) >= 0.5 * length * Math.hypot(other.dx, other.dy)) ? ring : null;
+  };
+
   // Where the Spot Healing Brush may read from: what the edge of the stroke belongs to, grown
   // from it pixel by pixel as long as the colour changes gently. Inside a bubble, that is the
   // bubble, and not its outline nor the sky beyond, which a fill would otherwise bring in; a
-  // line crossing the stroke comes along, so it carries on. A screentone or a busy picture
-  // breaks it into crumbs: then everything around is read, as Content-Aware Fill does.
+  // line crossing the stroke comes along, so it carries on. On a screentone, the paper between
+  // the dots joins up on its own, and read alone it would heal into a blank patch: there, what
+  // has the tone's look is read too. A busy picture breaks it into crumbs: then everything
+  // around is read, as Content-Aware Fill does.
   const HEAL_STEP = 24;
   const healSource = (data, mask, width, height) => {
     const n = width * height;
@@ -8441,7 +8532,68 @@
       if (i < n - width) visit(i, i + width);
     }
     // Enough to draw from (as much as there is to fill), else the whole neighbourhood
-    return tail >= Math.max(600, holes) ? reached : all;
+    if (tail < Math.max(600, holes)) return all;
+    const ring = screentoned(data, mask, width, height);
+    if (!ring) return reached;
+    // On a screentone, what has its grain all around (TONE_PERIOD) is read too: its dots, and
+    // where the paper breaks into crumbs, with a tone between the screentone's and the paper's
+    // (its edge against the plain paper). Not a letter or a dark shape amid it.
+    const W = width + 1;
+    const sums = new Float64Array(W * (height + 1));
+    const squares = new Float64Array(W * (height + 1));
+    const counts = new Int32Array(W * (height + 1));
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        const at = (y + 1) * W + x + 1;
+        const ok = !mask[i] && data[i * 4 + 3] >= 128;
+        const value = ok ? grayAt(data, i) : 0;
+        sums[at] = sums[at - 1] + sums[at - W] - sums[at - W - 1] + value;
+        squares[at] = squares[at - 1] + squares[at - W] - squares[at - W - 1] + value * value;
+        counts[at] = counts[at - 1] + counts[at - W] - counts[at - W - 1] + (ok ? 1 : 0);
+      }
+    }
+    // The tone and grain around (x, y), in `mean` and `spread`; false if too little is known
+    const R = TONE_PERIOD >> 1;
+    let mean = 0;
+    let spread = 0;
+    const around = (x, y) => {
+      const top = Math.max(0, y - R) * W;
+      const bottom = Math.min(height, y + R + 1) * W;
+      const left = Math.max(0, x - R);
+      const right = Math.min(width, x + R + 1);
+      const box = (table) => table[bottom + right] - table[bottom + left] - table[top + right] + table[top + left];
+      const count = box(counts);
+      if (count < 4) return false;
+      mean = box(sums) / count;
+      spread = box(squares) / count - mean * mean;
+      return true;
+    };
+    // The screentone's, read where the stroke's surroundings vary (not the plain paper beside)
+    const means = [];
+    const spreads = [];
+    ring.forEach((i) => {
+      if (!around(i % width, Math.floor(i / width)) || spread < 400) return;
+      means.push(mean);
+      spreads.push(spread);
+    });
+    if (means.length < 50) return reached;
+    const median = (values) => values.sort((a, b) => a - b)[values.length >> 1];
+    const toneMean = median(means);
+    const toneSpread = median(spreads);
+    let paper = 0;
+    for (let k = 0; k < tail; k++) paper += grayAt(data, queue[k]);
+    paper /= tail;
+    const lightest = Math.max(toneMean, paper) + HEAL_STEP;
+    const darkest = Math.min(toneMean, paper) - HEAL_STEP;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        if (reached[i] || mask[i] || data[i * 4 + 3] < 128 || !around(x, y)) continue;
+        if (mean >= darkest && mean <= lightest && spread >= toneSpread / 4 && spread <= toneSpread * 2) reached[i] = 1;
+      }
+    }
+    return reached;
   };
 
   const ops = {
