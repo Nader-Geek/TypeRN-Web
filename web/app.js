@@ -3308,7 +3308,7 @@
         ...(discord ? [{ id: "discord", label: T("Discord activity"), value: settings.discord, options: [["page", T("With the page's name")], ["app", T("Without the page's name")], ["off", T("Off")]], hint: () => T("What your Discord friends see while you work. Discord must be open on this computer.") }] : []),
         { id: "language", label: T("Language of new text"), value: d.language, options: PS.TEXT_LANGUAGES.map(([name, , own]) => [name, own]) },
         { id: "ligature", label: T("Standard ligatures in new text"), type: "checkbox", checked: d.ligature },
-        { id: "hyphenate", label: T("Hyphenate new paragraph text"), type: "checkbox", checked: Boolean(d.hyphenate) },
+        { id: "hyphenate", label: T("Hyphenate new paragraph text"), type: "checkbox", checked: Boolean(d.hyphenate), hint: () => T("Long words are cut at a syllable, with a hyphen, at the end of a line: in paragraph text, and in the text TypeR fits in a bubble.") },
         { id: "textOnTop", label: T("Always place new text on top"), type: "checkbox", checked: Boolean(d.textOnTop), hint: () => T("When off, new text goes right above the selected layer, as in Photoshop.") },
         { id: "sizeStep", label: T("Text size step"), value: settings.sizeStep, type: "number", min: 0.1, step: "any", hint: () => T("How much Ctrl + Shift + < and > change the size of the text. With Alt, five times as much.") },
       ],
@@ -3318,6 +3318,8 @@
     settings.wheel = answer.wheel;
     settings.zoomSpeed = answer.zoomSpeed;
     if (discord) settings.discord = answer.discord;
+    // Text with no language of its own is drawn again in the new one
+    const relanguage = d.language !== answer.language;
     d.language = answer.language;
     d.ligature = answer.ligature;
     d.hyphenate = answer.hyphenate;
@@ -3330,6 +3332,7 @@
     appearance.save();
     characterKey = "";
     renderCharacter();
+    if (relanguage) Fonts.refresh();
     if (answer.lang !== lang) {
       const url = new URL(window.location.href);
       url.searchParams.set("lang", answer.lang);
@@ -7682,7 +7685,7 @@
     editing = { id: layer.id, isNew: Boolean(isNew), base: history[isNew ? Math.max(0, historyIndex - 1) : historyIndex].id };
     ui.editor.value = String(layer.params.layerText.textKey || "").replace(/\r/g, "\n");
     ui.editor.spellcheck = settings.spellcheck;
-    ui.editor.lang = SPELLING_LANGUAGES[layer.params.layerText.textStyleRange[0].textStyle.textLanguage] || "";
+    ui.editor.lang = SPELLING_LANGUAGES[layer.params.layerText.textStyleRange[0].textStyle.textLanguage || app.textDefaults.language] || "";
     ui.editor.hidden = false;
     placeEditor();
     ui.editor.focus();
@@ -9669,6 +9672,17 @@
     hyphenate.querySelector("input").disabled = !isParagraph(layer);
     hyphenate.title = isParagraph(layer) ? T("Cuts long words at the end of a line, with a hyphen, by the rules of the text's language.") : T("Hyphenation only cuts the words of paragraph text.");
     hyphenRow.appendChild(hyphenate);
+    // A point text has its lines as they were typed or fitted in their bubble: say so
+    // beside the greyed box rather than only in its tooltip
+    if (!isParagraph(layer)) {
+      const why = document.createElement("span");
+      why.className = "character__label";
+      why.textContent = T("Point text keeps its own lines");
+      why.title = T("Its lines stay as they are. With Hyphenate new paragraph text on in Settings, TypeR cuts long words when it fits new text in a bubble.");
+      // Under the box when the panel is too narrow for both
+      hyphenRow.style.flexWrap = "wrap";
+      hyphenRow.appendChild(why);
+    }
     host.appendChild(hyphenRow);
     const row = document.createElement("div");
     row.className = "character__row wide";
@@ -16943,7 +16957,11 @@
       preferences: () => ({ wheel: settings.wheel, textLanguage: app.textDefaults.language, transformControls: settings.transformControls }),
       setPreferences({ wheel, textLanguage, transformControls }) {
         if (wheel) settings.wheel = wheel;
-        if (textLanguage) app.textDefaults.language = textLanguage;
+        // Text with no language of its own is drawn again in the new one
+        if (textLanguage && textLanguage !== app.textDefaults.language) {
+          app.textDefaults.language = textLanguage;
+          Fonts.refresh();
+        }
         if (typeof transformControls === "boolean") setTransformControls(transformControls);
         keepSettings();
         characterKey = "";

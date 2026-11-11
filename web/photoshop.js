@@ -75,8 +75,10 @@
     slovakLanguage: "sk", hungarianLanguage: "hu", romanianLanguage: "ro", croatianLanguage: "hr", slovenianLanguage: "sl", lithuanianLanguage: "lt", latvianLanguage: "lv",
     turkishLanguage: "tr", greekLanguage: "el", russianLanguage: "ru", ukranianLanguage: "uk", bulgarianLanguage: "bg", serbianLanguage: "sr", arabicLanguage: "ar", hebrewLanguage: "he",
   };
-  // A text with no language is drawn as English, whatever the interface's language
-  const languageTagOf = (textStyle) => LANGUAGE_TAGS[textStyle.textLanguage] || "en";
+  // A text with no language is in the language of new text, as the Character panel shows it
+  // and as it is saved: drawn, put in capitals and hyphenated the same way everywhere
+  const languageOf = (textStyle) => (textStyle && textStyle.textLanguage) || app.textDefaults.language;
+  const languageTagOf = (textStyle) => LANGUAGE_TAGS[languageOf(textStyle)] || "en";
   const TEXT_LANGUAGE_NUMBERS = TEXT_LANGUAGES.reduce((numbers, [name, number]) => Object.assign(numbers, { [name]: number }), { standardGermanLanguage: 4, swissGermanLanguage: 6, dutchLanguage: 15 });
   const textLanguageNumber = (name) => {
     const number = TEXT_LANGUAGE_NUMBERS[name];
@@ -94,7 +96,7 @@
   // All Caps follows the text language, as in Photoshop: in Turkish, i becomes İ, not I
   const CASE_LOCALES = { turkishLanguage: "tr" };
   const shownText = ({ text, style }) => {
-    const locale = CASE_LOCALES[style.textLanguage];
+    const locale = CASE_LOCALES[languageOf(style)];
     const cased = style.fontCaps === "allCaps" ? (locale ? text.toLocaleUpperCase(locale) : text.toUpperCase()) : text;
     return style.ligature === false ? cased.replace(/(\p{Script=Latin})(?=\p{Script=Latin})/gu, "$1‌") : cased;
   };
@@ -189,16 +191,23 @@
     spanishLanguage: "es", italianLanguage: "it", standardPortugueseLanguage: "pt", brazilianPortugueseLanguage: "pt",
     russianLanguage: "ru", turkishLanguage: "tr", ukranianLanguage: "uk",
   };
-  const hyphenLoads = new Set();
+  // Each language's patterns while they load, then true once they are there or can't be
+  const hyphenLoads = new Map();
+  const loadHyphenation = (language) => {
+    if (!hyphenLoads.has(language)) {
+      hyphenLoads.set(language, window.TypeRHyphenation.load(language).then(() => Fonts.refresh && Fonts.refresh(), () => {}).then(() => {
+        hyphenLoads.set(language, true);
+      }));
+    }
+    const loading = hyphenLoads.get(language);
+    return loading === true ? null : loading;
+  };
   const hyphenLanguage = (style) => {
     const Hyphenation = window.TypeRHyphenation;
-    const language = Hyphenation && HYPHEN_LANGUAGES[(style && style.textLanguage) || app.textDefaults.language];
+    const language = Hyphenation && HYPHEN_LANGUAGES[languageOf(style)];
     if (!language) return null;
     if (Hyphenation.isLoaded(language)) return language;
-    if (!hyphenLoads.has(language)) {
-      hyphenLoads.add(language);
-      Hyphenation.load(language).then(() => Fonts.refresh && Fonts.refresh(), () => {});
-    }
+    loadHyphenation(language);
     return null;
   };
   // Photoshop's defaults: words of 6 letters or more, 2 letters at least on each side
@@ -9574,18 +9583,88 @@
     return params;
   };
 
-  const wrapWords = (text, base, width, resolution) => {
+  // Text the panel makes follows the settings for new text, as the Type tool's does. Its
+  // styles say English, ligatures and hyphenation on because Photoshop and the panel start
+  // that way, not because they were chosen for this text: the settings win, but a style that
+  // turns ligatures off means it. A text the panel restyles (`layer`) keeps its own language,
+  // ligatures and hyphenation instead.
+  const followTextDefaults = (params, layer) => {
+    const d = app.textDefaults;
+    const lt = params.layerText;
+    const own = layer && layer.params.layerText;
+    const ownStyle = own && own.textStyleRange[0].textStyle;
+    const language = (ownStyle && ownStyle.textLanguage) || d.language;
+    const ligature = ownStyle ? ownStyle.ligature !== false : d.ligature !== false;
+    (lt.textStyleRange || []).forEach((range) => {
+      if (!range.textStyle) return;
+      range.textStyle.textLanguage = language;
+      range.textStyle.ligature = ligature && range.textStyle.ligature !== false;
+    });
+    const hyphenate = own ? own.paragraphStyleRange[0].paragraphStyle.hyphenate === true : Boolean(d.hyphenate);
+    (lt.paragraphStyleRange || []).forEach((range) => {
+      if (!range.paragraphStyle) return;
+      if (hyphenate) range.paragraphStyle.hyphenate = true;
+      else delete range.paragraphStyle.hyphenate;
+    });
+    return params;
+  };
+  // The panel writes the lines of the text it fits in a balloon into it: with Hyphenate on,
+  // the patterns of the language must be there first, or its long words would stay whole
+  const hyphenationPending = () => {
+    const Hyphenation = window.TypeRHyphenation;
+    const language = app.textDefaults.hyphenate && Hyphenation && HYPHEN_LANGUAGES[app.textDefaults.language];
+    return language && !Hyphenation.isLoaded(language) ? loadHyphenation(language) : null;
+  };
+
+  // The lines of a text the panel fits in a balloon. With hyphenRules (Hyphenate on), a word
+  // that doesn't fit at the end of a line is cut at a syllable, with a hyphen, as in
+  // paragraph text, rather than going whole to the next line or leaving a line too wide.
+  const wrapWords = (text, base, width, resolution, hyphenRules) => {
     const size = sizePxOf(base, resolution);
     setRunFont(measureCtx, base, size);
+    const fits = (candidate) => measureCtx.measureText(candidate).width <= width;
+    const language = hyphenRules ? hyphenLanguage(base) : null;
+    // Where `word`, already cut at `from`, can be cut again so that `line` ends with its
+    // start and a hyphen: the latest such place, or -1
+    const hyphenCut = (line, word, from) => {
+      if (!language) return -1;
+      const lead = /^[^\p{L}]*/u.exec(word)[0].length;
+      const core = /^[\p{L}'’]+/u.exec(word.slice(lead));
+      if (!core || core[0].length < hyphenRules.wordSize) return -1;
+      if (!hyphenRules.capitalized && /^\p{Lu}/u.test(core[0])) return -1;
+      const points = window.TypeRHyphenation.breakPoints(core[0], language)
+        .map((point) => lead + point)
+        .filter((cut) => cut - lead >= hyphenRules.pre && lead + core[0].length - cut >= hyphenRules.post && cut - from >= hyphenRules.pre)
+        .sort((a, b) => b - a);
+      return points.find((cut) => fits((line ? line + " " : "") + word.slice(from, cut) + "-")) || -1;
+    };
     const out = [];
     String(text || "").split(/\r\n?|\n/).forEach((paragraph) => {
       let line = "";
       paragraph.split(/\s+/).filter(Boolean).forEach((word) => {
-        const candidate = line ? line + " " + word : word;
-        if (line && measureCtx.measureText(candidate).width > width) {
+        let from = 0;
+        for (;;) {
+          const rest = word.slice(from);
+          const candidate = line ? line + " " + rest : rest;
+          if (fits(candidate)) {
+            line = candidate;
+            break;
+          }
+          const cut = hyphenCut(line, word, from);
+          if (cut > 0) {
+            out.push((line ? line + " " : "") + word.slice(from, cut) + "-");
+            line = "";
+            from = cut;
+            continue;
+          }
+          // A word too wide alone, with nowhere to cut it, keeps its line
+          if (!line) {
+            line = rest;
+            break;
+          }
           out.push(line);
-          line = word;
-        } else line = candidate;
+          line = "";
+        }
       });
       out.push(line);
     });
@@ -9601,11 +9680,13 @@
 
   const classicParams = (doc, data, bounds) => {
     const padding = Number(data.padding) || 0;
-    const params = paramsFromStyle(scaleForPunctuation(data.style, data.text), data.text, data.richTextRuns, data.textSizeOverride, doc.resolution);
+    const params = followTextDefaults(paramsFromStyle(scaleForPunctuation(data.style, data.text), data.text, data.richTextRuns, data.textSizeOverride, doc.resolution));
     const base = params.layerText.textStyleRange[0].textStyle;
     // The enlarged text must not wrap in a box sized for the selection
     const enlarged = !data.textSizeOverride && data.style && isPunctuationOnly(data.text) ? Math.max(1, parseFloat(data.style.punctuationOnlyScale) || 1) : 1;
-    const lines = wrapWords(data.text, base, Math.max(24, bounds.width * 0.9 - padding * 2) * enlarged, doc.resolution);
+    // Text with styled parts keeps its own lines (see below): it isn't cut either
+    const hyphenRules = data.richTextRuns ? null : hyphenRulesOf(params.layerText.paragraphStyleRange[0].paragraphStyle);
+    const lines = wrapWords(data.text, base, Math.max(24, bounds.width * 0.9 - padding * 2) * enlarged, doc.resolution, hyphenRules);
     if (!data.richTextRuns) {
       params.layerText.textKey = lines.join("\r");
       params.layerText.textStyleRange = [{ from: 0, to: params.layerText.textKey.length, textStyle: base }];
@@ -9853,6 +9934,7 @@
         const style = data.style ? scaleForPunctuation(data.style, text) : { textProps: layer.params };
         const kept = data.preserveActiveTextSize ? layer.params.layerText.textStyleRange[0].textStyle.size : null;
         const params = paramsFromStyle(style, text, data.richTextRuns, kept, data.style ? doc.resolution : 0);
+        if (data.style) followTextDefaults(params, layer);
         params.layerText.textClickPoint = clone(layer.params.layerText.textClickPoint);
         if (boxShape(layer.params.layerText)) params.layerText.textShape = clone(layer.params.layerText.textShape);
         else centreLayer(doc, params, null, box.xMid, box.yMid);
@@ -9922,6 +10004,7 @@
         // As on one layer: the style's stroke, each layer's own size if asked, and its box
         const kept = item.preserveActiveTextSize ? layer.params.layerText.textStyleRange[0].textStyle.size : null;
         const params = paramsFromStyle(item.style ? scaleForPunctuation(item.style, text) : { textProps: layer.params }, text, item.richTextRuns, kept, item.style ? doc.resolution : 0);
+        if (item.style) followTextDefaults(params, layer);
         params.layerText.textClickPoint = clone(layer.params.layerText.textClickPoint);
         if (boxShape(layer.params.layerText)) params.layerText.textShape = clone(layer.params.layerText.textShape);
         else centreLayer(doc, params, null, box.xMid, box.yMid);
@@ -9932,6 +10015,8 @@
       return "";
     },
     createTextLayerInSelection(data) {
+      const pending = hyphenationPending();
+      if (pending) return pending.then(() => host.createTextLayerInSelection(data));
       const doc = app.doc;
       if (!doc) return "doc";
       const selection = doc.state.selection;
@@ -9951,6 +10036,8 @@
       return "";
     },
     createTextLayersInStoredSelections(data) {
+      const pending = hyphenationPending();
+      if (pending) return pending.then(() => host.createTextLayersInStoredSelections(data));
       const doc = app.doc;
       if (!doc) return "doc";
       const created = [];
@@ -10195,7 +10282,7 @@
       if (!doc) return JSON.stringify({ error: "doc" });
       const requests = (data && data.requests) || [];
       const measure = () => JSON.stringify(requests.map((request) => {
-        const lt = paramsInPoints(request.params, doc.resolution).layerText;
+        const lt = followTextDefaults(paramsInPoints(request.params, doc.resolution)).layerText;
         const key = String(lt.textKey || "").replace(/\r$/, "");
         const runs = splitLines(Object.assign({}, lt, { textKey: key }))[0] || [];
         const m = measureRuns(runs, doc.resolution);
@@ -10223,7 +10310,7 @@
           const op = { t: "poly", polygon: plan.cleanupPolygon, color: plan.fillRGB || { red: 255, green: 255, blue: 255 }, inset: plan.cleanupInset || 0 };
           layers = paintOnCleanLayer(layers, () => op);
         }
-        const layer = newTextLayer(doc, paramsInPoints(session.text.params, doc.resolution), session.text.stroke, session.layerName);
+        const layer = newTextLayer(doc, followTextDefaults(paramsInPoints(session.text.params, doc.resolution)), session.text.stroke, session.layerName);
         layer.source = session.layerName || "";
         created.push(layer);
         layers = addNewTexts(layers, [layer], spot);
