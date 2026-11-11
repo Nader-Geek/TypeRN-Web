@@ -91,6 +91,7 @@ window.TYPER_WEB_STRINGS.tr = Object.assign(window.TYPER_WEB_STRINGS.tr || {}, {
   "Help → SFX Guide lists every shortcut of the tool.": "Yardım → SFX Kılavuzu aracın tüm kısayollarını listeler.",
   "Finish the chapter": "Bölümü bitir",
   "Save, export, and every shortcut.": "Kaydetme, dışa aktarma ve tüm kısayollar.",
+  "Window → Actions ({Alt}{F9}) records your steps once, then plays them on every page: Play on All Open Pages in its menu, or Run an action first in Batch Save. Photoshop's .atn files load there too.": "Pencere → Eylemler ({Alt}{F9}) adımlarınızı bir kez kaydeder, sonra her sayfada oynatır: menüsündeki “Tüm Açık Sayfalarda Oynat” ya da Toplu kaydet içindeki “Önce bir eylem oynat”. Photoshop’un .atn dosyaları da oraya yüklenir.",
   "{Cmd}{S} saves over the file you opened, File → Save As… makes a copy, and File → Export for InDesign (IDML)… hands the page over to InDesign.": "{Cmd}{S} açtığınız dosyanın üzerine kaydeder, Dosya → Farklı Kaydet… bir kopya oluşturur, Dosya → InDesign için dışa aktar (IDML)… ise sayfayı InDesign'a aktarır.",
   "Last one: open Help → Keyboard Shortcuts.": "Son adım: Yardım → Klavye Kısayolları'nı açın.",
   "Click a shortcut there to give it other keys.": "Başka tuşlar atamak için oradaki bir kısayola tıklayın.",

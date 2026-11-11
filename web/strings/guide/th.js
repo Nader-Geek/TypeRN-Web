@@ -91,6 +91,7 @@ window.TYPER_WEB_STRINGS.th = Object.assign(window.TYPER_WEB_STRINGS.th || {}, {
   "Help → SFX Guide lists every shortcut of the tool.": "ความช่วยเหลือ → คู่มือ SFX รวมคีย์ลัดทั้งหมดของเครื่องมือนี้",
   "Finish the chapter": "ทำตอนให้เสร็จ",
   "Save, export, and every shortcut.": "บันทึก ส่งออก และคีย์ลัดทั้งหมด",
+  "Window → Actions ({Alt}{F9}) records your steps once, then plays them on every page: Play on All Open Pages in its menu, or Run an action first in Batch Save. Photoshop's .atn files load there too.": "หน้าต่าง → แอคชัน ({Alt}{F9}) บันทึกขั้นตอนของคุณครั้งเดียว แล้วเล่นซ้ำได้ทุกหน้า: “เล่นในทุกหน้าที่เปิดอยู่” ในเมนูของแผง หรือ “เล่นแอคชันก่อน” ใน บันทึกเป็นชุด และยังโหลดไฟล์ .atn ของ Photoshop ได้ที่นั่นด้วย",
   "{Cmd}{S} saves over the file you opened, File → Save As… makes a copy, and File → Export for InDesign (IDML)… hands the page over to InDesign.": "{Cmd}{S} บันทึกทับไฟล์ที่คุณเปิด ไฟล์ → บันทึกเป็น… สร้างสำเนา และ ไฟล์ → ส่งออกสำหรับ InDesign (IDML)… ส่งหน้าต่อให้ InDesign",
   "Last one: open Help → Keyboard Shortcuts.": "ขั้นสุดท้าย: เปิด ความช่วยเหลือ → คีย์ลัด",
   "Click a shortcut there to give it other keys.": "คลิกคีย์ลัดตรงนั้นเพื่อกำหนดแป้นอื่นให้",

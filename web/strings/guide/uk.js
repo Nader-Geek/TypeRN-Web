@@ -91,6 +91,7 @@ window.TYPER_WEB_STRINGS.uk = Object.assign(window.TYPER_WEB_STRINGS.uk || {}, {
   "Help → SFX Guide lists every shortcut of the tool.": "Довідка → Посібник з SFX перелічує всі комбінації клавіш інструмента.",
   "Finish the chapter": "Завершити розділ",
   "Save, export, and every shortcut.": "Збереження, експорт і всі комбінації клавіш.",
+  "Window → Actions ({Alt}{F9}) records your steps once, then plays them on every page: Play on All Open Pages in its menu, or Run an action first in Batch Save. Photoshop's .atn files load there too.": "Вікно → Операції ({Alt}{F9}) записує ваші кроки один раз і потім виконує їх на кожній сторінці: «Виконати на всіх відкритих сторінках» у його меню або «Спершу виконати операцію» у Пакетне збереження. Туди ж завантажуються файли .atn із Photoshop.",
   "{Cmd}{S} saves over the file you opened, File → Save As… makes a copy, and File → Export for InDesign (IDML)… hands the page over to InDesign.": "{Cmd}{S} зберігає поверх відкритого файлу, Файл → Зберегти як… створює копію, а Файл → Експорт для InDesign (IDML)… передає сторінку в InDesign.",
   "Last one: open Help → Keyboard Shortcuts.": "Останній крок: відкрийте Довідка → Комбінації клавіш.",
   "Click a shortcut there to give it other keys.": "Натисніть там на комбінацію, щоб призначити їй інші клавіші.",

@@ -91,6 +91,7 @@ window.TYPER_WEB_STRINGS.ko = Object.assign(window.TYPER_WEB_STRINGS.ko || {}, {
   "Help → SFX Guide lists every shortcut of the tool.": "도움말 → SFX 가이드에 도구의 모든 단축키가 있습니다.",
   "Finish the chapter": "챕터 마무리",
   "Save, export, and every shortcut.": "저장, 내보내기, 모든 단축키.",
+  "Window → Actions ({Alt}{F9}) records your steps once, then plays them on every page: Play on All Open Pages in its menu, or Run an action first in Batch Save. Photoshop's .atn files load there too.": "창 → 액션({Alt}{F9})는 작업 단계를 한 번 기록한 뒤 모든 페이지에서 재생합니다. 메뉴의 “열린 모든 페이지에서 재생” 또는 일괄 저장의 “먼저 액션 재생”을 사용하세요. Photoshop의 .atn 파일도 여기서 불러올 수 있습니다.",
   "{Cmd}{S} saves over the file you opened, File → Save As… makes a copy, and File → Export for InDesign (IDML)… hands the page over to InDesign.": "{Cmd}{S}는 연 파일에 덮어쓰고, 파일 → 다른 이름으로 저장…은 사본을 만들고, 파일 → InDesign용으로 내보내기(IDML)…는 페이지를 InDesign으로 넘깁니다.",
   "Last one: open Help → Keyboard Shortcuts.": "마지막: 도움말 → 키보드 단축키를 여세요.",
   "Click a shortcut there to give it other keys.": "거기서 단축키를 클릭하면 다른 키를 지정할 수 있습니다.",

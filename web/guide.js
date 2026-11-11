@@ -1063,6 +1063,11 @@
           },
         },
         {
+          text: "Window → Actions ({Alt}{F9}) records your steps once, then plays them on every page: Play on All Open Pages in its menu, or Run an action first in Batch Save. Photoshop's .atn files load there too.",
+          targets: [{ el: () => menuButton("Window") }],
+          next: true,
+        },
+        {
           text: "{Cmd}{S} saves over the file you opened, File → Save As… makes a copy, and File → Export for InDesign (IDML)… hands the page over to InDesign.",
           targets: [{ el: () => menuButton("File") }],
           next: true,

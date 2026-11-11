@@ -91,6 +91,7 @@ window.TYPER_WEB_STRINGS.fr = Object.assign(window.TYPER_WEB_STRINGS.fr || {}, {
   "Help → SFX Guide lists every shortcut of the tool.": "Aide → Guide SFX liste tous les raccourcis de l’outil.",
   "Finish the chapter": "Finir le chapitre",
   "Save, export, and every shortcut.": "Enregistrer, exporter, et tous les raccourcis.",
+  "Window → Actions ({Alt}{F9}) records your steps once, then plays them on every page: Play on All Open Pages in its menu, or Run an action first in Batch Save. Photoshop's .atn files load there too.": "Fenêtre → Scripts ({Alt}{F9}) enregistre vos étapes une fois, puis les rejoue sur chaque page : « Lancer sur toutes les pages ouvertes » dans son menu, ou « Lancer d’abord un script » dans Enregistrer par lot. Les fichiers .atn de Photoshop s’y chargent aussi.",
   "{Cmd}{S} saves over the file you opened, File → Save As… makes a copy, and File → Export for InDesign (IDML)… hands the page over to InDesign.": "{Cmd}{S} enregistre par-dessus le fichier ouvert, Fichier → Enregistrer sous… en fait une copie, et Fichier → Exporter pour InDesign (IDML)… passe la page à InDesign.",
   "Last one: open Help → Keyboard Shortcuts.": "Dernière étape : ouvrez Aide → Raccourcis clavier.",
   "Click a shortcut there to give it other keys.": "Cliquez sur un raccourci pour lui donner d’autres touches.",

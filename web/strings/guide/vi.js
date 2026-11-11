@@ -91,6 +91,7 @@ window.TYPER_WEB_STRINGS.vi = Object.assign(window.TYPER_WEB_STRINGS.vi || {}, {
   "Help → SFX Guide lists every shortcut of the tool.": "Trợ giúp → Hướng dẫn SFX liệt kê mọi phím tắt của công cụ.",
   "Finish the chapter": "Hoàn thành chương",
   "Save, export, and every shortcut.": "Lưu, xuất, và mọi phím tắt.",
+  "Window → Actions ({Alt}{F9}) records your steps once, then plays them on every page: Play on All Open Pages in its menu, or Run an action first in Batch Save. Photoshop's .atn files load there too.": "Cửa sổ → Thao tác ({Alt}{F9}) ghi lại các bước của bạn một lần rồi chạy lại trên mọi trang: “Chạy trên mọi trang đang mở” trong menu của bảng, hoặc “Chạy một thao tác trước” trong Lưu hàng loạt. Tệp .atn của Photoshop cũng tải được ở đó.",
   "{Cmd}{S} saves over the file you opened, File → Save As… makes a copy, and File → Export for InDesign (IDML)… hands the page over to InDesign.": "{Cmd}{S} lưu đè lên tệp bạn đã mở, Tệp → Lưu thành… tạo một bản sao, và Tệp → Xuất cho InDesign (IDML)… chuyển trang sang InDesign.",
   "Last one: open Help → Keyboard Shortcuts.": "Bước cuối: mở Trợ giúp → Phím tắt.",
   "Click a shortcut there to give it other keys.": "Nhấp vào một phím tắt ở đó để gán phím khác.",

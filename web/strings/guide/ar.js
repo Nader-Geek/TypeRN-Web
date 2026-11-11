@@ -91,6 +91,7 @@ window.TYPER_WEB_STRINGS.ar = Object.assign(window.TYPER_WEB_STRINGS.ar || {}, {
   "Help → SFX Guide lists every shortcut of the tool.": "تعليمات ← دليل SFX يسرد كل اختصارات الأداة.",
   "Finish the chapter": "إنهاء الفصل",
   "Save, export, and every shortcut.": "الحفظ، والتصدير، وكل الاختصارات.",
+  "Window → Actions ({Alt}{F9}) records your steps once, then plays them on every page: Play on All Open Pages in its menu, or Run an action first in Batch Save. Photoshop's .atn files load there too.": "نافذة ← الإجراءات ({Alt}{F9}) يسجّل خطواتك مرة واحدة ثم يشغّلها على كل صفحة: «تشغيل على كل الصفحات المفتوحة» في قائمته، أو «تشغيل إجراء أولًا» في حفظ دفعة واحدة. تُحمَّل ملفات ‎.atn‎ من Photoshop هناك أيضًا.",
   "{Cmd}{S} saves over the file you opened, File → Save As… makes a copy, and File → Export for InDesign (IDML)… hands the page over to InDesign.": "{Cmd}{S} يحفظ فوق الملف الذي فتحته، وملف ← حفظ باسم… ينشئ نسخة، وملف ← تصدير لـ InDesign (IDML)… يسلّم الصفحة إلى InDesign.",
   "Last one: open Help → Keyboard Shortcuts.": "الخطوة الأخيرة: افتح تعليمات ← اختصارات لوحة المفاتيح.",
   "Click a shortcut there to give it other keys.": "انقر على اختصار هناك لتعيين مفاتيح أخرى له.",

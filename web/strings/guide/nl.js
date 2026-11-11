@@ -91,6 +91,7 @@ window.TYPER_WEB_STRINGS.nl = Object.assign(window.TYPER_WEB_STRINGS.nl || {}, {
   "Help → SFX Guide lists every shortcut of the tool.": "Help → SFX-gids toont alle sneltoetsen van het gereedschap.",
   "Finish the chapter": "Het hoofdstuk afronden",
   "Save, export, and every shortcut.": "Opslaan, exporteren en alle sneltoetsen.",
+  "Window → Actions ({Alt}{F9}) records your steps once, then plays them on every page: Play on All Open Pages in its menu, or Run an action first in Batch Save. Photoshop's .atn files load there too.": "Venster → Handelingen ({Alt}{F9}) neemt je stappen één keer op en speelt ze daarna af op elke pagina: ‘Afspelen op alle geopende pagina’s’ in het menu, of ‘Eerst een handeling afspelen’ in Batchgewijs opslaan. Ook de .atn-bestanden van Photoshop worden daar geladen.",
   "{Cmd}{S} saves over the file you opened, File → Save As… makes a copy, and File → Export for InDesign (IDML)… hands the page over to InDesign.": "{Cmd}{S} slaat op over het bestand dat je hebt geopend, Bestand → Opslaan als… maakt een kopie, en Bestand → Exporteren voor InDesign (IDML)… geeft de pagina door aan InDesign.",
   "Last one: open Help → Keyboard Shortcuts.": "Als laatste: open Help → Sneltoetsen.",
   "Click a shortcut there to give it other keys.": "Klik daar op een sneltoets om er andere toetsen aan te geven.",

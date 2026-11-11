@@ -1566,7 +1566,27 @@
     }
     const matrix = transformMatrix(t);
     endTransform();
-    if (!unchanged) ops.transformLayers(t.ids, matrix, "Free Transform");
+    if (unchanged) return;
+    ops.transformLayers(t.ids, matrix, "Free Transform");
+    // Photoshop's Transform step: W, H, angle and skew, and where the middle went
+    recordStep("transform", { sx: t.sx, sy: t.sy, angle: (t.angle * 180) / Math.PI, kh: t.kh || 0, kv: t.kv || 0, dx: t.cx - t.base.xMid, dy: t.cy - t.base.yMid, turned: Boolean(t.base.frame) });
+  };
+  // An action's Transform step on the active layers, as Free Transform would commit it:
+  // { sx, sy, angle (degrees), kh, kv (tangents), dx, dy }
+  const applyTransform = (step) => {
+    if (transformOf()) cancelTransform();
+    const tool = app.tool;
+    if (!beginTransform()) {
+      setTool(tool);
+      return false;
+    }
+    const t = transform;
+    Object.assign(t, { sx: step.sx, sy: step.sy, angle: (step.angle * Math.PI) / 180, kh: step.kh, kv: step.kv, cx: t.base.xMid + step.dx, cy: t.base.yMid + step.dy });
+    const matrix = transformMatrix(t);
+    endTransform();
+    setTool(tool);
+    ops.transformLayers(t.ids, matrix, "Free Transform");
+    return true;
   };
   // From the menu: on what is being transformed, or at once on the active layers
   const transformStep = (change) => {
@@ -6475,7 +6495,13 @@
     if (painting) return { id: painting.id };
     const layer = activeLayer();
     if (layer && layer.kind === "raster" && !layer.adjustment) return layer;
-    return doc ? ops.newLayer(nextLayerName()) : null;
+    // Part of a stroke, which an action doesn't record: nor the layer it paints on
+    return doc ? quietly(() => ops.newLayer(nextLayerName())) : null;
+  };
+  // What the app does by itself, the Actions panel doesn't record (actions.js)
+  const quietly = (run) => (window.TypeRActions ? window.TypeRActions.quietly(run) : run());
+  const recordStep = (kind, values) => {
+    if (window.TypeRActions) window.TypeRActions.record(kind, values);
   };
 
   const ellipsePath = (x0, y0, x1, y1) => {
@@ -10584,7 +10610,7 @@
   /* -------------------------------- files --------------------------------- */
 
   const canPickFiles = typeof window.showOpenFilePicker === "function";
-  const OPEN_TYPES = [{ description: "Photoshop, InDesign, PNG, JPEG", accept: { "image/vnd.adobe.photoshop": [".psd", ".psb"], "application/vnd.adobe.indesign-idml-package": [".idml"], "application/x-indesign": [".indd", ".indt"], "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"] } }];
+  const OPEN_TYPES = [{ description: "Photoshop, InDesign, PNG, JPEG", accept: { "image/vnd.adobe.photoshop": [".psd", ".psb"], "application/vnd.adobe.indesign-idml-package": [".idml"], "application/x-indesign": [".indd", ".indt"], "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"], "application/octet-stream": [".atn"] } }];
   const InDesign = window.TypeRInDesign;
 
   const tooLargeText = (width, height) => fill(T("This page is too large for this browser: {width} × {height} px."), { width, height });
@@ -10658,6 +10684,11 @@
     for (const entry of inOrder) {
       const file = entry.file || entry;
       const handle = entry.handle || null;
+      // Photoshop's actions go to the Actions panel
+      if (/\.atn$/i.test(file.name) && window.TypeRActions) {
+        await window.TypeRActions.loadFile(file);
+        continue;
+      }
       if (!/\.(psd|psb|png|jpe?g|webp)$/i.test(file.name) && !/^image\/(png|jpeg|webp)$/.test(file.type) && !InDesign.isInDesignName(file.name)) {
         toast(fill(T("{name} can't be opened. Use a PSD, an InDesign file, PNG, JPEG or WebP."), { name: file.name }));
         continue;
@@ -12089,6 +12120,8 @@
       quality: quality(saved.quality),
       webpQuality: quality(saved.webpQuality),
       fit: { jpeg: fit("jpeg"), png: fit("png"), webp: fit("webp") },
+      // Run an action first, as the Image Processor's Run Action (actions.js)
+      action: { on: Boolean(saved.action && saved.action.on), set: (saved.action && saved.action.set) || "", name: (saved.action && saved.action.name) || "" },
     };
   };
 
@@ -12327,6 +12360,31 @@
       return { format, card, sync: main.sync };
     });
 
+    // 4. An action played on each image before it is saved
+    const Actions = window.TypeRActions;
+    const actionChoices = Actions ? Actions.list().flatMap((set) => set.actions.map((name) => ({ set: set.name, name }))) : [];
+    let syncAction = () => {};
+    if (actionChoices.length) {
+      const four = step("4", T("Action"));
+      const runIt = check(four, T("Run an action first"), () => settings.action.on, (on) => { settings.action.on = on; });
+      const select = make("select", "bsave__action", four);
+      select.setAttribute("aria-label", T("Action"));
+      actionChoices.forEach(({ set, name }, at) => {
+        const option = make("option", "", select, `${name} (${set})`);
+        option.value = String(at);
+      });
+      const at = actionChoices.findIndex((one) => one.set === settings.action.set && one.name === settings.action.name);
+      select.value = String(Math.max(0, at));
+      const pick = () => Object.assign(settings.action, actionChoices[Number(select.value)] || actionChoices[0]);
+      pick();
+      select.addEventListener("change", pick);
+      make("p", "bsave__note", four, T("Each image is opened, the action is played on it, then it is saved. Open documents keep the action's steps in their history."));
+      syncAction = () => {
+        runIt.sync();
+        select.disabled = !settings.action.on;
+      };
+    } else settings.action.on = false;
+
     let okButton = null;
     const sameFolder = () => toFolder && settings.target === "same" && canSame();
     const sameRoot = () => (settings.source === "folder" ? state.sourceFolder : state.docsFolder && state.docsFolder.folder);
@@ -12357,6 +12415,7 @@
       }
       keepTree.row.hidden = !(fromFolder && settings.subfolders && toFolder);
       keepTree.sync();
+      syncAction();
       const chosen = BATCH_FORMATS.filter((format) => settings.formats[format.id]);
       where.hidden = !toFolder || !chosen.length;
       where.textContent = fill(T("Each format goes in its own folder: {folders}"), { folders: chosen.map((format) => `${format.folder}/`).join(", ") });
@@ -12393,6 +12452,7 @@
         root: !toFolder ? null : same ? sameRoot() : state.targetFolder,
         // Next to open documents in subfolders: each one's PNG/, PSD/… is in its subfolder's place
         keepTree: fromFolder ? settings.subfolders && settings.keepTree : same,
+        action: settings.action.on && Actions ? Actions.find(settings.action.set, settings.action.name) : null,
       });
     });
     ui.modal.classList.add("modal--batch");
@@ -12439,7 +12499,7 @@
   const batchSaveNow = async () => {
     const choice = await askBatchSave();
     if (!choice) return;
-    const { settings, items, root, keepTree } = choice;
+    const { settings, items, root, keepTree, action } = choice;
     // A dropped folder can be read, not yet written to
     if (root && root.queryPermission && (await root.queryPermission({ mode: "readwrite" })) !== "granted" && (await root.requestPermission({ mode: "readwrite" })) !== "granted") return;
     const formats = BATCH_FORMATS.filter((format) => settings.formats[format.id]);
@@ -12515,6 +12575,10 @@
     let saved = 0;
     const failed = [];
     const written = [];
+    // With an action: each image in front while it plays, the page in front now back at the end
+    const front = app.doc;
+    const actionErrors = [];
+    const skippedSteps = new Set();
     // Written aside: the pages stay free meanwhile. Each open page is saved as it is when its
     // turn comes; one closed before then is left out.
     const task = background(T("Batch Save"));
@@ -12529,12 +12593,19 @@
           file = item.file || (await item.handle.getFile());
           doc = await ops.readDetached(file, item.name);
         }
+        if (action) {
+          // An image of the folder becomes a page for as long as the action plays
+          if (!item.doc) PS.setActiveDoc(doc);
+          const outcome = await window.TypeRActions.playForBatch(action, doc);
+          outcome.summary.skipped.forEach((name) => skippedSteps.add(name));
+          if (outcome.error) actionErrors.push(`${item.name}: ${outcome.error}`);
+        }
         for (const output of outputs) {
           const { format } = output;
           if (format.id === "psd") {
             const savedId = item.doc ? doc.history[doc.historyIndex].id : null;
             // A PSD from the folder goes as it is: nothing in it has changed
-            const blob = file && /\.ps[db]$/i.test(item.name) ? file : new Blob([await window.TypeRPSD.write(doc, output.name)], { type: "image/vnd.adobe.photoshop" });
+            const blob = file && !action && /\.ps[db]$/i.test(item.name) ? file : new Blob([await window.TypeRPSD.write(doc, output.name)], { type: "image/vnd.adobe.photoshop" });
             const handle = await keep(blob, output);
             if (item.doc) written.push({ doc, name: output.name, handle, savedId, onDisk: handle ? await handle.getFile() : null });
             continue;
@@ -12549,10 +12620,12 @@
         console.error(error);
         failed.push(item.name);
       } finally {
-        if (doc && !item.doc) ops.dropDetached(doc);
+        if (doc && !item.doc && app.docs.includes(doc)) ops.closeDoc(doc);
+        else if (doc && !item.doc) ops.dropDetached(doc);
       }
     }
     task.done();
+    if (action && front && app.docs.includes(front) && app.doc !== front) PS.setActiveDoc(front);
     if (entries.length) {
       try {
         await shareOrDownload(entries);
@@ -12570,8 +12643,12 @@
       if (onDisk) ops.fileWritten(doc, onDisk);
       ops.markSaved(doc, savedId);
     });
-    if (failed.length) toast(fill(T("Saved: {saved}. Could not save: {names}"), { saved, names: failed.join(", ") }), true);
-    else toast(fill(T("Images saved: {count}."), { count: saved }));
+    const actionSaid = [
+      actionErrors.length ? fill(T("The action stopped on: {list}"), { list: actionErrors.join(" · ") }) : "",
+      skippedSteps.size ? fill(T("Skipped, as TypeR Studio can't play them: {steps}."), { steps: Array.from(skippedSteps).join(", ") }) : "",
+    ].filter(Boolean).join(" ");
+    if (failed.length) toast(`${fill(T("Saved: {saved}. Could not save: {names}"), { saved, names: failed.join(", ") })} ${actionSaid}`.trim(), true);
+    else toast(`${fill(T("Images saved: {count}."), { count: saved })} ${actionSaid}`.trim(), Boolean(actionSaid));
   };
 
   // Open in Photoshop (the desktop app only): the page, or all the open pages, go on in the
@@ -13163,8 +13240,11 @@
     });
     if (!values || filling || !hasSelection()) return;
     Object.assign(fillPrefs, { area: values.area, output: values.output, mirror: values.mirror, adapt: values.adapt });
-    // Worked out aside: the page stays free meanwhile, and the fill lands once what is under
-    // way on it is over
+    if ((await fillContentAware(values)) === "done") recordStep("contentAwareFill", { adapt: values.adapt });
+  };
+  // Worked out aside: the page stays free meanwhile, and the fill lands once what is under way
+  // on it is over. What ops.contentAwareFill answers ("done", "none", "gone"…), null on failure.
+  const fillContentAware = async (values) => {
     filling = true;
     const doc = app.doc;
     const label = (percent) => onPage(percent === undefined ? T("Content-Aware Fill…") : `${T("Content-Aware Fill…")} ${percent}%`, doc);
@@ -13173,12 +13253,22 @@
       const outcome = await ops.contentAwareFill({ area: values.area, output: values.output, mirror: values.mirror, adapt: values.adapt, name: nextLayerName(), settle: pageFree }, (fraction) => task.say(label(Math.round(fraction * 100))));
       if (outcome === "none") toast(T("Nothing to fill from."));
       else if (outcome === "gone" && app.docs.includes(doc)) toast(T("The page changed size or its layer went meanwhile: nothing was filled."), true);
+      return outcome;
     } catch (error) {
       toast(T("The fill didn't go through."), true);
+      return null;
     } finally {
       task.done();
       filling = false;
     }
+  };
+  // Content-Aware Fill as an action plays it: the choices made last, Colour Adaptation as the
+  // step says
+  const playContentAwareFill = async (adapt) => {
+    if (pixelsOnly() || !hasSelection()) throw new Error(T("Make a selection first."));
+    if (filling) throw new Error(T("A Content-Aware Fill is already under way."));
+    const outcome = await fillContentAware(Object.assign({}, fillPrefs, adapt === undefined ? {} : { adapt }));
+    if (outcome !== "done") throw new Error(outcome === "none" ? T("Nothing to fill from.") : T("The fill didn't go through."));
   };
 
   const insideSelection = (selection, source, x, y) => {
@@ -13426,9 +13516,13 @@
   // One SFX chosen: its copy is an SFX of its own, with letters of its own
   const oneSfx = () => Boolean(window.TypeRSFX && app.doc && app.doc.state.activeIds.length === 1 && window.TypeRSFX.activeSfx() && window.TypeRSFX.activeSfx().id === app.doc.state.activeIds[0]);
 
-  const askRadius = async (title, then) => {
-    const values = await dialog({ title, ok: "OK", fields: [{ id: "radius", label: T("Pixels"), value: 4, type: "number", min: 1 }] });
-    if (values) then(Math.max(1, Math.round(Number(values.radius) || 1)));
+  // `initial`: an action's value to start from. Resolves with the radius, or null.
+  const askRadius = async (title, then, initial = 4) => {
+    const values = await dialog({ title, ok: "OK", fields: [{ id: "radius", label: T("Pixels"), value: initial, type: "number", min: 1 }] });
+    if (!values) return null;
+    const radius = Math.max(1, Math.round(Number(values.radius) || 1));
+    then(radius);
+    return radius;
   };
 
   const MAX_SIDE = 30000;
@@ -13572,22 +13666,25 @@
     return { inBlack: low, inWhite: Math.max(high, low + 2) };
   };
 
-  const showLevels = async () => {
-    if (pixelsOnly()) return;
+  const levelsWhy = (error) => ({
+    none: T("Select a pixel layer first."),
+    locked: T("This layer is locked."),
+    empty: T("This layer has no pixels."),
+    outside: T("The selection is outside this layer."),
+  })[error] || "";
+  // `preset`: an action's values, { rgb, r, g, b } (each optional), to start from. Resolves with
+  // the values given, or null when cancelled or not possible.
+  const showLevels = async (preset) => {
+    if (pixelsOnly()) return null;
     settleForResize();
     const begun = ops.levelsBegin();
     if (begun.error) {
-      const why = {
-        none: T("Select a pixel layer first."),
-        locked: T("This layer is locked."),
-        empty: T("This layer has no pixels."),
-        outside: T("The selection is outside this layer."),
-      };
-      toast(why[begun.error]);
-      return;
+      toast(levelsWhy(begun.error));
+      return null;
     }
     const { histograms } = begun;
     const channels = { rgb: plainLevels(), r: plainLevels(), g: plainLevels(), b: plainLevels() };
+    if (preset) Object.keys(channels).forEach((key) => { if (preset[key]) channels[key] = Object.assign(plainLevels(), preset[key]); });
     let channel = "rgb";
     let previewOn = true;
     const make = (tag, className, parent, text) => {
@@ -13844,7 +13941,21 @@
     modal.style.translate = "";
     if (frame) cancelAnimationFrame(frame);
     frame = 0;
-    ops.levelsEnd(answer && !plain() ? levelsTables(channels) : null);
+    const changed = Boolean(answer) && !plain();
+    ops.levelsEnd(changed ? levelsTables(channels) : null);
+    if (changed) recordStep("levels", channels);
+    return answer ? channels : null;
+  };
+  // Levels without its dialog, as an action plays it: the values given, or Auto
+  const applyLevels = (preset) => {
+    if (pixelsOnly()) throw new Error(T("This tool works on the layer's pixels: click its thumbnail, left of the mask's."));
+    settleForResize();
+    const begun = ops.levelsBegin();
+    if (begun.error) throw new Error(levelsWhy(begun.error));
+    const channels = { rgb: plainLevels(), r: plainLevels(), g: plainLevels(), b: plainLevels() };
+    if (preset === "auto") Object.assign(channels.rgb, autoLevels(begun.histograms.rgb) || {});
+    else Object.keys(channels).forEach((key) => { if (preset[key]) channels[key] = Object.assign(plainLevels(), preset[key]); });
+    ops.levelsEnd(Object.values(channels).every(isPlainLevels) ? null : levelsTables(channels));
   };
 
   /* ---- Filter > Gaussian Blur: Photoshop's, on pixels, a mask, or a text that stays one ---- */
@@ -14081,6 +14192,7 @@
     const error = run(true);
     ops.sealHistory();
     if (error) toast(blurWhy(error));
+    else recordStep("gaussianBlur", { radius });
     lastFilter = { radius, mode: texts.length ? mode : (lastFilter && lastFilter.mode) || "editable" };
     renderMenusState();
     return error ? null : { radius };
@@ -14117,6 +14229,7 @@
     if (target.kind !== "text") {
       const done = ops.gaussianBlur(radius);
       if (done.error) toast(blurWhy(done.error));
+      else recordStep("gaussianBlur", { radius });
       return;
     }
     const ids = styleTargets().map((layer) => layer.id);
@@ -14127,10 +14240,11 @@
     // A text that can't stay one is asked about first
     if (lastFilter.mode === "editable") {
       if (styleTargets().some((layer) => ops.textBlurRefusal(layer))) showGaussianBlur();
-      else ops.blurText(ids, Math.min(radius, ops.textBlurMax));
+      else if (ops.blurText(ids, Math.min(radius, ops.textBlurMax))) recordStep("gaussianBlur", { radius: Math.min(radius, ops.textBlurMax) });
       return;
     }
     rasterizeForBlur(ids).forEach((id) => ops.gaussianBlur(radius, { id }));
+    recordStep("gaussianBlur", { radius });
   };
 
   const isParagraph = (layer) => {
@@ -15802,6 +15916,8 @@
       { label: "Character", check: () => Workspace().isVisible("character"), action: () => Workspace().toggle("character") },
       { label: "SFX", check: () => Workspace().isVisible("sfx"), action: () => Workspace().toggle("sfx") },
       { label: "History", check: () => Workspace().isVisible("history"), action: () => Workspace().toggle("history") },
+      // Photoshop's Actions, Alt+F9 as there (actions.js)
+      { label: "Actions", keys: "Alt+F9", check: () => Workspace().isVisible("actions"), action: () => Workspace().toggle("actions") },
       { label: "Line Breaks", keys: "Shift+L", check: () => Workspace().isVisible("breaks"), action: () => Workspace().toggle("breaks") },
       ...(Shell.touch ? [] : [{ label: "Contextual Task Bar", check: () => settings.taskBar, action: () => setTaskBar(!settings.taskBar) }]),
       null,
@@ -15899,7 +16015,10 @@
   // A submenu's items take their place in their menu's group, named after it too
   const menuGroupItems = (items) => items.filter(Boolean).flatMap((item) => (item.submenu ? item.submenu.filter(Boolean).map((sub) => Object.assign(sub, { parent: item })) : [item]));
   // The TypeR menu's keys are TypeR's own, set in its settings: not here too
-  const SHORTCUT_GROUPS = [["Tools", TOOL_ITEMS], ...MENUS.filter(([name]) => name !== "TypeR").map(([name, items]) => [name, menuGroupItems(items)]), ["Colours and brush", MORE_ITEMS], ["Layers and text", LAYER_AND_TEXT_ITEMS], ["Mouse", MOUSE_ITEMS]];
+  // The user's own actions (Actions panel), each with its function key if it has one: filled
+  // by setActionItems as the actions change
+  const ACTION_ITEMS = [];
+  const SHORTCUT_GROUPS = [["Tools", TOOL_ITEMS], ...MENUS.filter(([name]) => name !== "TypeR").map(([name, items]) => [name, menuGroupItems(items)]), ["Colours and brush", MORE_ITEMS], ["Layers and text", LAYER_AND_TEXT_ITEMS], ["Actions", ACTION_ITEMS], ["Mouse", MOUSE_ITEMS]];
   const SHORTCUTS = SHORTCUT_GROUPS.flatMap(([group, items]) => items.map((item) => ({ id: `${group}:${item.id || item.label}`, group, item, keys: item.keys || "", alias: item.alias })));
   // What the Shortcuts tab shows first: the keys of every day. The rest waits under Other
   // shortcuts, and the search goes through everything.
@@ -15935,6 +16054,27 @@
     });
   };
   const allShortcuts = () => SHORTCUTS.map(({ item }) => item).filter((item) => item.keys && item.mouse === undefined);
+  // The actions as shortcuts, Keyboard Shortcuts and Edit > Search: { id, label, keys, action }
+  const setActionItems = (items) => {
+    for (let at = SHORTCUTS.length - 1; at >= 0; at--) if (SHORTCUTS[at].group === "Actions") SHORTCUTS.splice(at, 1);
+    ACTION_ITEMS.length = 0;
+    items.forEach((item) => {
+      ACTION_ITEMS.push(item);
+      SHORTCUTS.push({ id: `Actions:${item.id}`, group: "Actions", item, keys: item.keys || "", alias: undefined });
+    });
+    applyShortcuts();
+  };
+  // The id a command is known by in the shortcuts, which the Actions panel records it by
+  const commandIdOf = (item) => {
+    const one = SHORTCUTS.find((entry) => entry.item === item);
+    if (one) return one.id;
+    return TYPER_MENU.includes(item) ? `TypeR:${item.label}` : "";
+  };
+  const commandById = (id) => {
+    const one = SHORTCUTS.find((entry) => entry.id === id);
+    if (one) return one.item;
+    return (id.startsWith("TypeR:") && TYPER_MENU.find((item) => item && item.label === id.slice(6))) || null;
+  };
 
   // What the keys really are, whatever the keyboard makes of them
   const comboOf = (event) => {
@@ -16411,8 +16551,11 @@
   const runMenuItem = (item) => {
     closeMenus();
     if (!item.keepsTransform && !VIEW_ITEMS.has(item)) commitTransform();
-    item.action();
+    runCommand(item);
   };
+  // Every command, from a menu, its keys or the search, goes through here: the Actions panel
+  // records it while recording (actions.js)
+  const runCommand = (item) => (window.TypeRActions ? window.TypeRActions.command(item) : item.action());
 
   const buildMenus = () => {
     ui.menus.textContent = "";
@@ -16601,7 +16744,7 @@
       row.addEventListener("click", () => {
         closeContextMenu();
         if (!item.keepsTransform && !VIEW_ITEMS.has(item)) commitTransform();
-        item.action();
+        runCommand(item);
       });
       list.appendChild(row);
     });
@@ -16650,6 +16793,7 @@
     }));
     MORE_ITEMS.forEach((item) => add(item, T("Colours and brush")));
     LAYER_AND_TEXT_ITEMS.forEach((item) => add(item, T("Layers and text")));
+    ACTION_ITEMS.forEach((item) => add(item, T("Actions")));
     return found;
   };
   // The names that start with what is typed first, then those with a word that does, then the
@@ -16976,7 +17120,7 @@
         // Held, a tool's key repeats: the tool is already there
         if (item.entry && event.repeat) return;
         const before = app.tool;
-        item.action();
+        runCommand(item);
         // The panel keeps its key ups: only the page's keys lend a tool
         if (item.entry && !fromPanel && app.tool !== before) spring = { key: springKey(event), tool: app.tool, previous: before, time: performance.now(), used: false, released: false };
         return;
@@ -18032,6 +18176,43 @@
     editingId: () => (editing ? editing.id : null),
     warnMissingFont(layer) {
       if (layer.raster && Fonts.isMissing(layer.params.layerText.textStyleRange[0].textStyle.fontPostScriptName)) toast(T("This text's font is missing: it will be drawn with another font."), true);
+    },
+    // For the Actions panel (actions.js): the commands by their ids, the dialogs it records and
+    // plays, and what a run on several pages needs
+    actions: {
+      commandIdOf,
+      commandById,
+      setActionItems,
+      keyLabel,
+      openContextMenu,
+      closeMenus,
+      background,
+      pickedDocs,
+      setTabPicks,
+      pageFree,
+      nextPaint,
+      writeTo,
+      download,
+      showColors,
+      selectLayers,
+      selectNeighbourLayer,
+      selectEdgeLayer,
+      nextLayerName,
+      activeLayers,
+      showLevels,
+      applyLevels,
+      showGaussianBlur,
+      applyGaussianBlur,
+      applyTransform,
+      cancelTransform,
+      askRadius,
+      playContentAwareFill,
+      settleForResize,
+      pageFits,
+      hasSelection,
+      isText,
+      modalOpen: () => ui.modal.open || Boolean(ui.layerStyle),
+      setFill,
     },
   };
 })();

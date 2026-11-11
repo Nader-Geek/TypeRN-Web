@@ -91,6 +91,7 @@ window.TYPER_WEB_STRINGS.ja = Object.assign(window.TYPER_WEB_STRINGS.ja || {}, {
   "Help → SFX Guide lists every shortcut of the tool.": "「ヘルプ → SFX ガイド」にツールのすべてのショートカットがあります。",
   "Finish the chapter": "章を仕上げる",
   "Save, export, and every shortcut.": "保存、書き出し、すべてのショートカット。",
+  "Window → Actions ({Alt}{F9}) records your steps once, then plays them on every page: Play on All Open Pages in its menu, or Run an action first in Batch Save. Photoshop's .atn files load there too.": "ウィンドウ → アクション（{Alt}{F9}）は手順を一度記録し、どのページでも実行できます：メニューの「開いているすべてのページで実行」、または一括保存の「先にアクションを実行」。Photoshop の .atn ファイルもここで読み込めます。",
   "{Cmd}{S} saves over the file you opened, File → Save As… makes a copy, and File → Export for InDesign (IDML)… hands the page over to InDesign.": "{Cmd}{S} は開いたファイルに上書き保存、「ファイル → 別名で保存…」はコピーを作成、「ファイル → InDesign 用に書き出し（IDML）…」はページを InDesign に渡します。",
   "Last one: open Help → Keyboard Shortcuts.": "最後に「ヘルプ → キーボードショートカット」を開いてください。",
   "Click a shortcut there to give it other keys.": "そこでショートカットをクリックすると、別のキーを割り当てられます。",

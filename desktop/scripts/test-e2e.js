@@ -674,8 +674,151 @@ const main = async () => {
     }, start);
   }
 
+  /* ------------------- Actions: recorded through the menus, played, saved as .atn ------------------ */
+  {
+    const front = await page.evaluate(() => window.TypeRPhotoshop.app.doc && window.TypeRPhotoshop.app.doc.id);
+    // Two pages of the same picture, the test's own: closed at the end
+    const pages = await page.evaluate(async () => {
+      const { ops } = window.TypeRPhotoshop;
+      const ids = [];
+      for (const name of ["actions A.png", "actions B.png"]) {
+        const canvas = document.createElement("canvas");
+        canvas.width = 300;
+        canvas.height = 200;
+        const ctx = canvas.getContext("2d");
+        const gradient = ctx.createLinearGradient(0, 0, 300, 200);
+        gradient.addColorStop(0, "#e0d8c8");
+        gradient.addColorStop(1, "#303840");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 300, 200);
+        ctx.fillStyle = "#111";
+        ctx.fillRect(60, 40, 80, 60);
+        ids.push((await ops.loadImage(canvas.toDataURL("image/png"), name)).id);
+      }
+      return ids;
+    });
+    // As the system's menu bar runs a command (desktop.js): through the page's own menu row
+    const menu = (top, label) => page.evaluate(([top, label]) => {
+      const App = window.TypeRApp;
+      const item = App.MENUS.find(([name]) => name === top)[1].find((one) => one && one.label === label);
+      App.renderMenusState();
+      item.row.click();
+    }, [top, label]);
+    await page.evaluate((id) => window.TypeRApp.switchDoc(window.TypeRPhotoshop.app.docs.find((doc) => doc.id === id)), pages[0]);
+    await menu("Window", "Actions");
+    const shown = await page.evaluate(() => window.TypeRWorkspace.isVisible("actions") && !document.getElementById("pane-actions").hidden);
+    // New Set, New Action (it records), then Levels, Gaussian Blur and Select All as a user does them
+    await page.click(".actions__newSet");
+    await page.fill("#modal[open] input[type=text]", "E2E Actions");
+    await page.click("#modal[open] .modal__foot .btn--main");
+    await page.click(".actions__newAction");
+    await page.fill("#modal[open] input[type=text]", "Clean-up");
+    await page.click("#modal[open] .modal__foot .btn--main");
+    const recording = await page.evaluate(() => window.TypeRActions.recording && !document.querySelector(".status__actions").hidden);
+    await menu("Image", "Levels…");
+    const levels = await page.$$(".levels__values input");
+    await levels[0].fill("20");
+    await levels[2].fill("230");
+    await page.click("#modal[open] .modal__foot .btn--main");
+    await menu("Filter", "Gaussian Blur…");
+    await page.fill(".blur-props input[type=number]", "1.5");
+    await page.click("#modal[open] .modal__foot .btn--main");
+    // A dialog cancelled records nothing
+    await menu("Image", "Canvas Size…");
+    await page.click("#modal[open] .modal__foot .btn:not(.btn--main)");
+    await page.evaluate(() => document.getElementById("stage").focus());
+    await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+A`);
+    await page.click(".actions__stop");
+    const recorded = await page.evaluate(() => {
+      const A = window.TypeRActions;
+      const set = A.sets.find((one) => one.name === "E2E Actions");
+      const { app } = window.TypeRPhotoshop;
+      const c = window.TypeRApp.flattened(app.doc, "#fff");
+      return { events: set.actions[0].items.map((item) => item.event), pixels: Array.from(c.getContext("2d").getImageData(0, 0, c.width, c.height).data.filter((v, i) => i % 97 === 0)) };
+    });
+    // Played on the second page: the same pixels as by hand, each step a step of its history
+    const played = await page.evaluate(async (id) => {
+      const A = window.TypeRActions;
+      const { app, ops } = window.TypeRPhotoshop;
+      window.TypeRApp.switchDoc(app.docs.find((doc) => doc.id === id));
+      const start = app.doc.historyIndex;
+      const action = A.sets.find((one) => one.name === "E2E Actions").actions[0];
+      await A.playAction(action);
+      const c = window.TypeRApp.flattened(app.doc, "#fff");
+      const pixels = Array.from(c.getContext("2d").getImageData(0, 0, c.width, c.height).data.filter((v, i) => i % 97 === 0));
+      const steps = app.doc.historyIndex - start;
+      while (app.doc.historyIndex > start) ops.undo();
+      return { pixels, steps, back: app.doc.historyIndex === start };
+    }, pages[1]);
+    const same = recorded.pixels.length === played.pixels.length && recorded.pixels.every((v, i) => v === played.pixels[i]);
+    step("Actions (Window, Alt+F9): New Action records Levels, Gaussian Blur and Select All from the menus and keys, not a dialog cancelled; played on another page it gives the same pixels, step by step, undone", shown && recording && recorded.events.join() === "levels,gaussianBlur,set" && same && played.steps === 3 && played.back, JSON.stringify({ shown, recording, events: recorded.events, same, steps: played.steps }));
+    // Saved as .atn and loaded back: the same bytes; a step Studio can't play is kept, greyed,
+    // and skipped on several pages with one summary
+    const files = await page.evaluate(async () => {
+      const A = window.TypeRActions;
+      const ATN = window.TypeRATN;
+      const { app } = window.TypeRPhotoshop;
+      const set = A.sets.find((one) => one.name === "E2E Actions");
+      const bytes = A.atnBytes(set);
+      const [back] = A.loadBytes(bytes, "E2E Actions.atn");
+      const again = A.atnBytes(back);
+      const mixed = ATN.action("Mixed", [ATN.make.desaturate(), ATN.make.makeLayer({ name: "E2E layer" }), ATN.make.deleteLayer()], { expanded: true });
+      set.actions.push(mixed);
+      A.choose({ action: mixed });
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const greyed = document.querySelectorAll(".actions__row--step.is-unsupported").length;
+      const docs = app.docs.filter((doc) => /^actions [AB]\.png$/.test(doc.name));
+      const starts = docs.map((doc) => doc.historyIndex);
+      const report = await A.playOnPages(mixed, docs);
+      const grew = docs.map((doc, i) => doc.historyIndex - starts[i]);
+      return { identical: bytes.length === again.length && bytes.every((v, i) => v === again[i]), greyed, done: report.done, skipped: report.summary.skipped.length, grew, modal: document.getElementById("modal").open };
+    });
+    step("Actions: Save Actions gives back the bytes loaded; a step Studio can't play is greyed and skipped on all open pages, with no question and one summary", files.identical && files.greyed >= 1 && files.done === 2 && files.skipped === 2 && files.grew.every((n) => n === 2) && !files.modal, JSON.stringify(files));
+    // Photoshop's own preset actions, where Photoshop is installed: they load, and saved untouched
+    // give their bytes back; Rotate 90 CW plays
+    const presets = ["/Applications/Adobe Photoshop 2026/Presets/Actions/Commands.atn", "C:\\Program Files\\Adobe\\Adobe Photoshop 2026\\Presets\\Actions\\Commands.atn"].find((file) => fs.existsSync(file));
+    if (presets) {
+      const preset = await page.evaluate(async (bytes) => {
+        const A = window.TypeRActions;
+        const { app } = window.TypeRPhotoshop;
+        const [set] = A.loadBytes(new Uint8Array(bytes), "Commands.atn");
+        const out = A.atnBytes(set);
+        const steps = set.actions.flatMap((action) => action.items);
+        const rotate = set.actions.find((action) => /Rotate 90 CW/.test(action.name));
+        const start = app.doc.historyIndex;
+        await A.playAction(rotate);
+        const turned = app.doc.history[app.doc.historyIndex].name;
+        while (app.doc.historyIndex > start) window.TypeRPhotoshop.ops.undo();
+        A.sets.splice(A.sets.indexOf(set), 1);
+        return { identical: out.length === bytes.length && out.every((v, i) => v === bytes[i]), steps: steps.length, playable: steps.filter(A.playable).length, turned };
+      }, Array.from(fs.readFileSync(presets)));
+      step("Actions: Photoshop's Commands.atn loads, comes back byte for byte, and its Rotate 90 CW plays", preset.identical && preset.playable > 0 && /Rotate|Free Transform/.test(preset.turned), JSON.stringify(preset));
+    }
+    // Kept for the next visit, then the test's own set and pages go
+    const kept = await page.evaluate(async (front) => {
+      const A = window.TypeRActions;
+      const { app, ops } = window.TypeRPhotoshop;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const stored = JSON.parse(localStorage.getItem("typer.web.actions"));
+      const found = stored.sets.some((set) => set.name === "E2E Actions");
+      for (let at = A.sets.length - 1; at >= 0; at--) if (A.sets[at].name === "E2E Actions") A.sets.splice(at, 1);
+      A.choose({});
+      A.refresh();
+      app.docs.filter((doc) => /^actions [AB]\.png$/.test(doc.name)).forEach((doc) => ops.closeDoc(doc));
+      const back = app.docs.find((doc) => doc.id === front);
+      if (back) window.TypeRApp.switchDoc(back);
+      window.TypeRWorkspace.setVisible("actions", false);
+      return found;
+    }, front);
+    step("Actions: the sets are kept where the app keeps its presets", kept);
+  }
+
   /* ---------------------------------- leaving the app --------------------------------- */
-  const windows = () => run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+  // The steps above changed a page a moment ago: once the session has kept it, a link that
+  // leaves the page asks nothing ("Save your changes before closing?" would wait for an answer)
+  await page.evaluate(() => window.TypeRSession.flush());
+  await page.waitForFunction(() => window.TypeRPhotoshop.app.docs.every((doc) => !window.TypeRPhotoshop.isDirty(doc) || window.TypeRSession.isKept(doc)), null, { timeout: 20000 });
+  const windows =() => run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
   await run.app.evaluate(({ shell }) => {
     global.typerOpened = [];
     shell.openExternal = async (url) => { global.typerOpened.push(url); };

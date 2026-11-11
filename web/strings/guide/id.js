@@ -91,6 +91,7 @@ window.TYPER_WEB_STRINGS.id = Object.assign(window.TYPER_WEB_STRINGS.id || {}, {
   "Help → SFX Guide lists every shortcut of the tool.": "Bantuan → Panduan SFX mencantumkan semua pintasan alat ini.",
   "Finish the chapter": "Selesaikan chapter",
   "Save, export, and every shortcut.": "Simpan, ekspor, dan semua pintasan.",
+  "Window → Actions ({Alt}{F9}) records your steps once, then plays them on every page: Play on All Open Pages in its menu, or Run an action first in Batch Save. Photoshop's .atn files load there too.": "Jendela → Aksi ({Alt}{F9}) merekam langkah Anda sekali, lalu menjalankannya di setiap halaman: “Jalankan di Semua Halaman Terbuka” di menunya, atau “Jalankan aksi terlebih dahulu” di Simpan sekaligus. File .atn Photoshop juga bisa dimuat di sana.",
   "{Cmd}{S} saves over the file you opened, File → Save As… makes a copy, and File → Export for InDesign (IDML)… hands the page over to InDesign.": "{Cmd}{S} menyimpan dengan menimpa file yang Anda buka, File → Simpan Sebagai… membuat salinan, dan File → Ekspor untuk InDesign (IDML)… mengirim halaman ke InDesign.",
   "Last one: open Help → Keyboard Shortcuts.": "Langkah terakhir: buka Bantuan → Pintasan Keyboard.",
   "Click a shortcut there to give it other keys.": "Klik pintasan di sana untuk memberinya tombol lain.",

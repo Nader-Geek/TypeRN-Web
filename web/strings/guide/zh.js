@@ -91,6 +91,7 @@ window.TYPER_WEB_STRINGS.zh = Object.assign(window.TYPER_WEB_STRINGS.zh || {}, {
   "Help → SFX Guide lists every shortcut of the tool.": "“帮助 → SFX 指南”列出了该工具的所有快捷键。",
   "Finish the chapter": "完成章节",
   "Save, export, and every shortcut.": "保存、导出和所有快捷键。",
+  "Window → Actions ({Alt}{F9}) records your steps once, then plays them on every page: Play on All Open Pages in its menu, or Run an action first in Batch Save. Photoshop's .atn files load there too.": "窗口 → 动作（{Alt}{F9}）只需记录一次你的步骤，就能在每一页上播放：面板菜单中的“在所有打开的页面上播放”，或批量保存中的“先播放一个动作”。Photoshop 的 .atn 文件也可以在这里载入。",
   "{Cmd}{S} saves over the file you opened, File → Save As… makes a copy, and File → Export for InDesign (IDML)… hands the page over to InDesign.": "{Cmd}{S} 覆盖保存你打开的文件，“文件 → 存储为…”创建副本，“文件 → 导出为 InDesign 格式（IDML）…”把页面交给 InDesign。",
   "Last one: open Help → Keyboard Shortcuts.": "最后一步：打开“帮助 → 键盘快捷键”。",
   "Click a shortcut there to give it other keys.": "在那里点击某个快捷键，即可为它设置其他按键。",
