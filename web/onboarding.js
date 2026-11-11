@@ -141,6 +141,42 @@
     </svg>`);
   };
 
+  // A bubble with the lines of a paste in it, as bars: made smaller to fit (`shrink`), kept at
+  // the style's size and past its edge (`keep`), or in a plain box over it (`classic`)
+  const pasteExample = (way) => (words) => {
+    const LINES = {
+      shrink: [[44, 44], [54, 52], [64, 36]].map(([y, w]) => [y, w, 6]),
+      keep: [[34, 116], [50, 140], [66, 120]].map(([y, w]) => [y, w, 12]),
+      classic: [[30, 96], [46, 96], [62, 96], [78, 52]].map(([y, w]) => [y, w, 10]),
+    };
+    const bars = LINES[way].map(([y, w, h]) => `<rect class="onboard__ex-line" x="${110 - w / 2}" y="${y}" width="${w}" height="${h}" rx="${h / 2}"/>`).join("");
+    const frame = way === "classic" ? '<rect class="onboard__ex-box" x="58" y="24" width="104" height="70"/>' : "";
+    words.insertAdjacentHTML("afterbegin", `<svg class="onboard__example" viewBox="0 0 220 112" aria-hidden="true">
+      <rect class="onboard__ex-page" width="220" height="112"/>
+      <path class="onboard__ex-bubble" d="M110 18c33 0 58 18 58 40s-25 40-58 40c-7 0-14-1-20-2l-22 12 9-17c-12-7-25-19-25-33 0-22 25-40 58-40z"/>
+      ${bars}${frame}
+    </svg>`);
+  };
+
+  // The panel's Smart paste settings: from TypeR for Photoshop's files when they are to be
+  // taken, else from those here. The smallest size is a share of the style's, 0.5 to 1.
+  const MIN_SCALE = 0.75;
+  const pasteSettingsOf = (state) => {
+    const Kit = window.TypeRKit;
+    const text = state.styles === "photoshop" && state.photoshop ? state.photoshop.files[`${Kit.ROOT}/storage`] : Kit.read(Kit.activeStoragePath());
+    let storage = null;
+    try {
+      storage = JSON.parse(text || "null");
+    } catch (error) {
+      storage = null;
+    }
+    const scale = Number(storage && storage.smartPasteMinScale);
+    return {
+      on: !storage || storage.smartPaste !== false,
+      min: Number.isFinite(scale) && scale > 0 ? Math.round(Math.min(1, Math.max(0.5, scale)) * 100) / 100 : MIN_SCALE,
+    };
+  };
+
   /* -------------------------------- the steps -------------------------------- */
 
   // Each step: { id, when(), title, build(pane, state) → { leave() } }. `leave` keeps what was
@@ -375,6 +411,58 @@
       },
     },
     {
+      id: "paste",
+      when: () => true,
+      title: () => T("Smart Paste"),
+      build(pane, state) {
+        el("p", "onboard__lead", pane, T("When you paste a line into a bubble, TypeR sets it to the bubble's shape. Choose what happens to your style's size."));
+        const was = pasteSettingsOf(state);
+        const wasWay = !was.on ? "classic" : was.min >= 1 ? "keep" : "shrink";
+        let way = wasWay;
+        const smallest = document.createElement("input");
+        smallest.type = "number";
+        smallest.min = "50";
+        smallest.max = "100";
+        smallest.step = "5";
+        smallest.value = String(Math.round((was.min < 1 ? was.min : MIN_SCALE) * 100));
+        smallest.className = "onboard__percent";
+        smallest.setAttribute("aria-label", T("No smaller than"));
+        const percent = () => {
+          const value = Math.round(Number(smallest.value));
+          return Number.isFinite(value) ? Math.min(100, Math.max(50, value)) : Math.round(MIN_SCALE * 100);
+        };
+        const cards = choices(pane, [
+          {
+            id: "shrink",
+            title: T("Fit the bubble"),
+            text: T("The text keeps your style's size when it fits, and gets smaller in a small bubble."),
+            extra: (words) => {
+              pasteExample("shrink")(words);
+              const row = el("div", "onboard__row onboard__row--tight", words);
+              el("span", "onboard__meta", row, T("No smaller than"));
+              row.appendChild(smallest);
+              el("span", "onboard__meta", row, "%");
+            },
+          },
+          { id: "keep", title: T("Keep the style's size"), text: T("The lines still follow the bubble's shape, but the text never gets smaller: it can go past the edge of a small bubble."), extra: pasteExample("keep") },
+          { id: "classic", title: T("Classic paste"), text: T("The text goes in at your style's size, without following the bubble's shape."), extra: pasteExample("classic") },
+        ], way, (id) => { way = id; });
+        cards.box.classList.add("onboard__choices--row");
+        smallest.addEventListener("input", () => { if (way !== "shrink") cards.pick("shrink", false); });
+        smallest.addEventListener("change", () => { smallest.value = String(percent()); });
+        el("p", "onboard__meta", pane, fill(T("You can change this at any time in the settings of the TypeR panel (the gear at its bottom), under “{name}”."), { name: T("Smart Paste") }));
+        return {
+          leave: () => {
+            const min = way === "keep" ? 1 : way === "shrink" ? percent() / 100 : was.min;
+            // Only what was changed here: what came with the styles stays otherwise
+            const changed = way !== wasWay || (way === "shrink" && min !== was.min);
+            state.paste = changed ? (way === "classic" ? { smartPaste: false } : { smartPaste: true, smartPasteMinScale: min }) : null;
+            return true;
+          },
+        };
+      },
+    },
+    {
       id: "fonts",
       // The app sees the computer's fonts from the start; a browser asks first
       when: () => !window.TypeRDesktop && !window.TypeRFonts.installedListed(),
@@ -573,7 +661,7 @@
 
   let running = null;
 
-  // Resolves with what is left to do: { photoshop, kits, tour }, or null if nothing
+  // Resolves with what is left to do: { photoshop, kits, paste, tour }, or null if nothing
   const run = ({ again = false } = {}) => {
     if (running) return running;
     running = (async () => {
@@ -583,7 +671,7 @@
       } catch (error) {
         resume = null;
       }
-      const state = { again: Boolean(again || (resume && resume.again)), photoshop: null, kits: null, styles: null, tour: false };
+      const state = { again: Boolean(again || (resume && resume.again)), photoshop: null, kits: null, styles: null, paste: null, tour: false };
       // In the app, the plugin's settings are found on the computer and offered even over styles
       // made here (saying so); on the web, its export is imported instead
       if (window.TypeRStudio) state.photoshop = await window.TypeRStudio.findPhotoshopSettings({ overOwn: true }).catch(() => null);
@@ -623,6 +711,8 @@
         const plan = {
           photoshop: state.styles === "photoshop" ? state.photoshop : null,
           kits: state.kits,
+          // The panel's Smart paste settings, when changed here
+          paste: state.paste || null,
           tour: completed && state.tour,
         };
         if (state.styles === "fresh" && window.TypeRStudio) {

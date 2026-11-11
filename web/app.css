@@ -1053,6 +1053,10 @@ body.is-dragging-tool, body.is-dragging-tool * { cursor: grabbing !important; }
 .onboard__ex-cursor .onboard__ex-halo { stroke: #fff; stroke-width: 4; }
 .onboard__ex-cursor .onboard__ex-head { fill: #1b1b1b; stroke: #fff; stroke-width: 1; stroke-linejoin: round; }
 .onboard__ex-pointer { fill: #1b1b1b; stroke: #fff; stroke-width: 1; stroke-linejoin: round; }
+.onboard__ex-line { fill: #1b1b1b; }
+.onboard__ex-box { fill: none; stroke: var(--blue); stroke-width: 1px; stroke-dasharray: 3 2; }
+.onboard__row--tight { flex-wrap: nowrap; gap: 6px; }
+.onboard__row input.onboard__percent { width: 52px; height: 24px; }
 .onboard__foot .btn[hidden] { display: none; }
 @media (max-width: 520px) { .onboard__field { grid-template-columns: 1fr; gap: 4px; } .onboard__fieldhint { margin-left: 0; } }
 @media (prefers-reduced-motion: reduce) { .onboard__progress span { transition: none; } }

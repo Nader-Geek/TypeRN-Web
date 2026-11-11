@@ -16846,12 +16846,18 @@
     // A new panel doesn't start its own tutorial: the app has its own (guide.js), started once
     // the panel is up when it's asked for
     if ((!plan.tour || window.TypeRGuide) && !Shell.touch && !Kit.storedPaths().some((path) => Kit.keeps(path))) await Kit.keep(`${Kit.ROOT}/storage`, JSON.stringify(Kit.freshStorage(false)));
+    // Smart paste as chosen there, over what the styles brought; a first panel starts as the
+    // panel would have started it (bridge.js)
+    if (plan.paste) {
+      const storage = readPanelStorage() || (Shell.touch ? Kit.freshTouchStorage(T("Dialogue")) : Kit.freshStorage(!window.TypeRGuide));
+      await Kit.keep(PANEL_STORAGE_KEEPS(), JSON.stringify(Object.assign(storage, plan.paste)));
+    }
   };
   // Help → Setup Assistant…: the same steps, from what is set now
   const setupAgain = async () => {
     if (!window.TypeROnboarding || ui.modal.open) return;
     const plan = await window.TypeROnboarding.run({ again: true });
-    if (!plan || !(plan.photoshop || (plan.kits && plan.kits.length) || plan.tour)) return;
+    if (!plan || !(plan.photoshop || (plan.kits && plan.kits.length) || plan.paste || plan.tour)) return;
     await closePanel();
     await applySetup(plan);
     const guide = plan.tour && window.TypeRGuide && !Shell.touch;
