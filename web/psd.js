@@ -270,17 +270,31 @@
 
   // A layer style's stroke, drawn around Photoshop's pixels. Two strokes, as TypeR saves a
   // stroke around the stroke: the stroke itself, and a wider one outside, around it
-  const strokeFromEffects = (effects) => {
+  // The file's own entries TypeR takes in as its stroke (`stroke`) and the stroke around it
+  // (`around`), or null. The others (a third, a hidden one, a gradient's or a pattern's) it
+  // doesn't draw, and leaves in the file as they are.
+  const strokesTakenIn = (effects) => {
     const usable = ((effects && effects.stroke) || []).slice(0, 2)
       .filter((stroke) => stroke && stroke.enabled !== false && (!stroke.fillType || stroke.fillType === "color") && stroke.size && stroke.size.value > 0);
     if (!usable.length) return null;
-    const positionOf = (stroke) => POSITION_IN[stroke.position] || "outer";
     // Both outside: the narrower one is the stroke. Otherwise, the one inside or centred.
-    const [stroke, around] = usable.length < 2 ? usable : usable.slice().sort((a, b) => (positionOf(a) === "outer") - (positionOf(b) === "outer") || a.size.value - b.size.value);
+    const [stroke, around] = usable.length < 2 ? usable : usable.slice().sort((a, b) => (strokePositionOf(a) === "outer") - (strokePositionOf(b) === "outer") || a.size.value - b.size.value);
+    const edge = PS().strokeOutside({ size: stroke.size.value, position: strokePositionOf(stroke) });
+    return { stroke, around: around && strokePositionOf(around) === "outer" && around.size.value > edge ? around : null, edge };
+  };
+  const strokePositionOf = (stroke) => POSITION_IN[stroke.position] || "outer";
+  const percentOf = (opacity) => (opacity === undefined ? 100 : round(opacity * 100, 2));
+  const strokeFromEffects = (effects) => {
+    const taken = strokesTakenIn(effects);
+    if (!taken) return null;
+    const { stroke, around, edge } = taken;
     const rgb = rgbFromPsd;
-    const out = { enabled: true, size: stroke.size.value, opacity: stroke.opacity === undefined ? 100 : stroke.opacity * 100, position: positionOf(stroke), color: rgb(stroke.color) };
-    const edge = PS().strokeOutside(out);
-    if (around && positionOf(around) === "outer" && around.size.value > edge) out.outer = { size: around.size.value - edge, color: rgb(around.color) };
+    const out = { enabled: true, size: stroke.size.value, opacity: percentOf(stroke.opacity), position: strokePositionOf(stroke), color: rgb(stroke.color) };
+    if (around) {
+      out.outer = { size: around.size.value - edge, color: rgb(around.color) };
+      // Its own Opacity, kept only when it isn't 100%
+      if (percentOf(around.opacity) < 100) out.outer.opacity = percentOf(around.opacity);
+    }
     return out;
   };
 
@@ -292,8 +306,9 @@
     const pad = Math.ceil(engine.strokeReach(stroke)) + 1;
     const canvas = engine.newCanvas(bitmap.width + pad * 2, bitmap.height + pad * 2);
     const ctx = canvas.getContext("2d");
-    if (stroke.outer && stroke.outer.size > 0) engine.ringOf(bitmap, pad, engine.strokeReach(stroke), stroke.outer.color, canvas);
-    if (outside > 0) engine.ringOf(bitmap, pad, outside, stroke.color, canvas);
+    // Each at its Opacity, laid whole
+    if (stroke.outer && stroke.outer.size > 0) engine.ringOf(bitmap, pad, engine.strokeReach(stroke), stroke.outer.color, canvas, engine.strokeAlpha(stroke.outer));
+    if (outside > 0) engine.ringOf(bitmap, pad, outside, stroke.color, canvas, engine.strokeAlpha(stroke));
     if (amount < 1) {
       ctx.globalCompositeOperation = "destination-out";
       ctx.drawImage(bitmap, pad, pad);
@@ -304,7 +319,7 @@
       ctx.drawImage(bitmap, pad, pad);
       ctx.globalAlpha = 1;
     }
-    if (stroke.size > outside) engine.innerRingOf(bitmap, pad, stroke.size - outside, stroke.color, canvas);
+    if (stroke.size > outside) engine.innerRingOf(bitmap, pad, stroke.size - outside, stroke.color, canvas, engine.strokeAlpha(stroke));
     return { canvas, pad };
   };
 
@@ -813,22 +828,44 @@
     return out;
   };
 
-  const strokeToPsd = (stroke, size = stroke.size, color = stroke.color, position = POSITION_OUT[stroke.position] || "outside") => ({
-    enabled: true,
+  // One stroke for the file, over the file's own entry if it had one: what TypeR doesn't know
+  // of it (its blend mode…) stays. Switched off in TypeR, it is kept hidden, as Photoshop does.
+  const strokeToPsd = (stroke, size = stroke.size, color = stroke.color, position = POSITION_OUT[stroke.position] || "outside", opacity = stroke.opacity, entry = null) => Object.assign({}, entry, {
+    enabled: stroke.enabled !== false,
     size: { units: "Pixels", value: size },
     position,
     fillType: "color",
     color: { r: color.r, g: color.g, b: color.b },
-    opacity: (stroke.opacity === undefined ? 100 : stroke.opacity) / 100,
-    blendMode: "normal",
+    opacity: (opacity === undefined ? 100 : opacity) / 100,
+    blendMode: (entry && entry.blendMode) || "normal",
   });
 
   // Photoshop draws the first stroke of a list on top: the stroke around the stroke is a
-  // wider one under it
-  const strokesToPsd = (stroke) => {
-    const list = [strokeToPsd(stroke)];
-    if (stroke.outer && stroke.outer.size > 0) list.push(strokeToPsd(stroke, PS().strokeReach(stroke), stroke.outer.color, "outside"));
+  // wider one under it, at its own Opacity. `taken`: the file's entries they came from.
+  const strokesToPsd = (stroke, taken) => {
+    const list = [strokeToPsd(stroke, stroke.size, stroke.color, undefined, stroke.opacity, taken && taken.stroke)];
+    if (stroke.outer && stroke.outer.size > 0) list.push(strokeToPsd(stroke, PS().strokeReach(stroke), stroke.outer.color, "outside", stroke.outer.opacity === undefined ? 100 : stroke.outer.opacity, taken && taken.around));
     return list;
+  };
+
+  // A text's or a folder's stroke into its node. While TypeR's still says what it took in, the
+  // file's strokes stay exactly as they were. Else TypeR's go where those it took in were, and
+  // the file's others (a third, a hidden one, a gradient's) stay with them: only a stroke
+  // taken off in TypeR leaves the file.
+  const strokesOut = (node, layer) => {
+    const effects = layer.raw && layer.raw.effects;
+    const now = layer.stroke && layer.stroke.size > 0 ? layer.stroke : null;
+    if (sameValue(strokeFromEffects(effects), now)) return;
+    const list = (effects && effects.stroke) || [];
+    const taken = strokesTakenIn(effects);
+    const mine = taken ? [taken.stroke, taken.around].filter(Boolean) : [];
+    const others = list.filter((entry) => !mine.includes(entry));
+    const at = mine.length ? Math.min(...mine.map((entry) => list.indexOf(entry))) : 0;
+    const strokes = others.slice(0, at).concat(now ? strokesToPsd(now, taken) : [], others.slice(at));
+    if (!strokes.length && !(node.effects && node.effects.stroke)) return;
+    node.effects = Object.assign({}, node.effects);
+    if (strokes.length) node.effects.stroke = strokes;
+    else delete node.effects.stroke;
   };
 
   // What Photoshop's dialog sets in an effect TypeR adds where the file had none
@@ -987,11 +1024,7 @@
     if (layer.kind === "group") {
       node.opened = layer.open !== false;
       // An SFX's outline goes around the whole folder, as Photoshop does since CS6
-      if (layer.stroke && layer.stroke.enabled && layer.stroke.size > 0) node.effects = Object.assign({}, node.effects, { stroke: strokesToPsd(layer.stroke) });
-      else if (node.effects && node.effects.stroke) {
-        node.effects = Object.assign({}, node.effects);
-        delete node.effects.stroke;
-      }
+      strokesOut(node, layer);
       // Fill at 0%: a hollow text (an SFX's), or one set to 0
       if (layer.knockout || PS().fillOf(layer) === 0) node.fillOpacity = 0;
       else if (node.fillOpacity === 0) node.fillOpacity = 1;
@@ -1023,11 +1056,7 @@
       // Fill at 0%: a hollow text (an SFX's), or one set to 0
       if (layer.knockout || PS().fillOf(layer) === 0) node.fillOpacity = 0;
       else if (node.fillOpacity === 0) node.fillOpacity = 1;
-      if (layer.stroke && layer.stroke.enabled) node.effects = Object.assign({}, node.effects, { stroke: strokesToPsd(layer.stroke) });
-      else if (node.effects && node.effects.stroke) {
-        node.effects = Object.assign({}, node.effects);
-        delete node.effects.stroke;
-      }
+      strokesOut(node, layer);
       effectsOut(node, layer, doc);
       return node;
     }
@@ -1062,7 +1091,7 @@
       shown.vectorFill = { type: "color", color: { r: color.red, g: color.green, b: color.blue } };
       const bare = engine.visualOf(Object.assign({}, layer, { stroke: null, effects: undefined, knockout: false, fill: undefined }), doc);
       if (bare) place(shown, bare.canvas, bare.x, bare.y);
-      if (layer.stroke && layer.stroke.enabled && layer.stroke.size > 0) shown.effects = { stroke: strokesToPsd(layer.stroke) };
+      if (layer.stroke && layer.stroke.size > 0) shown.effects = { stroke: strokesToPsd(layer.stroke) };
       effectsOut(shown, layer, doc);
       const amount = engine.fillOf(layer);
       if (amount < 1) shown.fillOpacity = amount;

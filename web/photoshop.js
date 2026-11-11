@@ -845,6 +845,10 @@
   // How far a stroke reaches past the letters: its part outside them, plus the stroke around it
   // if any, which goes around its outer edge
   const strokeReach = (stroke) => (stroke ? strokeOutside(stroke) + (stroke.outer && stroke.outer.size > 0 ? stroke.outer.size : 0) : 0);
+  // A stroke's Opacity, the stroke's or the stroke around it's (`stroke.outer`), 0 to 1. As in
+  // Photoshop, each is laid as one shape at that much: where letters overlap, it isn't darker.
+  const strokeAlpha = (stroke) => (!stroke || stroke.opacity === undefined ? 1 : Math.max(0, Math.min(1, stroke.opacity / 100)));
+  const strokeFaded = (stroke) => Boolean(stroke) && (strokeAlpha(stroke) < 1 || Boolean(stroke.outer && stroke.outer.size > 0 && strokeAlpha(stroke.outer) < 1));
 
   const drawLines = (ctx, lines, stroke, layer) => {
     const paragraph = layer.params.layerText.paragraphStyleRange && layer.params.layerText.paragraphStyleRange[0];
@@ -877,12 +881,37 @@
         });
       });
     };
+    // A canvas the size of this one, with its transform, to draw a part apart
+    const apart = () => {
+      const g = newCanvas(ctx.canvas.width, ctx.canvas.height).getContext("2d");
+      g.setTransform(ctx.getTransform());
+      g.textBaseline = ctx.textBaseline;
+      g.textAlign = ctx.textAlign;
+      if ("direction" in g) g.direction = ctx.direction;
+      g.lineJoin = "round";
+      g.miterLimit = 2;
+      return g;
+    };
+    // A stroke below 100%: all its letters' outlines drawn apart, then laid on at that much
+    const ringAt = (color, reach, alpha) => {
+      if (alpha >= 1 || !(ctx.canvas && ctx.canvas.width && ctx.canvas.height)) {
+        outline(ctx, color, reach);
+        return;
+      }
+      const g = apart();
+      outline(g, color, reach);
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(g.canvas, 0, 0);
+      ctx.restore();
+    };
     // The stroke's part outside the letters is drawn under them, its part inside over them
     const outside = strokeOutside(stroke);
     const inside = stroke ? stroke.size - outside : 0;
     // The stroke around the stroke first, as wide as both, then the stroke over it
-    if (stroke && stroke.outer && stroke.outer.size > 0) outline(ctx, stroke.outer.color, strokeReach(stroke) + bolder);
-    if (outside > 0) outline(ctx, stroke.color, outside + bolder);
+    if (stroke && stroke.outer && stroke.outer.size > 0) ringAt(stroke.outer.color, strokeReach(stroke) + bolder, strokeAlpha(stroke.outer));
+    if (outside > 0) ringAt(stroke.color, outside + bolder, strokeAlpha(stroke));
     const letters = (g, hollow) => lines.forEach((line) => {
       line.m.placed.forEach((item) => {
         place(g, line, item, () => {
@@ -914,16 +943,6 @@
     // to text: the outline and the letters are drawn apart, with the same transform, the
     // letters cut the outline all at once, and it is laid on.
     if (inside > 0 && ctx.canvas && ctx.canvas.width && ctx.canvas.height) {
-      const apart = () => {
-        const g = newCanvas(ctx.canvas.width, ctx.canvas.height).getContext("2d");
-        g.setTransform(ctx.getTransform());
-        g.textBaseline = ctx.textBaseline;
-        g.textAlign = ctx.textAlign;
-        if ("direction" in g) g.direction = ctx.direction;
-        g.lineJoin = "round";
-        g.miterLimit = 2;
-        return g;
-      };
       const ring = apart();
       outline(ring, stroke.color, Math.max(0.05, inside - bolder));
       const shape = apart();
@@ -932,6 +951,7 @@
       ring.globalCompositeOperation = "destination-in";
       ring.drawImage(shape.canvas, 0, 0);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = strokeAlpha(stroke);
       ctx.drawImage(ring.canvas, 0, 0);
     }
     ctx.restore();
@@ -1916,9 +1936,9 @@
     if (!stroke && fill === 1) return { canvas: letters, x: left, y: top };
     const canvas = newCanvas(letters.width, letters.height);
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (stroke && stroke.outer && stroke.outer.size > 0) ringOf(letters, 0, strokeReach(stroke) + EMBOLDEN, stroke.outer.color, canvas);
+    if (stroke && stroke.outer && stroke.outer.size > 0) ringOf(letters, 0, strokeReach(stroke) + EMBOLDEN, stroke.outer.color, canvas, strokeAlpha(stroke.outer));
     const outside = strokeOutside(stroke);
-    if (outside > 0) ringOf(letters, 0, outside + EMBOLDEN, stroke.color, canvas);
+    if (outside > 0) ringOf(letters, 0, outside + EMBOLDEN, stroke.color, canvas, strokeAlpha(stroke));
     if (fill < 1 && stroke) {
       ctx.globalCompositeOperation = "destination-out";
       ctx.drawImage(letters, 0, 0);
@@ -1930,7 +1950,7 @@
       ctx.globalAlpha = 1;
     }
     const inside = stroke ? stroke.size - outside : 0;
-    if (inside > 0) innerRingOf(letters, 0, inside, stroke.color, canvas);
+    if (inside > 0) innerRingOf(letters, 0, inside, stroke.color, canvas, strokeAlpha(stroke));
     return { canvas, x: left, y: top };
   };
   // A letter drawn from its own outline (see `outline`), in its colour, then its stroke around
@@ -2123,6 +2143,7 @@
   };
 
   const mixedTexts = new WeakMap();
+  const fadedTexts = new WeakMap();
   const textVisual = (layer, doc) => {
     if (layer.raster) return { canvas: layer.raster.display || layer.raster.bitmap, x: layer.raster.displayLeft !== undefined ? layer.raster.left + layer.raster.displayLeft : layer.raster.left, y: layer.raster.displayTop !== undefined ? layer.raster.top + layer.raster.displayTop : layer.raster.top };
     // Fill between 0 and 100 %: the hollow text, then its letters at that much. Mixed after
@@ -2141,6 +2162,31 @@
       ctx.globalAlpha = amount;
       ctx.drawImage(solid.canvas, solid.x - x, solid.y - y);
       mixedTexts.set(solid.canvas, { hollow: hollow.canvas, amount, dx: solid.x - hollow.x, dy: solid.y - hollow.y, canvas });
+      return { canvas, x, y };
+    }
+    // A stroke below 100%, as Photoshop lays it: over the letters, at that much, the stroke
+    // around the stroke under it at its own. The letters, the text with the stroke around the
+    // stroke alone and the text with its stroke alone are each drawn whole, then mixed after
+    // the anti-aliasing, which would bend a faded stroke.
+    const faded = layer.stroke && layer.stroke.enabled && layer.stroke.size > 0 ? layer.stroke : null;
+    if (strokeFaded(faded)) {
+      const whole = (stroke) => textVisual(Object.assign({}, layer, { stroke }), doc);
+      const parts = [];
+      if (amount > 0) parts.push({ visual: whole(null), alpha: 1 });
+      if (faded.outer && faded.outer.size > 0) parts.push({ visual: whole({ enabled: true, size: strokeReach(faded), position: "outer", color: faded.outer.color }), alpha: strokeAlpha(faded.outer) });
+      parts.push({ visual: whole(Object.assign({}, faded, { opacity: 100, outer: undefined })), alpha: strokeAlpha(faded) });
+      const own = parts[parts.length - 1].visual;
+      const kept = fadedTexts.get(own.canvas);
+      if (kept && kept.parts.length === parts.length && kept.parts.every((part, i) => part.canvas === parts[i].visual.canvas && part.x === parts[i].visual.x && part.y === parts[i].visual.y && part.alpha === parts[i].alpha)) return { canvas: kept.canvas, x: kept.x, y: kept.y };
+      const x = Math.min(...parts.map((part) => part.visual.x));
+      const y = Math.min(...parts.map((part) => part.visual.y));
+      const canvas = newCanvas(Math.max(...parts.map((part) => part.visual.x + part.visual.canvas.width)) - x, Math.max(...parts.map((part) => part.visual.y + part.visual.canvas.height)) - y);
+      const ctx = canvas.getContext("2d");
+      parts.forEach((part) => {
+        ctx.globalAlpha = part.alpha;
+        ctx.drawImage(part.visual.canvas, part.visual.x - x, part.visual.y - y);
+      });
+      fadedTexts.set(own.canvas, { parts: parts.map((part) => ({ canvas: part.visual.canvas, x: part.visual.x, y: part.visual.y, alpha: part.alpha })), canvas, x, y });
       return { canvas, x, y };
     }
     const layout = layoutLayer(layer, doc);
@@ -2804,8 +2850,8 @@
       const canvas = newCanvas(bitmap.width + pad * 2, bitmap.height + pad * 2);
       const ctx = canvas.getContext("2d");
       const outside = strokeOutside(stroke);
-      if (stroke.outer && stroke.outer.size > 0) ringOf(bitmap, pad, strokeReach(stroke), stroke.outer.color, canvas);
-      if (outside > 0) ringOf(bitmap, pad, outside, stroke.color, canvas);
+      if (stroke.outer && stroke.outer.size > 0) ringOf(bitmap, pad, strokeReach(stroke), stroke.outer.color, canvas, strokeAlpha(stroke.outer));
+      if (outside > 0) ringOf(bitmap, pad, outside, stroke.color, canvas, strokeAlpha(stroke));
       if (fill < 1) {
         ctx.globalCompositeOperation = "destination-out";
         ctx.drawImage(bitmap, pad, pad);
@@ -2816,7 +2862,7 @@
         ctx.drawImage(bitmap, pad, pad);
         ctx.globalAlpha = 1;
       }
-      if (stroke.size > outside) innerRingOf(bitmap, pad, stroke.size - outside, stroke.color, canvas);
+      if (stroke.size > outside) innerRingOf(bitmap, pad, stroke.size - outside, stroke.color, canvas, strokeAlpha(stroke));
       kept = { key, canvas, pad };
       strokedRasters.set(shape.canvas, kept);
     }
@@ -3713,19 +3759,31 @@
       }
     }
   };
+  // A ring laid on `into` whole, at `alpha`: a stroke's Opacity
+  const layRing = (into, ring, alpha = 1) => {
+    const g = into.getContext("2d");
+    if (alpha >= 1) {
+      g.drawImage(ring, 0, 0);
+      return;
+    }
+    g.save();
+    g.globalAlpha *= alpha;
+    g.drawImage(ring, 0, 0);
+    g.restore();
+  };
   // Grows a shape by `size` pixels all round, in `color`: the same rings as a PSD's strokes
-  const ringOf = (source, pad, size, color, into) => {
+  const ringOf = (source, pad, size, color, into, alpha = 1) => {
     const ring = newCanvas(into.width, into.height);
     const c = ring.getContext("2d");
     spread(c, source, pad, size);
     c.globalCompositeOperation = "source-in";
     c.fillStyle = colorCss(color);
     c.fillRect(0, 0, ring.width, ring.height);
-    into.getContext("2d").drawImage(ring, 0, 0);
+    layRing(into, ring, alpha);
   };
   // A stroke inside a shape, `size` pixels in from its edge, in `color`, over it: what is
   // around the shape, grown, then kept where the shape is. `source` is laid at `pad` in `into`.
-  const innerRingOf = (source, pad, size, color, into) => {
+  const innerRingOf = (source, pad, size, color, into, alpha = 1) => {
     const around = newCanvas(into.width, into.height);
     const a = around.getContext("2d");
     a.fillRect(0, 0, around.width, around.height);
@@ -3739,7 +3797,7 @@
     c.globalCompositeOperation = "source-in";
     c.fillStyle = colorCss(color);
     c.fillRect(0, 0, ring.width, ring.height);
-    into.getContext("2d").drawImage(ring, 0, 0);
+    layRing(into, ring, alpha);
   };
   // A base with its clipped layers on it, as one picture of the base's size. A clipped layer
   // in Normal mode lands on the base's pixels only; in another mode it blends, then what went
@@ -3927,8 +3985,8 @@
       out = newCanvas(fill.width, fill.height);
       const o = out.getContext("2d");
       if (stroke) {
-        if (stroke.outer && stroke.outer.size > 0) ringOf(shape || fill, 0, strokeReach(stroke), stroke.outer.color, out);
-        if (strokeOutside(stroke) > 0) ringOf(shape || fill, 0, strokeOutside(stroke), stroke.color, out);
+        if (stroke.outer && stroke.outer.size > 0) ringOf(shape || fill, 0, strokeReach(stroke), stroke.outer.color, out, strokeAlpha(stroke.outer));
+        if (strokeOutside(stroke) > 0) ringOf(shape || fill, 0, strokeOutside(stroke), stroke.color, out, strokeAlpha(stroke));
         // Only outside all of it: what passes over the page doesn't cover the inside
         if (shape) {
           o.globalCompositeOperation = "destination-out";
@@ -3948,7 +4006,7 @@
         o.globalAlpha = 1;
       }
       // Its part inside, over what the folder holds
-      if (stroke && stroke.size > strokeOutside(stroke)) innerRingOf(fill, 0, stroke.size - strokeOutside(stroke), stroke.color, out);
+      if (stroke && stroke.size > strokeOutside(stroke)) innerRingOf(fill, 0, stroke.size - strokeOutside(stroke), stroke.color, out, strokeAlpha(stroke));
     }
     // Its layer style from the file, as Photoshop draws a folder's: on all it holds at once,
     // a Gradient Overlay across the whole SFX, its letters hollow or not
@@ -11511,6 +11569,7 @@
     fillOf,
     strokeOutside,
     strokeReach,
+    strokeAlpha,
     ringOf,
     innerRingOf,
     lockOf,
