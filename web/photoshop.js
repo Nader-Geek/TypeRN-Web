@@ -1114,6 +1114,31 @@
     canvas.height = Math.max(1, Math.ceil(height));
     return canvas;
   };
+  // A canvas larger than the graphics card's largest texture (16384 pixels, 8192 on some
+  // cards: a webtoon strip) is drawn by the processor. A small canvas the card holds, drawn on
+  // it, is read back from the card every time: some 40 ms a dab on a slow laptop. Drawn often
+  // on such a canvas, a picture is copied once into one the processor holds, as its pixels: a
+  // canvas drawn into it would still be read back from the card.
+  let gpuSide = 0;
+  const offCard = (canvas) => {
+    if (!gpuSide) {
+      try {
+        const gl = document.createElement("canvas").getContext("webgl");
+        gpuSide = gl ? gl.getParameter(gl.MAX_TEXTURE_SIZE) : 0;
+        const lose = gl && gl.getExtension("WEBGL_lose_context");
+        if (lose) lose.loseContext();
+      } catch (error) {
+        gpuSide = 0;
+      }
+      if (!gpuSide) gpuSide = 8192;
+    }
+    return Math.max(canvas.width, canvas.height) > gpuSide;
+  };
+  const offCardCopy = (picture) => {
+    const canvas = newCanvas(picture.width, picture.height);
+    canvas.getContext("2d", { willReadFrequently: true }).putImageData(picture.getContext("2d").getImageData(0, 0, picture.width, picture.height), 0, 0);
+    return canvas;
+  };
   const colorCss = (color) => {
     if (!color) return "#000";
     if (color.red !== undefined) return `rgb(${color.red},${color.green},${color.blue})`;
@@ -1182,7 +1207,7 @@
         c.fillStyle = colorCss(op.color);
         c.fillRect(0, 0, side, side);
       }
-      state = { dab, side, spacing: Math.max(1, op.size / 10), rest: 0 };
+      state = { dab: offCard(ctx.canvas) ? offCardCopy(dab) : dab, side, spacing: Math.max(1, op.size / 10), rest: 0 };
       softStrokes.set(op, state);
     }
     const stamp = (x, y) => ctx.drawImage(state.dab, x - state.side / 2, y - state.side / 2);
@@ -1537,6 +1562,40 @@
     doc.sampleCache = null;
     doc.sampleKey = null;
   };
+  // What a stroke changed on a canvas kept from one frame to the next, from one `version` to the
+  // next (a rectangle of the canvas): what is made from it (its Fill, its mask's cut, its
+  // effects) is brought up to date there only, not over a page 20000 pixels tall at every dab.
+  // `touchedSince` gives null when it can't tell (the canvas changed some other way meanwhile).
+  const touchLogs = new WeakMap();
+  const touched = (canvas, from, to, rect) => {
+    let log = touchLogs.get(canvas);
+    if (!log || log.version !== from) {
+      log = { base: from, version: from, steps: [] };
+      touchLogs.set(canvas, log);
+    }
+    log.steps.push({ to, rect });
+    log.version = to;
+    if (log.steps.length > 512) log.base = log.steps.splice(0, 256).pop().to;
+  };
+  const touchedSince = (canvas, from, to) => {
+    const log = touchLogs.get(canvas);
+    if (from === to) return { left: 0, top: 0, right: 0, bottom: 0 };
+    if (!log || log.version !== to || from < log.base || from > to) return null;
+    let area = null;
+    for (let i = log.steps.length - 1; i >= 0 && log.steps[i].to > from; i--) area = unionOf(area, log.steps[i].rect);
+    return area;
+  };
+  const unionOf = (a, b) => (!a || emptyRect(a) ? b : !b || emptyRect(b) ? a : { left: Math.min(a.left, b.left), top: Math.min(a.top, b.top), right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom) });
+  // A rectangle of whole pixels inside a canvas
+  const withinCanvas = (rect, canvas) => ({ left: Math.max(0, Math.floor(rect.left)), top: Math.max(0, Math.floor(rect.top)), right: Math.min(canvas.width, Math.ceil(rect.right)), bottom: Math.min(canvas.height, Math.ceil(rect.bottom)) });
+  const emptyRect = (rect) => rect.right <= rect.left || rect.bottom <= rect.top;
+  // A canvas drawn to and from `like` as cheaply as can be: held where `like` is (see offCard)
+  const canvasLike = (like, width, height) => {
+    const canvas = newCanvas(width, height);
+    if (offCard(like)) canvas.getContext("2d", { willReadFrequently: true });
+    return canvas;
+  };
+
   // A picture of the layer every so many strokes, the last two: undoing replays a few of them
   const MARK_EVERY = 16;
   const markRaster = (entry, ops) => {
@@ -2396,8 +2455,9 @@
   };
 
   // Pattern Overlay over the letters (w × h, at ox, oy in the map): the pattern repeated from
-  // their top left, moved by its phase, at its scale and angle
-  const fxPattern = (px, w, h, shape, W, ox, oy, effect) => {
+  // their top left, moved by its phase, at its scale and angle. `fx`, `fy`: where these letters
+  // are in the layer's, for a part of them.
+  const fxPattern = (px, w, h, shape, W, ox, oy, effect, fx = 0, fy = 0) => {
     const pattern = patternOf(effect.pattern && effect.pattern.id);
     if (!pattern || !pattern.w || !pattern.h) return;
     const opacity = fxNumber(effect.opacity, 0, 100, 100) / 100;
@@ -2413,10 +2473,10 @@
     for (let y = 0; y < h; y++) {
       let m = (y + oy) * W + ox;
       let o = y * w * 4;
-      const dy = y + 0.5 - phaseY;
+      const dy = y + fy + 0.5 - phaseY;
       for (let x = 0; x < w; x++, m++, o += 4) {
         if (!(shape[m] > 0)) continue;
-        const dx = x + 0.5 - phaseX;
+        const dx = x + fx + 0.5 - phaseX;
         // Between the pattern's pixels, as Photoshop resamples it
         const fu = dx * c + dy * s - 0.5;
         const fv = dy * c - dx * s - 0.5;
@@ -2476,7 +2536,9 @@
   // layer and what goes under it blend in Normal (the layer's opacity then fades them as one,
   // as in Photoshop); else the layer with its inner effects, and what goes under it apart, in
   // its own blend mode. Places are from the letters' top left. Null when there are no letters.
-  const buildEffects = (effects, letters, base, bx, by, fill, normal) => {
+  // `part`: the letters are a part of a layer's, at part.x, part.y in them, whose bounds are
+  // part.box (in the part's own pixels), for the Gradient and Pattern Overlays to line up
+  const buildEffects = (effects, letters, base, bx, by, fill, normal, part) => {
     const sw = letters.width;
     const sh = letters.height;
     const alpha = letters.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, sw, sh).data;
@@ -2565,8 +2627,8 @@
       inside.push({ image, blend });
       return image.data;
     };
-    if (pattern) fxPattern(onLetters(pattern), sw, sh, shape, W, mL, mT, pattern);
-    if (gradient) fxGradient(onLetters(gradient), sw, sh, shape, W, mL, mT, gradient, box);
+    if (pattern) fxPattern(onLetters(pattern), sw, sh, shape, W, mL, mT, pattern, part ? part.x : 0, part ? part.y : 0);
+    if (gradient) fxGradient(onLetters(gradient), sw, sh, shape, W, mL, mT, gradient, part ? part.box : box);
     if (overlay) fxPaint(onLetters(overlay), sw, sh, null, W, mL, mT, shape, false, fxNumber(overlay.opacity, 0, 100, 100) / 100, overlay.color);
     if (innerGlow) {
       spread(innerGlow, innerGlow.choke, 0, 0, true);
@@ -2658,7 +2720,7 @@
       picture.getContext("2d").putImageData(image, 0, 0);
       return { canvas: picture, dx: -mL, dy: -mT, blend };
     });
-    return { canvas, dx: left, dy: top, under: under && under.length ? under : null };
+    return { canvas, dx: left, dy: top, under: under && under.length ? under : null, box };
   };
 
   // A text with its effects. Built once for its letters and settings: moving it, its opacity,
@@ -2737,6 +2799,83 @@
     }
     return { canvas: kept.canvas, x: shape.x - kept.pad, y: shape.y - kept.pad, version: shape.version };
   };
+  // How far from a pixel of the letters their effects reach, and draw what they show from
+  const fxReach = (effects) => {
+    let reach = 0;
+    ["dropShadow", "outerGlow", "innerShadow", "innerGlow"].forEach((name) => {
+      const effect = effects[name];
+      if (!fxShown(effect)) return;
+      const [dx, dy] = name === "dropShadow" || name === "innerShadow" ? fxOffset(effect) : [0, 0];
+      reach = Math.max(reach, Math.ceil(fxSize(effect)) + 2 + Math.max(Math.abs(dx), Math.abs(dy)));
+    });
+    return reach;
+  };
+  // A pixel layer's effects made again only around what was painted since they were made, in
+  // the pictures kept (entry.built), which change in place. False when it can't be done.
+  const patchEffects = (entry, effects, shape, fill, normal) => {
+    const since = touchedSince(shape.canvas, entry.version, shape.version || 0);
+    const built = entry.built;
+    const pictures = [built].concat(built.under || NONE);
+    if (!since) return false;
+    const from = entry.changes || 0;
+    let made = null;
+    let out = null;
+    let inside = null;
+    if (!emptyRect(since)) {
+      // What can change, and what that depends on, in the letters' pixels
+      const reach = fxReach(effects);
+      out = { left: since.left - reach, top: since.top - reach, right: since.right + reach, bottom: since.bottom + reach };
+      inside = withinCanvas({ left: out.left - reach, top: out.top - reach, right: out.right + reach, bottom: out.bottom + reach }, shape.canvas);
+      const w = inside.right - inside.left;
+      const h = inside.bottom - inside.top;
+      const crop = (canvas) => {
+        const part = canvasLike(canvas, w, h);
+        part.getContext("2d").drawImage(canvas, inside.left, inside.top, w, h, 0, 0, w, h);
+        return part;
+      };
+      entry.box = unionOf(entry.box, since);
+      const box = { left: entry.box.left - inside.left, top: entry.box.top - inside.top, right: entry.box.right - inside.left, bottom: entry.box.bottom - inside.top };
+      made = buildEffects(effects, crop(shape.canvas), crop(fadedVisual(shape, fill).canvas), 0, 0, fill, normal, { x: inside.left, y: inside.top, box });
+      if (made && (made.under || NONE).length !== pictures.length - 1) return false;
+    }
+    const parts = made ? [made].concat(made.under || NONE) : NONE;
+    pictures.forEach((picture, i) => {
+      // `dx`, `dy`: where a picture's top left is in the letters' pixels
+      const to = picture.canvas;
+      const area = out ? withinCanvas({ left: out.left - picture.dx, top: out.top - picture.dy, right: out.right - picture.dx, bottom: out.bottom - picture.dy }, to) : out;
+      if (area && !emptyRect(area)) {
+        const c = to.getContext("2d");
+        c.clearRect(area.left, area.top, area.right - area.left, area.bottom - area.top);
+        const part = parts[i];
+        if (part) {
+          // The part's picture, in the kept one's pixels
+          const px = inside.left + part.dx - picture.dx;
+          const py = inside.top + part.dy - picture.dy;
+          const left = Math.max(area.left, px);
+          const top = Math.max(area.top, py);
+          const right = Math.min(area.right, px + part.canvas.width);
+          const bottom = Math.min(area.bottom, py + part.canvas.height);
+          if (right > left && bottom > top) c.drawImage(part.canvas, left - px, top - py, right - left, bottom - top, left, top, right - left, bottom - top);
+        }
+      }
+      touched(to, from, from + 1, area || { left: 0, top: 0, right: 0, bottom: 0 });
+    });
+    entry.version = shape.version || 0;
+    entry.changes = from + 1;
+    return true;
+  };
+  // A stroke ended on a layer with effects: the page on screen keeps them as they were while it
+  // painted, made again whole a moment later, once nothing else is painted on it meanwhile
+  // (made whole at once for anything else: a file saved, a picture exported). By layer id.
+  let paintingScreen = false;
+  const settling = new Map();
+  const settleEffects = (doc, layerId) => {
+    clearTimeout(settling.get(layerId));
+    settling.set(layerId, setTimeout(() => {
+      settling.delete(layerId);
+      if (app.doc === doc) emit("render");
+    }, 400));
+  };
   // A stroked one is a shape most often: its masks (a vector mask, the shape's own outline) cut
   // its pixels first, and the stroke goes around what they leave
   const styledRasterVisual = (layer, doc) => {
@@ -2747,21 +2886,33 @@
     if (!shape || !effects || !shape.canvas.width || !shape.canvas.height) return fadedVisual(shape, fill);
     const blend = doc.blendPreview && doc.blendPreview.ids.has(layer.id) ? doc.blendPreview.blend : layer.blend;
     const normal = (BLENDS[blend] || "source-over") === "source-over";
-    const key = [fxKeyOf(effects), fill, normal, shape.version || 0].join("|");
+    const fixed = [fxKeyOf(effects), fill, normal].join("|");
+    const key = fixed + "|" + (shape.version || 0);
     let kept = fxBuilt.get(shape.canvas);
     if (!kept) {
       kept = new Map();
       fxBuilt.set(shape.canvas, kept);
     }
     let entry = kept.get(layer.id);
-    if (!entry || entry.key !== key) {
-      entry = { key, built: buildEffects(effects, shape.canvas, fadedVisual(shape, fill).canvas, 0, 0, fill, normal) };
+    // While a stroke paints on it, its effects are made again only around the paint, on every
+    // frame: as they will be, but for a Gradient Overlay that spans the layer's bounds as they
+    // were, and blurs added up in another order. The stroke ended, they are made whole again
+    // (see settleEffects).
+    const painting = !stroke && ((doc.liveStroke && doc.liveStroke.layerId === layer.id && !doc.liveStroke.target) || (paintingScreen && settling.has(layer.id)));
+    if (painting && entry && entry.key !== key && entry.fixed === fixed && entry.built && patchEffects(entry, effects, shape, fill, normal)) {
+      entry.key = key;
+      entry.rough = true;
+    }
+    if (!entry || entry.key !== key || (entry.rough && !painting)) {
+      const built = buildEffects(effects, shape.canvas, fadedVisual(shape, fill).canvas, 0, 0, fill, normal);
+      entry = { key, fixed, version: shape.version || 0, built, box: built && built.box };
       kept.set(layer.id, entry);
       if (kept.size > FX_KEPT_LAYERS) kept.delete(kept.keys().next().value);
     }
     const built = entry.built;
     if (!built) return fadedVisual(shape, fill);
-    const visual = { canvas: built.canvas, x: shape.x + built.dx, y: shape.y + built.dy };
+    // Its own version: the pictures change in place while a stroke paints on it
+    const visual = { canvas: built.canvas, x: shape.x + built.dx, y: shape.y + built.dy, version: entry.changes || 0 };
     if (built.under) visual.under = built.under.map((item) => ({ canvas: item.canvas, x: shape.x + item.dx, y: shape.y + item.dy, blend: item.blend }));
     return visual;
   };
@@ -2788,13 +2939,15 @@
     const dx = visual.x - item.x;
     const dy = visual.y - item.y;
     const kept = underCuts.get(item.canvas);
-    if (kept && kept.main === visual.canvas && kept.dx === dx && kept.dy === dy) return kept.canvas;
+    // A pixel layer's effects are brought up to date in place as it is painted on
+    const version = visual.version || 0;
+    if (kept && kept.main === visual.canvas && kept.version === version && kept.dx === dx && kept.dy === dy) return kept.canvas;
     const canvas = newCanvas(item.canvas.width, item.canvas.height);
     const c = canvas.getContext("2d");
     c.drawImage(item.canvas, 0, 0);
     c.globalCompositeOperation = "destination-out";
     c.drawImage(visual.canvas, dx, dy);
-    underCuts.set(item.canvas, { main: visual.canvas, dx, dy, canvas });
+    underCuts.set(item.canvas, { main: visual.canvas, version, dx, dy, canvas });
     return canvas;
   };
   // `clip`: for a clipped text, the base's shape ({ canvas, x, y }, where `target` has it), which
@@ -3143,25 +3296,35 @@
 
   // A layer with a mask that stays put when the layer moves
   const looseMasks = (layer) => Boolean((maskOn(layer) && layer.mask.unlinked) || (vectorOn(layer) && layer.vectorMask.notLink));
-  // Cuts a picture that sits at (x, y) of the page with a mask
-  const cutWith = (ctx, width, height, x, y, picture) => {
+  // Cuts a picture that sits at (x, y) of the page with a mask. `area`: only that rectangle of
+  // it, the rest left as it is.
+  const cutWith = (ctx, width, height, x, y, picture, area) => {
     if (picture.outside >= 1 && !picture.canvas) return;
-    const alpha = newCanvas(width, height);
+    const left = area ? area.left : 0;
+    const top = area ? area.top : 0;
+    const w = area ? area.right - area.left : width;
+    const h = area ? area.bottom - area.top : height;
+    const alpha = area ? canvasLike(ctx.canvas, w, h) : newCanvas(width, height);
     const a = alpha.getContext("2d");
     if (picture.outside > 0) {
       a.globalAlpha = picture.outside;
-      a.fillRect(0, 0, width, height);
+      a.fillRect(0, 0, w, h);
       a.globalAlpha = 1;
     }
     if (picture.canvas) {
-      a.clearRect(picture.x - x, picture.y - y, picture.canvas.width, picture.canvas.height);
-      a.drawImage(picture.canvas, picture.x - x, picture.y - y);
+      a.clearRect(picture.x - x - left, picture.y - y - top, picture.canvas.width, picture.canvas.height);
+      a.drawImage(picture.canvas, picture.x - x - left, picture.y - y - top);
     }
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (area) {
+      ctx.beginPath();
+      ctx.rect(left, top, w, h);
+      ctx.clip();
+    }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "destination-in";
-    ctx.drawImage(alpha, 0, 0);
+    ctx.drawImage(alpha, left, top);
     ctx.restore();
   };
   // A stroke's settings written out once per settings object, not on every frame
@@ -3174,11 +3337,12 @@
     }
     return key;
   };
-  const masksKey = (layer, doc) => {
+  // `bare`: without what painting on the mask changes, its version
+  const masksKey = (layer, doc, bare) => {
     const parts = [];
     if (maskOn(layer)) {
       const p = maskPicture(layer, doc);
-      parts.push("m", identity(p.canvas || NONE), p.x, p.y, p.outside, p.version || 0);
+      parts.push("m", identity(p.canvas || NONE), p.x, p.y, p.outside, bare ? "" : p.version || 0);
     }
     if (vectorOn(layer)) {
       const p = vectorPicture(layer);
@@ -3190,9 +3354,42 @@
   const maskedVisuals = new Map();
   const applyMasks = (visual, layer, doc) => {
     if (!visual || !visual.canvas || (!maskOn(layer) && !vectorOn(layer))) return visual;
-    const key = [identity(visual.canvas), visual.version || 0, visual.x, visual.y, masksKey(layer, doc)].join("|");
+    const version = visual.version || 0;
+    const key = [identity(visual.canvas), version, visual.x, visual.y, masksKey(layer, doc)].join("|");
     const kept = maskedVisuals.get(layer.id);
     if (kept && kept.key === key) return kept.visual;
+    const items = [visual].concat(visual.under || NONE);
+    // The same pictures in the same places, painted on since, or their mask: cut again there
+    const fixed = items.map((item) => [identity(item.canvas), item.x, item.y].join(",")).join(";") + "|" + masksKey(layer, doc, true);
+    const mask = maskOn(layer) ? maskPicture(layer, doc) : null;
+    if (kept && kept.fixed === fixed) {
+      let area = mask && mask.canvas ? touchedSince(mask.canvas, kept.maskVersion, mask.version || 0) : { left: 0, top: 0, right: 0, bottom: 0 };
+      if (area) area = { left: area.left + mask.x, top: area.top + mask.y, right: area.right + mask.x, bottom: area.bottom + mask.y };
+      items.forEach((item) => {
+        const since = area && touchedSince(item.canvas, kept.version, version);
+        area = since && unionOf(area, { left: since.left + item.x, top: since.top + item.y, right: since.right + item.x, bottom: since.bottom + item.y });
+      });
+      if (area) {
+        // Its own version, which a change of the mask alone moves on too
+        const from = kept.visual.version || 0;
+        [kept.visual].concat(kept.visual.under || NONE).forEach((out, i) => {
+          const item = items[i];
+          const part = withinCanvas({ left: area.left - item.x, top: area.top - item.y, right: area.right - item.x, bottom: area.bottom - item.y }, item.canvas);
+          if (!emptyRect(part)) {
+            const ctx = out.canvas.getContext("2d");
+            const [x, y, w, h] = [part.left, part.top, part.right - part.left, part.bottom - part.top];
+            ctx.clearRect(x, y, w, h);
+            ctx.drawImage(item.canvas, x, y, w, h, x, y, w, h);
+            if (mask) cutWith(ctx, w, h, item.x, item.y, mask, part);
+            if (vectorOn(layer)) cutWith(ctx, w, h, item.x, item.y, vectorPicture(layer), part);
+          }
+          touched(out.canvas, from, from + 1, part);
+        });
+        Object.assign(kept, { key, version, maskVersion: mask ? mask.version || 0 : 0 });
+        kept.visual = Object.assign({}, kept.visual, { version: from + 1 });
+        return kept.visual;
+      }
+    }
     // A text's shadow and glow are hidden by its masks too, as Photoshop's "Layer Mask Hides
     // Effects": they come from the whole letters
     const cut = (picture, x, y) => {
@@ -3206,7 +3403,7 @@
     const masked = { canvas: cut(visual.canvas, visual.x, visual.y), x: visual.x, y: visual.y };
     if (visual.under) masked.under = visual.under.map((item) => Object.assign({}, item, { canvas: cut(item.canvas, item.x, item.y) }));
     maskedVisuals.delete(layer.id);
-    maskedVisuals.set(layer.id, { key, visual: masked });
+    maskedVisuals.set(layer.id, { key, fixed, version, maskVersion: mask ? mask.version || 0 : 0, visual: masked });
     if (maskedVisuals.size > 32) maskedVisuals.delete(maskedVisuals.keys().next().value);
     return masked;
   };
@@ -3352,7 +3549,22 @@
   const fadedVisual = (visual, fill) => {
     if (!visual || fill >= 1) return visual;
     const kept = faded.get(visual.canvas);
-    if (kept && kept.version === (visual.version || 0) && kept.fill === fill) return Object.assign({}, visual, { canvas: kept.canvas });
+    const version = visual.version || 0;
+    // Painted on since: faded again where the paint went
+    const since = kept && kept.fill === fill && kept.version !== version ? touchedSince(visual.canvas, kept.version, version) : null;
+    if (since) {
+      if (!emptyRect(since)) {
+        const c = kept.canvas.getContext("2d");
+        const [x, y, w, h] = [since.left, since.top, since.right - since.left, since.bottom - since.top];
+        c.clearRect(x, y, w, h);
+        c.globalAlpha = fill;
+        c.drawImage(visual.canvas, x, y, w, h, x, y, w, h);
+        c.globalAlpha = 1;
+      }
+      touched(kept.canvas, kept.version, version, since);
+      kept.version = version;
+    }
+    if (kept && kept.version === version && kept.fill === fill) return Object.assign({}, visual, { canvas: kept.canvas });
     const canvas = newCanvas(visual.canvas.width, visual.canvas.height);
     const ctx = canvas.getContext("2d");
     ctx.globalAlpha = fill;
@@ -3913,6 +4125,7 @@
         target.restore();
       });
     };
+    paintingScreen = Boolean(options.screen);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, options.x || 0, options.y || 0);
     if (rect) {
@@ -4013,6 +4226,7 @@
       drawMaskViews(doc, ctx, rect);
     }
     ctx.restore();
+    paintingScreen = false;
   };
 
   /* ===================== a picture's resolution, in ppi ===================== */
@@ -5917,6 +6131,15 @@
   const selectedTextLayers = (doc = app.doc) => (doc ? doc.state.layers.filter((layer) => layer.kind === "text" && doc.state.activeIds.includes(layer.id)) : []);
 
   const replaceLayer = (doc, layer, changes) => doc.state.layers.map((item) => (item.id === layer.id ? Object.assign({}, item, changes) : item));
+  // The part of the page a finished stroke changed: where it passed, as each step of it was
+  // drawn (a layer's effects too: see settleEffects). All the page when more can change: its
+  // stroke, a folder's style around it.
+  const strokeEnd = (doc, holder, live) => {
+    const box = live.box;
+    if (!box || holder.kind === "group" || rasterStrokeOf(holder)) return undefined;
+    if (holder.kind !== "quick" && nearestStyledOf(holder, new Map(doc.state.layers.map((item) => [item.id, item])), doc.state.layers)) return undefined;
+    return () => box;
+  };
 
   const firePanelEvent = (eventID, eventData) => {
     const type = "com.adobe.PhotoshopJSONCallback" + EXTENSION_ID;
@@ -8695,6 +8918,9 @@
       if (selection) op.clip = clipOf(selection, dx, dy);
       doc.liveStroke = { layerId, op, dx, dy };
       rasterEntry(layer, doc);
+      // Painted, a layer shows its canvas over all the page, not only where its picture was:
+      // the parts of the page drawn again during the stroke find it there
+      visualBoxes.delete(layer);
       return true;
     },
     extendStroke(x, y) {
@@ -8705,22 +8931,29 @@
       const previous = live.op.points[live.op.points.length - 1];
       live.op.points.push(point);
       const segment = previous ? [previous, point] : [point];
+      const from = previous || point;
+      const reach = (live.op.size || 1) + 2;
+      // In the layer's (or the mask's) own pixels
+      const area = { left: Math.min(from[0], point[0]) - reach, top: Math.min(from[1], point[1]) - reach, right: Math.max(from[0], point[0]) + reach, bottom: Math.max(from[1], point[1]) + reach };
+      const onCanvas = (entry, x0, y0) => withinCanvas({ left: area.left - x0, top: area.top - y0, right: area.right - x0, bottom: area.bottom - y0 }, entry.canvas);
       if (live.target) {
         const holder = maskHolder(doc, live.target, live.layerId);
         if (!holder) return;
         const entry = maskEntry(holder, doc);
         maskDrawOp(entry.ctx, live.op, segment);
         entry.version++;
+        touched(entry.canvas, entry.version - 1, entry.version, onCanvas(entry, entry.x0, entry.y0));
       } else {
         const layer = doc.state.layers.find((item) => item.id === live.layerId);
         const entry = rasterEntry(layer, doc);
         if (live.op.source) cloneSegment(entry, live, segment);
         else drawOp(entry.ctx, live.op, segment);
         entry.version++;
+        touched(entry.canvas, entry.version - 1, entry.version, onCanvas(entry, entry.cx0, entry.cy0));
       }
-      const from = previous || point;
-      const reach = (live.op.size || 1) + 2;
-      emit("render", pageRect(doc, Math.min(from[0], point[0]) + live.dx - reach, Math.min(from[1], point[1]) + live.dy - reach, Math.max(from[0], point[0]) + live.dx + reach, Math.max(from[1], point[1]) + live.dy + reach));
+      const rect = pageRect(doc, area.left + live.dx, area.top + live.dy, area.right + live.dx, area.bottom + live.dy);
+      live.box = unionOf(live.box, rect);
+      emit("render", rect);
     },
     endStroke() {
       const doc = app.doc;
@@ -8738,8 +8971,8 @@
         if (entry) entry.paint = paint;
         const mask = Object.assign({}, holder.mask, { paint });
         const name = live.target === "quick" ? "Quick Mask" : live.op.erase ? "Eraser" : "Brush";
-        if (live.target === "quick") commitState(doc, name, { quickMask: mask });
-        else commitState(doc, name, { layers: replaceLayer(doc, holder, { mask }) });
+        if (live.target === "quick") commitState(doc, name, { quickMask: mask }, undefined, strokeEnd(doc, holder, live));
+        else commitState(doc, name, { layers: replaceLayer(doc, holder, { mask }) }, undefined, strokeEnd(doc, holder, live));
         return;
       }
       const layer = doc.state.layers.find((item) => item.id === live.layerId);
@@ -8751,7 +8984,8 @@
         entry.paint = paint;
         if (paint.length % MARK_EVERY === 0) markRaster(entry, paint);
       }
-      commitState(doc, live.op.source ? "Clone Stamp" : live.op.erase ? "Eraser" : "Brush", { layers: replaceLayer(doc, layer, { paint }) });
+      if (effectsOn(layer) && !rasterStrokeOf(layer)) settleEffects(doc, layer.id);
+      commitState(doc, live.op.source ? "Clone Stamp" : live.op.erase ? "Eraser" : "Brush", { layers: replaceLayer(doc, layer, { paint }) }, undefined, strokeEnd(doc, layer, live));
     },
     // Alt+Backspace, Cmd+Backspace, Delete: fills or clears the selection on a pixel layer
     fillSelection(color) {
@@ -11174,6 +11408,7 @@
     evalScript,
     drawTextLayer,
     paintDoc,
+    offCard,
     canvasFits,
     visualOf,
     boxOf,

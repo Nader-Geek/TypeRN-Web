@@ -729,6 +729,33 @@
     viewChanged();
   };
 
+  // A page larger than the graphics card's largest texture (a webtoon strip past 16384 pixels,
+  // 8192 on some cards) is drawn by the processor: drawn whole on the screen, all of it would go
+  // to the card at every frame of a stroke. The part on screen goes alone, copied first into a
+  // canvas the processor holds, from a multiple of 64 pixels (where the card's smaller copies
+  // of a picture start, for a page shown small), with a margin for the smoothing to read past
+  // the screen's edges. Null when that part is large too: a page shown small, drawn whole.
+  let onScreen = null;
+  const partOnScreen = (doc, x, y, zoom) => {
+    const pad = Math.ceil(4 / Math.min(1, zoom));
+    const edge = (value, size, up) => Math.max(0, Math.min(size, (up ? Math.ceil(value / 64) : Math.floor(value / 64)) * 64));
+    const left = edge(-x / zoom - pad, doc.width, false);
+    const top = edge(-y / zoom - pad, doc.height, false);
+    const width = edge((stageW - x) / zoom + pad, doc.width, true) - left;
+    const height = edge((stageH - y) / zoom + pad, doc.height, true) - top;
+    if (width <= 0 || height <= 0) return { width: 0, height: 0 };
+    if (width * height > 8e6) return null;
+    if (!onScreen || onScreen.width < width || onScreen.height < height) {
+      onScreen = document.createElement("canvas");
+      onScreen.width = width;
+      onScreen.height = height;
+      onScreen.getContext("2d", { willReadFrequently: true });
+    }
+    const c = onScreen.getContext("2d");
+    c.globalCompositeOperation = "copy";
+    c.drawImage(docCanvas, left, top, width, height, 0, 0, width, height);
+    return { canvas: onScreen, left, top, width, height };
+  };
   // The picture on screen is drawn at the size it shows: small pages stay sharp
   const blit = () => {
     const ratio = dpr();
@@ -742,7 +769,10 @@
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, stageW, stageH);
     const doc = app.doc;
-    if (!doc) return;
+    if (!doc) {
+      onScreen = null;
+      return;
+    }
     const v = doc.view;
     const x = Math.round(v.x);
     const y = Math.round(v.y);
@@ -764,7 +794,10 @@
     ctx.imageSmoothingEnabled = v.zoom < 2;
     // While something moves, speed: the sharp picture comes when it stops
     ctx.imageSmoothingQuality = pinch || gesture || performance.now() < quickUntil ? "low" : "high";
-    ctx.drawImage(docCanvas, x, y, dw, dh);
+    const part = PS.offCard(docCanvas) ? partOnScreen(doc, x, y, v.zoom) : null;
+    if (!part) onScreen = null;
+    if (!part) ctx.drawImage(docCanvas, x, y, dw, dh);
+    else if (part.width && part.height) ctx.drawImage(part.canvas, 0, 0, part.width, part.height, x + part.left * v.zoom, y + part.top * v.zoom, part.width * v.zoom, part.height * v.zoom);
     ctx.strokeStyle = "#111";
     ctx.lineWidth = 1;
     ctx.strokeRect(x - 0.5, y - 0.5, dw + 1, dh + 1);
@@ -6346,8 +6379,8 @@
     if (!layer) return false;
     const ok = ops.beginStroke(layer.id, strokeFields(app.tool));
     if (!ok) return false;
+    // Its first dab redraws the part of the page it touched, not the whole page
     strokeTo(current, current.start);
-    schedule(true);
     current.kind = "stroke";
     return true;
   };
@@ -6777,8 +6810,8 @@
       const ok = ops.beginStroke(layer.id, strokeFields(tool));
       if (!ok) return;
       gesture = Object.assign(base, { kind: "stroke" });
+      // Its first dab redraws the part of the page it touched, not the whole page
       beginStrokeAt(gesture, point, event.shiftKey);
-      schedule(true);
       ui.stage.setPointerCapture(event.pointerId);
       return;
     }
@@ -8464,7 +8497,9 @@
     canvas.width = Math.max(1, Math.round(doc.width * scale));
     canvas.height = Math.max(1, Math.round(doc.height * scale));
     if (visual) {
-      const ctx = canvas.getContext("2d");
+      // A layer past the graphics card's largest texture (a webtoon strip's) is made small by
+      // the processor, where it is: sent whole to the card, it holds up the end of each stroke
+      const ctx = canvas.getContext("2d", PS.offCard(visual.canvas) ? { willReadFrequently: true } : undefined);
       ctx.imageSmoothingQuality = "high";
       ctx.drawImage(visual.canvas, visual.x * scale, visual.y * scale, visual.canvas.width * scale, visual.canvas.height * scale);
     }
