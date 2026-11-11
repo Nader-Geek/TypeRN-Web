@@ -334,6 +334,72 @@ const main = async () => {
     step("Photoshop's keys are shown, and left to the page", shortcuts["CmdOrCtrl+T"] === false && shortcuts["Shift+CmdOrCtrl+N"] === false && shortcuts["CmdOrCtrl+W"] === false, Object.keys(shortcuts).length + " shortcuts");
   }
 
+  /* ---------------------------- the Smudge and the Blur tools --------------------------- */
+  {
+    const start = await page.evaluate(() => window.TypeRPhotoshop.app.doc.historyIndex);
+    // A black half and a white half on a layer of their own, dragged across with the mouse
+    const setup = await page.evaluate(() => {
+      const { ops, app } = window.TypeRPhotoshop;
+      const doc = app.doc;
+      const canvas = document.createElement("canvas");
+      canvas.width = doc.width;
+      canvas.height = doc.height;
+      const c = canvas.getContext("2d");
+      c.fillStyle = "#fff";
+      c.fillRect(0, 0, doc.width, doc.height);
+      c.fillStyle = "#000";
+      c.fillRect(0, 0, Math.round(doc.width / 2), doc.height);
+      const layer = ops.newLayer("Smudged", undefined, { bitmap: canvas });
+      app.brush.size = Math.max(20, Math.round(doc.width / 10));
+      app.brush.hardness = 0;
+      window.TypeRApp.setTool("smudge");
+      window.TypeRApp.fitView();
+      const stage = document.getElementById("stage").getBoundingClientRect();
+      const at = (x, y) => { const [sx, sy] = window.TypeRApp.toScreen(x, y); return [stage.left + sx, stage.top + sy]; };
+      return { id: layer.id, width: doc.width, height: doc.height, from: at(doc.width * 0.45, doc.height / 2), to: at(doc.width * 0.8, doc.height / 2), across: [at(doc.width / 2, doc.height * 0.3), at(doc.width / 2, doc.height * 0.7)] };
+    });
+    const pixels = () => page.evaluate((id) => {
+      const { app, visualOf } = window.TypeRPhotoshop;
+      const doc = app.doc;
+      const visual = visualOf(doc.state.layers.find((one) => one.id === id), doc);
+      const canvas = document.createElement("canvas");
+      canvas.width = doc.width;
+      canvas.height = doc.height;
+      const c = canvas.getContext("2d", { willReadFrequently: true });
+      c.drawImage(visual.canvas, visual.x, visual.y);
+      return Array.from(c.getImageData(0, 0, doc.width, doc.height).data.filter((value, i) => i % 4 === 0));
+    }, setup.id);
+    const drag = async (points) => {
+      await page.mouse.move(points[0][0], points[0][1]);
+      await page.mouse.down();
+      for (let i = 1; i <= 12; i++) await page.mouse.move(points[0][0] + ((points[1][0] - points[0][0]) * i) / 12, points[0][1] + ((points[1][1] - points[0][1]) * i) / 12);
+      await page.mouse.up();
+    };
+    const before = await pixels();
+    await drag([setup.from, setup.to]);
+    const smudged = await pixels();
+    const row = (data, x) => data[Math.round(setup.height / 2) * setup.width + Math.round(setup.width * x)];
+    const history = await page.evaluate(() => window.TypeRPhotoshop.app.doc.history.slice(-1)[0].name);
+    await page.evaluate(() => window.TypeRPhotoshop.ops.undo());
+    const undone = await pixels();
+    await page.evaluate(() => window.TypeRPhotoshop.ops.redo());
+    const redone = await pixels();
+    const same = (a, b) => a.length === b.length && a.every((value, i) => value === b[i]);
+    // The trail: dark into the white just past the edge, fading further on
+    step("the Smudge Tool drags the black into the white, in one step undone and redone exactly", history === "Smudge Tool" && row(smudged, 0.55) < 200 && row(smudged, 0.55) < row(smudged, 0.7) && row(before, 0.55) === 255 && same(undone, before) && same(redone, smudged), JSON.stringify({ history, trail: [0.52, 0.55, 0.6, 0.7, 0.85].map((x) => row(smudged, x)) }));
+    await page.evaluate(() => window.TypeRApp.setTool("blur"));
+    const edge = (data) => { const y = Math.round(setup.height * 0.36) * setup.width; const x = Math.round(setup.width / 2); return data.slice(y + x - 40, y + x + 40).filter((value) => value > 2 && value < 253).length; };
+    await drag(setup.across);
+    const once = edge(await pixels());
+    await drag(setup.across);
+    const twice = edge(await pixels());
+    step("the Blur Tool softens an edge a little more at each pass", edge(before) === 0 && once > 0 && twice > once, JSON.stringify({ once, twice }));
+    await page.evaluate((index) => {
+      while (window.TypeRPhotoshop.app.doc.historyIndex > index) window.TypeRPhotoshop.ops.undo();
+      window.TypeRApp.setTool("move");
+    }, start);
+  }
+
   /* --------------------------- Free Transform: Cmd + a side skews -------------------------- */
   {
     const start = await page.evaluate(() => window.TypeRPhotoshop.app.doc.historyIndex);

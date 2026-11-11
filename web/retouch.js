@@ -1,6 +1,7 @@
 // Two retouching tools around photoshop.js's work: the Spot Healing Brush (Shift+J) and the
 // Gradient tool (G). This file is what the person sees and does: the strokes waiting to be
-// healed, the gradient's ends that stay draggable once it is drawn, and the options bar.
+// healed, the gradient's ends that stay draggable once it is drawn, and the options bar, the
+// Smudge, Blur and Sharpen tools' too.
 //
 // The Spot Healing Brush paints where to heal, and each stroke is filled from what surrounds
 // it by the Content-Aware Fill engine (inpaint.js), in a worker: the next stroke can be painted
@@ -39,7 +40,7 @@
 
   const STORE = "typer.web.retouch";
   const prefs = (() => {
-    const out = { healAll: true, colors: "fgbg", custom: null, type: "linear", method: "perceptual", opacity: 100, reverse: false, dither: true };
+    const out = { healAll: true, colors: "fgbg", custom: null, type: "linear", method: "perceptual", opacity: 100, reverse: false, dither: true, blurStrength: 50, sharpenStrength: 50, smudgeStrength: 50, blurAll: false, sharpenAll: false, smudgeAll: false, finger: false };
     try {
       Object.assign(out, JSON.parse(window.localStorage.getItem(STORE)) || {});
     } catch (error) {
@@ -135,6 +136,38 @@
       const d = `M${first[0]} ${first[1]}` + (rest.length ? rest.map((p) => `L${p[0]} ${p[1]}`).join("") : "l0.01 0");
       svgEl("path", { class: `heal-stroke is-${job.state}`, d, "stroke-width": job.size }, healGroup);
     });
+  };
+
+  /* --------------------- the Smudge, Blur and Sharpen tools --------------------- */
+
+  // Their strokes are app.js's, as the Brush's, painted by photoshop.js (beginRetouch): here are
+  // their options, each tool its own, as in Photoshop
+  const BRUSHES = new Set(["blur", "sharpen", "smudge"]);
+  // What a stroke of `tool` does. Alt held: the Blur sharpens and the Sharpen blurs, the Smudge
+  // turns Finger Painting on or off.
+  const brush = (tool, alt) => {
+    const used = alt && tool === "blur" ? "sharpen" : alt && tool === "sharpen" ? "blur" : tool;
+    const finger = tool === "smudge" && prefs.finger !== Boolean(alt);
+    return { tool: used, strength: prefs[`${tool}Strength`] / 100, finger: finger ? Object.assign({}, app.fg) : null, sampleAll: Boolean(prefs[`${tool}All`]) };
+  };
+  const brushOptions = (bar, tool) => {
+    const key = `${tool}Strength`;
+    const strength = App().numberInput(prefs[key], 1, 100, (value) => {
+      prefs[key] = Math.max(1, Math.min(100, Math.round(value) || 1));
+      keepPrefs();
+    });
+    strength.id = "retouch-strength";
+    bar.appendChild(App().scrubbed(T("Strength"), strength));
+    bar.appendChild(App().checkbox(T("Sample all layers"), prefs[`${tool}All`], (on) => {
+      prefs[`${tool}All`] = on;
+      keepPrefs();
+    }));
+    if (tool === "smudge") {
+      bar.appendChild(App().checkbox(T("Finger Painting"), prefs.finger, (on) => {
+        prefs.finger = on;
+        keepPrefs();
+      }));
+    }
   };
 
   /* ------------------------------ the Gradient tool ------------------------------ */
@@ -922,6 +955,10 @@
       }));
       return;
     }
+    if (BRUSHES.has(tool)) {
+      brushOptions(bar, tool);
+      return;
+    }
     if (tool !== "gradient") return;
     const colours = document.createElement("span");
     colours.className = "obar__group grad-swatches";
@@ -1052,6 +1089,15 @@
       return false;
     },
     busy: () => jobs.length > 0,
+    // The Smudge, Blur and Sharpen: what a stroke does (app.js strokeFields), the Strength the
+    // number keys give (10 to 100 %)
+    brush,
+    setStrength(percent) {
+      if (!BRUSHES.has(app.tool)) return;
+      prefs[`${app.tool}Strength`] = Math.max(1, Math.min(100, Math.round(percent)));
+      keepPrefs();
+      App().renderOptions();
+    },
     // The gradients kept in the Gradient Editor, for Layer Style's Gradient Overlay (app.js)
     gradientPresets: () => readPresets(),
     // For the tutorial (guide.js): the options, a gradient being dragged, one whose ends show

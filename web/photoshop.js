@@ -1501,6 +1501,13 @@
         ctx.strokeStyle = op.erase ? "#000" : colorCss(op.color);
         paintStroke(ctx, op, list);
       }
+    } else if (op.t === "pixels") {
+      // What a stroke of the Smudge, Blur or Sharpen tool left, in place of what was there
+      ctx.globalCompositeOperation = "source-over";
+      op.pieces.forEach((piece) => {
+        ctx.clearRect(piece.x, piece.y, piece.canvas.width, piece.canvas.height);
+        ctx.drawImage(piece.canvas, piece.x, piece.y);
+      });
     } else if (op.t === "patch") {
       // Pixels made elsewhere (a Content-Aware Fill), laid within the selection they filled
       const shape = newCanvas(op.source.canvas.width, op.source.canvas.height);
@@ -1696,6 +1703,599 @@
     }
     const entry = rasterEntry(layer, doc);
     return { canvas: entry.canvas, x: entry.cx0 + dx, y: entry.cy0 + dy, version: entry.version };
+  };
+
+  /* ---- the Smudge, Blur and Sharpen tools ---- */
+
+  // These tools read the pixels they paint over, each dab what the dab before it left, so they
+  // can't be drawn again from the points of their stroke as the Brush is. A stroke works on a
+  // copy of the pixels in the processor's memory, in tiles read from the layer (or from the page,
+  // Sample All Layers) the first time the stroke reaches them: premultiplied, so that transparent
+  // pixels carry no colour and nothing smears dark into them, and as floats, so that a light
+  // touch still builds up. Each move writes back only the part of the layer it changed, and the
+  // stroke ends as one step of history: the pixels it changed (a "pixels" paint step).
+  // How they mix follows photocraft's retouching tools (github.com/storytold/photocraft, MIT or
+  // Apache-2.0; the logic, not its code): the Smudge lays down the colour it carries, at Strength,
+  // then picks up what it passed over, keeping Strength of what it had; the Blur mixes in a blur
+  // of each dab, the Sharpen an unsharp mask held within the range of each pixel's neighbours,
+  // so that it makes no halos.
+  const RT_TILE = 128;
+  const RT_ROW = RT_TILE * 4;
+  const RT_KEY = 65536;
+  // The Smudge's dabs, a twentieth of the brush apart: further, what it carries would show its
+  // steps; closer, a large brush would lag
+  const SMUDGE_SPACING = 0.05;
+
+  // A brush's coverage over a square of `side` pixels centred on a pixel corner, falling as the
+  // Brush's soft edge does (see softStroke): full out to its hardness, then along a cosine
+  const dabCoverage = (size, hardness, side) => {
+    const out = new Float32Array(side * side);
+    const r = size / 2;
+    const inner = r * hardness / 100;
+    const hard = hardness >= 100 || r - inner < 0.5;
+    const c = side / 2;
+    for (let y = 0; y < side; y++) {
+      for (let x = 0; x < side; x++) {
+        const d = Math.sqrt((x + 0.5 - c) ** 2 + (y + 0.5 - c) ** 2);
+        out[y * side + x] = hard ? Math.max(0, Math.min(1, r - d + 0.5)) : d <= inner ? 1 : d >= r ? 0 : (Math.cos(((d - inner) / (r - inner)) * Math.PI) + 1) / 2;
+      }
+    }
+    return out;
+  };
+  const rtBuffer = (rt, name, length) => {
+    if (!rt[name] || rt[name].length < length) rt[name] = new Float32Array(length);
+    return rt[name];
+  };
+
+  // The pixels of a rectangle of the page, as bytes (RGBA, straight): what the stroke works on
+  // (with `all`, the page as it shows, without its texts), or with `target` the layer itself
+  const rtRead = (rt, left, top, width, height, target) => {
+    const doc = rt.doc;
+    if (rt.gray) {
+      const entry = maskEntry(maskHolder(doc, rt.target, rt.layerId), doc);
+      const data = entry.ctx.getImageData(left - rt.ox - entry.x0, top - rt.oy - entry.y0, width, height).data;
+      // A mask holds its grey as alpha: worked on as an opaque grey picture
+      for (let i = 0; i < data.length; i += 4) {
+        data[i] = data[i + 1] = data[i + 2] = data[i + 3];
+        data[i + 3] = 255;
+      }
+      return data;
+    }
+    if (rt.all && !target) {
+      const canvas = newCanvas(width, height);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      paintDoc(doc, ctx, { x: -left, y: -top, rect: { left, top, right: left + width, bottom: top + height }, skip: (item) => item.kind === "text" });
+      return ctx.getImageData(0, 0, width, height).data;
+    }
+    const entry = rasterEntry(doc.state.layers.find((item) => item.id === rt.layerId), doc);
+    return entry.ctx.getImageData(left - rt.ox - entry.cx0, top - rt.oy - entry.cy0, width, height).data;
+  };
+  // The tiles a rectangle of the page needs, those still missing read in one go
+  const rtEnsure = (rt, left, top, right, bottom) => {
+    const doc = rt.doc;
+    let mx0 = Infinity;
+    let my0 = Infinity;
+    let mx1 = -1;
+    let my1 = -1;
+    for (let ty = Math.floor(top / RT_TILE); ty * RT_TILE < bottom; ty++) {
+      for (let tx = Math.floor(left / RT_TILE); tx * RT_TILE < right; tx++) {
+        if (rt.tiles.has(ty * RT_KEY + tx)) continue;
+        mx0 = Math.min(mx0, tx);
+        my0 = Math.min(my0, ty);
+        mx1 = Math.max(mx1, tx);
+        my1 = Math.max(my1, ty);
+      }
+    }
+    if (mx1 < 0) return;
+    const rl = mx0 * RT_TILE;
+    const rtop = my0 * RT_TILE;
+    const w = Math.min(doc.width, (mx1 + 1) * RT_TILE) - rl;
+    const h = Math.min(doc.height, (my1 + 1) * RT_TILE) - rtop;
+    const data = rtRead(rt, rl, rtop, w, h, false);
+    const orig = rt.all ? rtRead(rt, rl, rtop, w, h, true) : null;
+    for (let ty = my0; ty <= my1; ty++) {
+      for (let tx = mx0; tx <= mx1; tx++) {
+        const key = ty * RT_KEY + tx;
+        if (rt.tiles.has(key)) continue;
+        const tile = { px: new Float32Array(RT_TILE * RT_ROW), orig: orig ? new Uint8ClampedArray(RT_TILE * RT_ROW) : null, touched: orig ? new Uint8Array(RT_TILE * RT_TILE) : null, dirty: false };
+        const x0 = tx * RT_TILE;
+        const y0 = ty * RT_TILE;
+        const tw = Math.min(RT_TILE, doc.width - x0);
+        const th = Math.min(RT_TILE, doc.height - y0);
+        const px = tile.px;
+        for (let y = 0; y < th; y++) {
+          const from = ((y0 - rtop + y) * w + (x0 - rl)) * 4;
+          for (let x = 0, s = from, d = y * RT_ROW; x < tw; x++, s += 4, d += 4) {
+            const a = data[s + 3];
+            const f = a / 255;
+            px[d] = data[s] * f;
+            px[d + 1] = data[s + 1] * f;
+            px[d + 2] = data[s + 2] * f;
+            px[d + 3] = a;
+          }
+          if (orig) tile.orig.set(orig.subarray(from, from + tw * 4), y * RT_ROW);
+        }
+        rt.tiles.set(key, tile);
+      }
+    }
+  };
+  // Pixels (4 floats each, `width` a row) copied out of the tiles, or `back` into them
+  const rtCopy = (rt, buf, left, top, width, height, back) => {
+    const right = left + width;
+    const bottom = top + height;
+    for (let ty = Math.floor(top / RT_TILE); ty * RT_TILE < bottom; ty++) {
+      for (let tx = Math.floor(left / RT_TILE); tx * RT_TILE < right; tx++) {
+        const tile = rt.tiles.get(ty * RT_KEY + tx);
+        const x0 = Math.max(left, tx * RT_TILE);
+        const n = (Math.min(right, (tx + 1) * RT_TILE) - x0) * 4;
+        if (back) tile.dirty = true;
+        for (let y = Math.max(top, ty * RT_TILE); y < Math.min(bottom, (ty + 1) * RT_TILE); y++) {
+          const t = (y - ty * RT_TILE) * RT_ROW + (x0 - tx * RT_TILE) * 4;
+          const b = ((y - top) * width + (x0 - left)) * 4;
+          if (back) tile.px.set(buf.subarray(b, b + n), t);
+          else buf.set(tile.px.subarray(t, t + n), b);
+        }
+      }
+    }
+  };
+  // Each pixel's share of a dab (`table`, over the dab's square from x0, y0) within the
+  // selection, in `rt.kw`, `width` a row. False when the dab changes nothing.
+  const rtWeights = (rt, table, x0, y0, left, top, width, height) => {
+    const { side, sel, kw } = rt;
+    let any = false;
+    for (let y = 0; y < height; y++) {
+      const py = top + y;
+      let c = (py - y0) * side + (left - x0);
+      let o = y * width;
+      if (!sel) {
+        for (let x = 0; x < width; x++, o++, c++) {
+          kw[o] = table[c];
+          if (table[c] > 0) any = true;
+        }
+      } else if (sel.mask) {
+        const m = sel.mask;
+        const my = py - sel.top;
+        const row = my >= 0 && my < m.height ? my * m.width : -1;
+        for (let x = 0; x < width; x++, o++, c++) {
+          const mx = left + x - sel.left;
+          kw[o] = row >= 0 && mx >= 0 && mx < m.width && m.data[row + mx] ? table[c] : 0;
+          if (kw[o] > 0) any = true;
+        }
+      } else {
+        const inRow = py + 0.5 > sel.top && py + 0.5 < sel.bottom;
+        for (let x = 0; x < width; x++, o++, c++) {
+          const px = left + x + 0.5;
+          kw[o] = inRow && px > sel.left && px < sel.right ? table[c] : 0;
+          if (kw[o] > 0) any = true;
+        }
+      }
+    }
+    return any;
+  };
+  // Sampling all layers, the target takes the page's pixels where a dab passed
+  const rtTouch = (rt, left, top, width, height) => {
+    const kw = rt.kw;
+    for (let y = 0; y < height; y++) {
+      const py = top + y;
+      const ty = Math.floor(py / RT_TILE);
+      const row = (py - ty * RT_TILE) * RT_TILE;
+      let tile = null;
+      let tx = -1;
+      for (let x = 0; x < width; x++) {
+        if (!(kw[y * width + x] > 0)) continue;
+        const px = left + x;
+        if (Math.floor(px / RT_TILE) !== tx) {
+          tx = Math.floor(px / RT_TILE);
+          tile = rt.tiles.get(ty * RT_KEY + tx);
+        }
+        tile.touched[row + px - tx * RT_TILE] = 1;
+      }
+    }
+  };
+
+  // The Smudge: lay down what it carries, then pick up what is there
+  const smudgeDab = (rt, x0, y0, left, top, width, height) => {
+    rtEnsure(rt, left, top, left + width, top + height);
+    const L = rtBuffer(rt, "buf", width * height * 4);
+    rtCopy(rt, L, left, top, width, height, false);
+    const side = rt.side;
+    let carry = rt.carry;
+    if (!carry) {
+      // What it starts with: the pixels under its first dab, or Finger Painting's colour
+      carry = rt.carry = new Float32Array(side * side * 4);
+      for (let qy = 0; qy < side; qy++) {
+        const y = Math.min(height - 1, Math.max(0, y0 + qy - top));
+        for (let qx = 0; qx < side; qx++) {
+          const s = (y * width + Math.min(width - 1, Math.max(0, x0 + qx - left))) * 4;
+          carry.set(rt.finger || L.subarray(s, s + 4), (qy * side + qx) * 4);
+        }
+      }
+    }
+    const any = rtWeights(rt, rt.lay, x0, y0, left, top, width, height);
+    const { kw, keep, lock } = rt;
+    const take = 1 - keep;
+    for (let y = 0; y < height; y++) {
+      let q = ((top + y - y0) * side + (left - x0)) * 4;
+      for (let x = 0, i = y * width * 4, o = y * width; x < width; x++, q += 4, i += 4, o++) {
+        let r = L[i];
+        let g = L[i + 1];
+        let b = L[i + 2];
+        let a = L[i + 3];
+        const k = kw[o];
+        if (k > 0) {
+          r += (carry[q] - r) * k;
+          g += (carry[q + 1] - g) * k;
+          b += (carry[q + 2] - b) * k;
+          const na = a + (carry[q + 3] - a) * k;
+          // Transparent pixels locked: the colour changes, not how much there is
+          if (!lock) a = na;
+          else if (na > 0) {
+            const f = a / na;
+            r *= f;
+            g *= f;
+            b *= f;
+          } else r = g = b = 0;
+          L[i] = r;
+          L[i + 1] = g;
+          L[i + 2] = b;
+          L[i + 3] = a;
+        }
+        carry[q] = carry[q] * keep + r * take;
+        carry[q + 1] = carry[q + 1] * keep + g * take;
+        carry[q + 2] = carry[q + 2] * keep + b * take;
+        carry[q + 3] = carry[q + 3] * keep + a * take;
+      }
+    }
+    if (!any) return false;
+    rtCopy(rt, L, left, top, width, height, true);
+    if (rt.all) rtTouch(rt, left, top, width, height);
+    return true;
+  };
+  // A box blur of radius r along the rows or the columns of a w × h picture, its edges held
+  const boxBlur = (src, dst, w, h, r, rows) => {
+    const n = rows ? w : h;
+    const lines = rows ? h : w;
+    const step = rows ? 4 : w * 4;
+    const across = rows ? w * 4 : 4;
+    const norm = 1 / (2 * r + 1);
+    for (let line = 0; line < lines; line++) {
+      const base = line * across;
+      for (let c = 0; c < 4; c++) {
+        const at = base + c;
+        let sum = src[at] * r;
+        for (let k = 0; k <= r; k++) sum += src[at + Math.min(n - 1, k) * step];
+        for (let k = 0; k < n; k++) {
+          dst[at + k * step] = sum * norm;
+          sum += src[at + Math.min(n - 1, k + r + 1) * step] - src[at + Math.max(0, k - r) * step];
+        }
+      }
+    }
+  };
+  // The Blur and the Sharpen: each dab mixes in a blur of what is under it, or takes it away
+  const focusDab = (rt, x0, y0, left, top, width, height) => {
+    const any = rtWeights(rt, rt.lay, x0, y0, left, top, width, height);
+    if (!any) return false;
+    const { doc, halo, kw, lock } = rt;
+    const gl = Math.max(0, left - halo);
+    const gt = Math.max(0, top - halo);
+    const gw = Math.min(doc.width, left + width + halo) - gl;
+    const gh = Math.min(doc.height, top + height + halo) - gt;
+    rtEnsure(rt, gl, gt, gl + gw, gt + gh);
+    const n = gw * gh * 4;
+    const L = rtBuffer(rt, "buf", n);
+    rtCopy(rt, L, gl, gt, gw, gh, false);
+    const B = rtBuffer(rt, "blurred", n);
+    const T = rtBuffer(rt, "tmp", n);
+    B.set(L.subarray(0, n));
+    // Two box blurs one after the other: close enough to a Gaussian, at a fraction of its cost
+    for (let pass = 0; pass < 2; pass++) {
+      boxBlur(B, T, gw, gh, rt.radius, true);
+      boxBlur(T, B, gw, gh, rt.radius, false);
+    }
+    const out = rtBuffer(rt, "out", width * height * 4);
+    const sharpen = rt.tool === "sharpen";
+    // The Sharpen compares straight colours: those of the dab and around it, worked out once.
+    // Transparent pixels have none, and are left out (NaN is never lower or higher).
+    const S = sharpen ? rtBuffer(rt, "straight", n) : null;
+    if (sharpen) {
+      for (let i = 0; i < n; i += 4) {
+        const a = L[i + 3];
+        const f = a > 0 ? 1 / a : NaN;
+        S[i] = L[i] * f;
+        S[i + 1] = L[i + 1] * f;
+        S[i + 2] = L[i + 2] * f;
+      }
+    }
+    for (let y = 0; y < height; y++) {
+      for (let x = 0, o = y * width, p = o * 4, g = ((top + y - gt) * gw + (left - gl)) * 4; x < width; x++, o++, p += 4, g += 4) {
+        let r = L[g];
+        let gr = L[g + 1];
+        let b = L[g + 2];
+        let a = L[g + 3];
+        const k = kw[o];
+        if (k > 0 && !sharpen) {
+          r += (B[g] - r) * k;
+          gr += (B[g + 1] - gr) * k;
+          b += (B[g + 2] - b) * k;
+          const na = a + (B[g + 3] - a) * k;
+          if (!lock) a = na;
+          else if (na > 0) {
+            const f = a / na;
+            r *= f;
+            gr *= f;
+            b *= f;
+          } else r = gr = b = 0;
+        } else if (k > 0 && a > 0) {
+          // In straight colours, each channel pushed away from its blur, but no further than
+          // its neighbours go: an edge gets crisper without a light or dark ring along it
+          const ba = B[g + 3];
+          const cy = top + y - gt;
+          const cx = left + x - gl;
+          const y0n = cy > 0 ? cy - 1 : 0;
+          const y1n = cy < gh - 1 ? cy + 1 : gh - 1;
+          const x0n = cx > 0 ? cx - 1 : 0;
+          const x1n = cx < gw - 1 ? cx + 1 : gw - 1;
+          for (let c = 0; c < 3; c++) {
+            const v = S[g + c];
+            let lo = v;
+            let hi = v;
+            for (let ny = y0n; ny <= y1n; ny++) {
+              for (let nx = x0n, ni = (ny * gw + nx) * 4 + c; nx <= x1n; nx++, ni += 4) {
+                const nv = S[ni];
+                if (nv < lo) lo = nv;
+                else if (nv > hi) hi = nv;
+              }
+            }
+            const soft = ba > 0 ? B[g + c] / ba : v;
+            const sharp = Math.min(hi, Math.max(lo, v + (v - soft)));
+            out[p + c] = (v + (sharp - v) * k) * a;
+          }
+          out[p + 3] = a;
+          continue;
+        }
+        out[p] = r;
+        out[p + 1] = gr;
+        out[p + 2] = b;
+        out[p + 3] = a;
+      }
+    }
+    rtCopy(rt, out, left, top, width, height, true);
+    if (rt.all) rtTouch(rt, left, top, width, height);
+    return true;
+  };
+
+  // A rectangle of the stroke's pixels as the target takes them, straight: on a mask, the grey as
+  // its alpha; sampling all layers, the page's pixels where the stroke passed, the target's own
+  // elsewhere
+  const rtImage = (rt, left, top, width, height) => {
+    const image = new ImageData(width, height);
+    const out = image.data;
+    for (let ty = Math.floor(top / RT_TILE); ty * RT_TILE < top + height; ty++) {
+      for (let tx = Math.floor(left / RT_TILE); tx * RT_TILE < left + width; tx++) {
+        const tile = rt.tiles.get(ty * RT_KEY + tx);
+        const x0 = Math.max(left, tx * RT_TILE);
+        const x1 = Math.min(left + width, (tx + 1) * RT_TILE);
+        for (let y = Math.max(top, ty * RT_TILE); y < Math.min(top + height, (ty + 1) * RT_TILE); y++) {
+          const row = (y - ty * RT_TILE) * RT_TILE - tx * RT_TILE;
+          for (let x = x0, i = ((y - top) * width + (x0 - left)) * 4; x < x1; x++, i += 4) {
+            const t = (row + x) * 4;
+            const px = tile.px;
+            if (tile.touched && !tile.touched[row + x]) {
+              out[i] = tile.orig[t];
+              out[i + 1] = tile.orig[t + 1];
+              out[i + 2] = tile.orig[t + 2];
+              out[i + 3] = tile.orig[t + 3];
+              continue;
+            }
+            if (rt.gray) {
+              out[i + 3] = px[t];
+              continue;
+            }
+            const a = px[t + 3];
+            if (!(a > 0)) continue;
+            const f = 255 / a;
+            out[i] = px[t] * f;
+            out[i + 1] = px[t + 1] * f;
+            out[i + 2] = px[t + 2] * f;
+            out[i + 3] = rt.lock && tile.orig ? tile.orig[t + 3] : a;
+          }
+        }
+      }
+    }
+    return image;
+  };
+  // The canvas the stroke shows on: the layer's, or its mask's
+  const rtEntry = (rt) => {
+    const doc = rt.doc;
+    if (rt.gray) {
+      const holder = maskHolder(doc, rt.target, rt.layerId);
+      if (!holder) return null;
+      const entry = maskEntry(holder, doc);
+      return { entry, x0: entry.x0, y0: entry.y0 };
+    }
+    const layer = doc.state.layers.find((item) => item.id === rt.layerId);
+    if (!layer) return null;
+    const entry = rasterEntry(layer, doc);
+    return { entry, x0: entry.cx0, y0: entry.cy0 };
+  };
+  // What the dabs of a move changed, onto that canvas and the screen
+  const rtShow = (rt, live, area) => {
+    const found = rtEntry(rt);
+    if (!found) return;
+    const { entry } = found;
+    // Between the dabs of a long move, a corner of the box they span may not be read yet
+    rtEnsure(rt, area.left, area.top, area.right, area.bottom);
+    const image = rtImage(rt, area.left, area.top, area.right - area.left, area.bottom - area.top);
+    const x = area.left - rt.ox - found.x0;
+    const y = area.top - rt.oy - found.y0;
+    entry.ctx.putImageData(image, x, y);
+    entry.version++;
+    touched(entry.canvas, entry.version - 1, entry.version, { left: x, top: y, right: x + image.width, bottom: y + image.height });
+    live.box = unionOf(live.box, area);
+    emit("render", pageRect(rt.doc, area.left, area.top, area.right, area.bottom));
+  };
+
+  // `fields.retouch`: { tool: "smudge", "blur" or "sharpen", strength (0 to 1), finger (the
+  // colour Finger Painting starts with), sampleAll }. On the mask or the Quick Mask
+  // `fields.target`, the pixel layer `layerId`, or with none on TypeR Clean, read from the page
+  // as Sample All Layers does (made for the stroke if there is none: it stays if the stroke
+  // changes something), as the Spot Healing Brush does.
+  const beginRetouch = (doc, layerId, fields) => {
+    const { tool, strength, finger, sampleAll } = fields.retouch;
+    const size = Math.max(1, Number(fields.size) || 1);
+    const rt = { doc, tool, layerId, target: fields.target || null, tiles: new Map(), carry: null, last: null, rest: 0, before: null };
+    const live = { retouch: rt, box: null };
+    if (rt.target) {
+      const holder = maskHolder(doc, rt.target, layerId);
+      if (!holder) return false;
+      if (holder.locked) {
+        emit("layer-locked");
+        return false;
+      }
+      const [ox, oy] = maskOrigin(holder);
+      Object.assign(rt, { gray: true, ox, oy });
+      Object.assign(live, { layerId, holderId: holder.id, target: rt.target, dx: ox, dy: oy });
+      rt.entry = maskEntry(holder, doc);
+    } else {
+      let layer = layerId ? doc.state.layers.find((item) => item.id === layerId && item.kind === "raster" && !item.adjustment) : doc.state.layers.find((item) => item.clean);
+      if (layerId && !layer) return false;
+      if (layer && lockOf(layer, "pixels")) {
+        emit("layer-locked");
+        return false;
+      }
+      if (!layer) {
+        layer = newRaster("TypeR Clean", { clean: true });
+        rt.before = doc.state;
+        const layers = doc.state.layers.slice();
+        layers.splice(underTexts(layers), 0, layer);
+        doc.state = Object.assign({}, doc.state, { layers });
+      }
+      Object.assign(rt, { layerId: layer.id, ox: layer.dx || 0, oy: layer.dy || 0, all: Boolean(sampleAll || !layerId), lock: lockOf(layer, "transparency") });
+      Object.assign(live, { layerId: layer.id, dx: rt.ox, dy: rt.oy });
+      rt.entry = rasterEntry(layer, doc);
+      visualBoxes.delete(layer);
+    }
+    const selection = doc.state.selection;
+    if (selection) {
+      const b = selection.bounds;
+      rt.sel = selection.mask ? { mask: selection.mask, left: Math.round(b.left), top: Math.round(b.top) } : { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
+    }
+    const s = Math.max(0.01, Math.min(1, Number(strength) || 0));
+    const half = Math.ceil(size / 2) + 1;
+    rt.half = half;
+    rt.side = half * 2;
+    rt.kw = new Float32Array(rt.side * rt.side);
+    const cover = dabCoverage(size, Math.max(0, Math.min(100, Number(fields.hardness) || 0)), rt.side);
+    const smudge = tool === "smudge";
+    rt.spacing = Math.max(1, smudge ? size * SMUDGE_SPACING : size / 4);
+    // Strength is what a dab every quarter of the brush does, whatever the spacing: a pass of
+    // the Blur blurs as much with a small brush as a large one, the Smudge carries as far
+    const f = smudge ? Math.min(1, rt.spacing / Math.max(1, size / 4)) : Math.min(1, rt.spacing / size);
+    rt.keep = Math.pow(s, f);
+    rt.lay = new Float32Array(cover.length);
+    for (let i = 0; i < cover.length; i++) rt.lay[i] = 1 - Math.pow(1 - cover[i] * s, f);
+    // The Blur's reach grows with the brush, within a few pixels; the Sharpen looks close by
+    const sigma = tool === "blur" ? Math.max(1.5, Math.min(5, size * 0.06)) : 1;
+    rt.radius = Math.max(1, Math.round((Math.sqrt(6 * sigma * sigma + 1) - 1) / 2));
+    rt.halo = rt.radius * 2 + 1;
+    if (finger && smudge) {
+      const gray = grayOf(finger);
+      rt.finger = rt.gray ? [gray, gray, gray, 255] : [finger.r, finger.g, finger.b, 255];
+    }
+    doc.liveStroke = live;
+    return true;
+  };
+  const extendRetouch = (live, x, y) => {
+    const rt = live.retouch;
+    const dabs = [];
+    if (!rt.last) dabs.push([x, y]);
+    else {
+      const [x0, y0] = rt.last;
+      const length = Math.hypot(x - x0, y - y0);
+      let at = rt.spacing - rt.rest;
+      while (at <= length) {
+        dabs.push([x0 + ((x - x0) * at) / length, y0 + ((y - y0) * at) / length]);
+        at += rt.spacing;
+      }
+      rt.rest = length - (at - rt.spacing);
+    }
+    rt.last = [x, y];
+    let area = null;
+    dabs.forEach(([cx, cy]) => {
+      const x0 = Math.round(cx) - rt.half;
+      const y0 = Math.round(cy) - rt.half;
+      const left = Math.max(0, x0);
+      const top = Math.max(0, y0);
+      const right = Math.min(rt.doc.width, x0 + rt.side);
+      const bottom = Math.min(rt.doc.height, y0 + rt.side);
+      if (right <= left || bottom <= top) return;
+      const changed = rt.tool === "smudge" ? smudgeDab(rt, x0, y0, left, top, right - left, bottom - top) : focusDab(rt, x0, y0, left, top, right - left, bottom - top);
+      if (changed) area = unionOf(area, { left, top, right, bottom });
+    });
+    if (area) rtShow(rt, live, area);
+  };
+  const RETOUCH_NAMES = { smudge: "Smudge Tool", blur: "Blur Tool", sharpen: "Sharpen Tool" };
+  // The tiles the stroke changed, side by side in a row as one picture each: one step of history
+  const endRetouch = (doc, live) => {
+    const rt = live.retouch;
+    const pieces = [];
+    let run = null;
+    const piece = () => {
+      if (!run) return;
+      const left = run.from * RT_TILE;
+      const top = run.ty * RT_TILE;
+      const width = Math.min(doc.width, (run.to + 1) * RT_TILE) - left;
+      const height = Math.min(doc.height, top + RT_TILE) - top;
+      const canvas = newCanvas(width, height);
+      canvas.getContext("2d").putImageData(rtImage(rt, left, top, width, height), 0, 0);
+      pieces.push({ canvas, x: left - rt.ox, y: top - rt.oy });
+      run = null;
+    };
+    Array.from(rt.tiles.keys()).filter((key) => rt.tiles.get(key).dirty).sort((a, b) => a - b).forEach((key) => {
+      const tx = key % RT_KEY;
+      const ty = Math.floor(key / RT_KEY);
+      if (run && run.ty === ty && run.to === tx - 1) run.to = tx;
+      else {
+        piece();
+        run = { ty, from: tx, to: tx };
+      }
+    });
+    piece();
+    rt.tiles.clear();
+    if (!pieces.length) {
+      // Nothing changed: TypeR Clean, if made for the stroke, goes again
+      if (rt.before) {
+        doc.state = rt.before;
+        if (rasterCache.get(rt.layerId)) forgetRaster(rt.layerId, rasterCache.get(rt.layerId));
+      }
+      emit("render");
+      return;
+    }
+    const op = { t: "pixels", pieces };
+    const name = RETOUCH_NAMES[rt.tool];
+    if (rt.gray) {
+      const holder = maskHolder(doc, rt.target, rt.layerId);
+      if (!holder) return;
+      const paint = (holder.mask.paint || NONE).concat([op]);
+      const entry = maskCache.get(holder.id);
+      // Drawn again from its steps if its canvas was made anew meanwhile
+      if (entry === rt.entry) entry.paint = paint;
+      else if (entry) maskCache.delete(holder.id);
+      const mask = Object.assign({}, holder.mask, { paint });
+      if (rt.target === "quick") commitState(doc, name, { quickMask: mask }, undefined, strokeEnd(doc, holder, live));
+      else commitState(doc, name, { layers: replaceLayer(doc, holder, { mask }) }, undefined, strokeEnd(doc, holder, live));
+      return;
+    }
+    const layer = doc.state.layers.find((item) => item.id === rt.layerId);
+    if (!layer) return;
+    const paint = (layer.paint || NONE).concat([op]);
+    const entry = rasterCache.get(layer.id);
+    if (entry === rt.entry) {
+      entry.paint = paint;
+      if (paint.length % MARK_EVERY === 0) markRaster(entry, paint);
+    } else if (entry) forgetRaster(layer.id, entry);
+    if (effectsOn(layer) && !rasterStrokeOf(layer)) settleEffects(doc, layer.id);
+    commitState(doc, name, { layers: replaceLayer(doc, layer, { paint }) }, undefined, strokeEnd(doc, layer, live));
   };
 
   // Photoshop's anti-aliasing methods, as curves on the coverage the browser draws.
@@ -3128,6 +3728,17 @@
       ctx.fillRect(...area);
       ctx.restore();
       return;
+    } else if (op.t === "pixels") {
+      // The Smudge, Blur or Sharpen tool on a mask: its grey as alpha, in place of what was there
+      ctx.save();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+      op.pieces.forEach((piece) => {
+        ctx.clearRect(piece.x, piece.y, piece.canvas.width, piece.canvas.height);
+        ctx.drawImage(piece.canvas, piece.x, piece.y);
+      });
+      ctx.restore();
+      return;
     } else return;
     ctx.save();
     ctx.globalCompositeOperation = "destination-out";
@@ -4551,6 +5162,7 @@
       if (op.clip && op.clip.canvas) found.add(op.clip.canvas);
       if (op.source && op.source.canvas) found.add(op.source.canvas);
       if (op.canvas) found.add(op.canvas);
+      if (op.pieces) op.pieces.forEach((piece) => found.add(piece.canvas));
     });
   };
   const pixelsOfState = (state, found, seen) => {
@@ -8993,8 +9605,10 @@
     },
     /* ---- painting ---- */
     // `fields.target`: "mask" paints the layer's mask, "quick" the Quick Mask, in `fields.gray`
+    // `fields.retouch`: the Smudge, Blur or Sharpen tool (see beginRetouch)
     beginStroke(layerId, fields) {
       const doc = app.doc;
+      if (doc && fields.retouch) return beginRetouch(doc, layerId, fields);
       if (doc && fields.target) {
         const holder = maskHolder(doc, fields.target, layerId);
         if (!holder) return false;
@@ -9046,6 +9660,10 @@
       const doc = app.doc;
       const live = doc && doc.liveStroke;
       if (!live) return;
+      if (live.retouch) {
+        extendRetouch(live, x, y);
+        return;
+      }
       const point = [x - live.dx, y - live.dy];
       const previous = live.op.points[live.op.points.length - 1];
       live.op.points.push(point);
@@ -9079,6 +9697,10 @@
       const live = doc && doc.liveStroke;
       if (!live) return;
       doc.liveStroke = null;
+      if (live.retouch) {
+        endRetouch(doc, live);
+        return;
+      }
       if (live.target) {
         const holder = maskHolder(doc, live.target, live.layerId);
         if (!holder || !live.op.points.length) {

@@ -85,6 +85,10 @@
     stamp: SVG('<path d="M14 13V8.5C14 7 15 7 15 5a3 3 0 0 0-6 0c0 2 1 2 1 3.5V13"/> <path d="M20 15.5a2.5 2.5 0 0 0-2.5-2.5h-11A2.5 2.5 0 0 0 4 15.5V17a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1z"/> <path d="M5 22h14"/>'),
     // Lucide's bandage, turned as Photoshop's
     heal: SVG('<g transform="rotate(-45 12 12) translate(1.2 1.2) scale(0.9)"><path d="M10 10.01h.01"/><path d="M10 14.01h.01"/><path d="M14 10.01h.01"/><path d="M14 14.01h.01"/><path d="M18 6v12"/><path d="M6 6v12"/><rect x="2" y="6" width="20" height="12" rx="2"/></g>'),
+    // Photoshop's three: Lucide's droplet, a narrow cone on its grid, and its pointer, turned
+    blur: SVG('<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 10.1 5 12 5 15a7 7 0 0 0 7 7z"/>'),
+    sharpen: SVG('<path d="M11.1 3.6a1 1 0 0 1 1.8 0l5.6 16a1 1 0 0 1-.9 1.4H6.4a1 1 0 0 1-.9-1.4z"/>'),
+    smudge: SVG('<g transform="rotate(-20 12 12)"><path d="M22 14a8 8 0 0 1-8 8"/><path d="M18 11v-1a2 2 0 0 0-2-2a2 2 0 0 0-2 2"/><path d="M14 10V9a2 2 0 0 0-2-2a2 2 0 0 0-2 2v1"/><path d="M10 9.5V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v10"/><path d="M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></g>'),
     // A square whose diagonals fade from one corner to the other, on Lucide's grid
     gradient: SVG('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12 12 3"/><path d="M4 20 20 4" stroke-opacity="0.6"/><path d="M12 21 21 12" stroke-opacity="0.25"/>'),
     clean: SVG('<path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.290a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719"/><path d="M12 7.500l.9 2.600 2.600.9-2.600.9L12 14.500l-.9-2.600L8.500 11l2.600-.9Z"/>'),
@@ -2074,6 +2078,10 @@
     ["clean", "Bubble Cleaner", "J"],
     // Shift+J, as in Photoshop
     ["heal", "Spot Healing Brush", "Shift+J"],
+    // Photoshop gives them no key either: one can be given in Keyboard Shortcuts
+    ["blur", "Blur Tool", ""],
+    ["sharpen", "Sharpen Tool", ""],
+    ["smudge", "Smudge Tool", ""],
     // The Bubble Reshaper (reshape.js, reshape-tool.js): still experimental, and said so in its
     // name and its hint. U, Photoshop's shapes, since Shift+J is the Spot Healing Brush's.
     ["reshape", "Bubble Reshaper (experimental)", "U"],
@@ -2084,6 +2092,9 @@
     ["hand", "Hand", "H"],
     ["zoom", "Zoom", "Z"],
   ];
+  // The Smudge, Blur and Sharpen tools: they rework the pixels there are (photoshop.js
+  // beginRetouch), with options of their own (retouch.js)
+  const RETOUCH_BRUSHES = new Set(["blur", "sharpen", "smudge"]);
   // While a text is typed in: what the handles and the edges of its box do
   const TYPING_HINT = "Handles: the text box, the text flows again. Cmd + handle: the text size. Just outside: turn. A little further: move. Esc or Cmd+Enter: done.";
   const TRANSFORM_HINT = "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Alt: from the middle. Cmd + handle: skew. Enter: apply. Esc: cancel.";
@@ -2100,6 +2111,9 @@
     magicEraser: "Click: the area of that colour on the active pixel layer goes transparent, as the Magic Wand would select it. A Background becomes a normal layer.",
     stamp: "Alt + click: where to clone from. Then paint. [ and ] change the size. Alt + right-drag: size / hardness.",
     heal: "Paint over a spot, a letter or a line: it is filled with what surrounds it. Shift + click: a straight line from the last stroke. [ ]: size. With no pixel layer active, it heals on TypeR Clean.",
+    blur: "Paint to soften what is under the brush: each pass blurs a little more. Alt: Sharpen. Shift + click: a straight line. [ ]: size. With no pixel layer active, it works on TypeR Clean.",
+    sharpen: "Paint to sharpen what is under the brush, without halos: each pass a little more. Alt: Blur. Shift + click: a straight line. [ ]: size. With no pixel layer active, it works on TypeR Clean.",
+    smudge: "Drag to pull the colour under the brush along: the higher the Strength, the further it goes. Alt: Finger Painting. Shift + click: a straight line. [ ]: size. With no pixel layer active, it works on TypeR Clean.",
     gradient: "Drag from where the gradient starts to where it ends. Shift: 45° steps. Alt: eyedropper. Then drag its ends to adjust it. On a text or an SFX: a new layer clipped to it.",
     clean: "Click a bubble: its text goes, painted over in the bubble's own colours, whatever they are. Drag a box, a lasso or a polygon: only inside it, for text on a plain background. Ctrl: lasso, Alt: polygonal lasso, Shift: box, held or pressed once.",
     reshape: "Click a bubble, then drag its handles: its line keeps its thickness and its tail keeps pointing. Drag the outline to push or pull it (Alt: a smaller part), the ● at the tail to move its tip. Just outside the frame, or the ● above it: turn it (Shift: 15° steps). Shift: keep the proportions, Alt: from the middle. Enter: apply. Esc: cancel.",
@@ -2196,7 +2210,7 @@
   // Each place shows one tool of its group, the last one used. A drag moves a place, or one
   // tool out of its group's list; dropped on another place, it joins that group.
   const STORE_TOOLBAR = "typer.web.toolbar";
-  const TOOL_GROUPS = [["rectangle", "ellipse"], ["lasso", "polygon"], ["eraser", "magicEraser"]];
+  const TOOL_GROUPS = [["rectangle", "ellipse"], ["lasso", "polygon"], ["eraser", "magicEraser"], ["blur", "sharpen", "smudge"]];
   const toolEntry = (id) => TOOLS.find((entry) => entry && entry[0] === id);
   const defaultSlots = () => {
     const slots = [];
@@ -2527,7 +2541,7 @@
   const PHOTOSHOP_TOOLS = {
     arwT: "move", rgmt: "rectangle", elmt: "ellipse", laso: "lasso", pgon: "polygon", wand: "wand", crop: "crop",
     pntb: "brush", eras: "eraser", mera: "magicEraser", bndT: "gradient", stam: "stamp", sphB: "heal",
-    eyed: "eyedropper", txBx: "text", hand: "hand", zoom: "zoom",
+    blur: "blur", shar: "sharpen", smud: "smudge", eyed: "eyedropper", txBx: "text", hand: "hand", zoom: "zoom",
   };
   const readDescriptor = (buffer) => {
     const view = new DataView(buffer);
@@ -6119,7 +6133,7 @@
         bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns, hiddenCharsButton());
       }
     }
-    if (tool === "brush" || tool === "eraser" || tool === "stamp" || tool === "heal") {
+    if (tool === "brush" || tool === "eraser" || tool === "stamp" || tool === "heal" || RETOUCH_BRUSHES.has(tool)) {
       const size = document.createElement("input");
       size.type = "range";
       size.min = 1;
@@ -6179,7 +6193,7 @@
         bar.appendChild(labelled(T("Sample"), sample));
       }
     }
-    if ((tool === "heal" || tool === "gradient") && window.TypeRRetouch) window.TypeRRetouch.options(bar);
+    if ((tool === "heal" || tool === "gradient" || RETOUCH_BRUSHES.has(tool)) && window.TypeRRetouch) window.TypeRRetouch.options(bar);
     if (tool === "text") {
       const c = textControls(bar, true);
       bar.append(c.family, c.faces, scrubbed(T("Size"), c.size), labelled("aa", c.antiAlias), c.color, c.aligns, hiddenCharsButton());
@@ -6253,7 +6267,7 @@
   // and fingers pan.
   let multi = null;
   let penSeen = false;
-  const DRAWN_TOOLS = new Set(["brush", "eraser", "rectangle", "ellipse", "lasso", "polygon", "heal", "gradient"]);
+  const DRAWN_TOOLS = new Set(["brush", "eraser", "rectangle", "ellipse", "lasso", "polygon", "heal", "gradient", "blur", "sharpen", "smudge"]);
   const isFinger = (event) => Shell.touch && event.pointerType !== "mouse";
 
   const selectionMode = (event) => {
@@ -6263,10 +6277,13 @@
     return app.selectionMode;
   };
 
-  const strokeFields = (tool) => {
+  // `alt`: Alt held as the stroke starts, which turns the Blur into the Sharpen and back, and the
+  // Smudge's Finger Painting on or off, as in Photoshop
+  const strokeFields = (tool, alt) => {
     const { size, hardness } = app.brush;
     // On a mask, in grey: the brush paints the foreground's, the eraser the background's
     const painting = maskPainting();
+    if (RETOUCH_BRUSHES.has(tool)) return { size, hardness, target: painting ? painting.target : null, retouch: window.TypeRRetouch.brush(tool, alt) };
     if (painting && tool !== "stamp") return { size, hardness, target: painting.target, gray: PS.grayOf(toRgb(tool === "eraser" ? app.bg : app.fg)), erase: tool === "eraser" };
     if (tool === "stamp") return { size, hardness, color: { red: 0, green: 0, blue: 0 }, clone: { ox: stamp.offset[0], oy: stamp.offset[1], sample: stamp.sample } };
     return tool === "eraser" ? { size, hardness, erase: true } : { size, hardness, color: toRgb(app.fg) };
@@ -6284,7 +6301,7 @@
   // Cmd on a Mac, Ctrl elsewhere, lends the Move tool while it is held, as in Photoshop: a drag
   // moves the layer, a click on another one picks it. Not to the tools Ctrl already means
   // something to (the Magic Wand, the Bubble Cleaner, the SFX), nor while a polygon is drawn.
-  const LENDS_MOVE = new Set(["rectangle", "ellipse", "lasso", "polygon", "brush", "eraser", "magicEraser", "stamp", "heal", "gradient", "eyedropper", "text"]);
+  const LENDS_MOVE = new Set(["rectangle", "ellipse", "lasso", "polygon", "brush", "eraser", "magicEraser", "stamp", "heal", "blur", "sharpen", "smudge", "gradient", "eyedropper", "text"]);
   const moveLent = (event) => LENDS_MOVE.has(app.tool) && (IS_MAC ? event.metaKey : event.ctrlKey) && !spacing && !polygon && Boolean(app.doc) && !transformOf();
   let hoverAt = null;
   const showWandSetAside = (event) => {
@@ -6436,6 +6453,18 @@
   };
   // Where brushes paint: the Quick Mask, the targeted mask, the active pixel layer, or a new
   // pixel layer above a text layer
+  // Where the Smudge, Blur and Sharpen work: the mask being painted, the active pixel layer, or
+  // with none of them TypeR Clean, read from the page as the Spot Healing Brush does (id null)
+  const retouchTarget = () => {
+    const painting = maskPainting();
+    if (painting && painting.target === "vector") {
+      toast(T("This is a vector mask: rasterize it to paint on it (Layer > Vector Mask > Rasterize)."));
+      return null;
+    }
+    if (painting) return { id: painting.id };
+    const layer = activeLayer();
+    return { id: layer && layer.kind === "raster" && !layer.adjustment ? layer.id : null };
+  };
   const paintTarget = () => {
     const doc = app.doc;
     const painting = maskPainting();
@@ -6556,9 +6585,9 @@
 
   // A stroke starts once the finger moves: two fingers arriving to zoom leave no dot behind
   const startStroke = (current) => {
-    const layer = paintTarget();
+    const layer = RETOUCH_BRUSHES.has(app.tool) ? retouchTarget() : paintTarget();
     if (!layer) return false;
-    const ok = ops.beginStroke(layer.id, strokeFields(app.tool));
+    const ok = ops.beginStroke(layer.id, strokeFields(app.tool, current.altAtStart));
     if (!ok) return false;
     // Its first dab redraws the part of the page it touched, not the whole page
     strokeTo(current, current.start);
@@ -6685,7 +6714,7 @@
     const doc = app.doc;
     const pan = (extra) => Object.assign(base, { kind: "pan", vx: doc.view.x, vy: doc.view.y }, extra);
     if (event.pointerType === "touch" && penSeen && DRAWN_TOOLS.has(tool)) return pan();
-    if (tool === "brush" || tool === "eraser") return Object.assign(base, { kind: "pendingStroke" });
+    if (tool === "brush" || tool === "eraser" || RETOUCH_BRUSHES.has(tool)) return Object.assign(base, { kind: "pendingStroke" });
     if (tool === "text") {
       const hit = textAt(point);
       return hit ? pan({ tapEdit: hit }) : null;
@@ -6772,7 +6801,7 @@
       beginZoom(base, event);
       return;
     }
-    if ((tool === "brush" || tool === "eraser" || tool === "stamp" || tool === "heal") && isBrushAdjust(event)) {
+    if ((tool === "brush" || tool === "eraser" || tool === "stamp" || tool === "heal" || RETOUCH_BRUSHES.has(tool)) && isBrushAdjust(event)) {
       gesture = Object.assign(base, { kind: "brushAdjust", size: app.brush.size, hardness: app.brush.hardness, slop: 0 });
       ui.stage.setPointerCapture(event.pointerId);
       showSampling(event);
@@ -6983,10 +7012,10 @@
       stamp.pointer = point;
       hideStampPreview();
     }
-    if (tool === "brush" || tool === "eraser" || tool === "stamp") {
-      const layer = paintTarget();
+    if (tool === "brush" || tool === "eraser" || tool === "stamp" || RETOUCH_BRUSHES.has(tool)) {
+      const layer = RETOUCH_BRUSHES.has(tool) ? retouchTarget() : paintTarget();
       if (!layer) return;
-      const ok = ops.beginStroke(layer.id, strokeFields(tool));
+      const ok = ops.beginStroke(layer.id, strokeFields(tool, event.altKey));
       if (!ok) return;
       gesture = Object.assign(base, { kind: "stroke" });
       // Its first dab redraws the part of the page it touched, not the whole page
@@ -7060,7 +7089,7 @@
       if (!event.altKey) showStampPreview(event);
       schedule(false);
     }
-    if ((tool === "brush" || tool === "eraser" || tool === "stamp" || tool === "heal") && !(event.pointerType === "touch" && !gesture) && !(gesture && gesture.kind === "brushAdjust")) {
+    if ((tool === "brush" || tool === "eraser" || tool === "stamp" || tool === "heal" || RETOUCH_BRUSHES.has(tool)) && !(event.pointerType === "touch" && !gesture) && !(gesture && gesture.kind === "brushAdjust")) {
       const rect = stageRectOf(event);
       ui.brushRing.setAttribute("cx", event.clientX - rect.left);
       ui.brushRing.setAttribute("cy", event.clientY - rect.top);
@@ -16138,12 +16167,20 @@
 
   // 1 gives 10 %, 5 gives 50 %, 0 gives 100 %; two keys within a moment give their number,
   // 4 then 5 for 45 %, 0 then 0 for 0 %. The painting tools keep the keys, as in Photoshop.
-  const PAINTING_TOOLS = new Set(["brush", "eraser", "magicEraser", "stamp", "clean", "heal", "gradient"]);
+  const PAINTING_TOOLS = new Set(["brush", "eraser", "magicEraser", "stamp", "clean", "heal", "gradient", "blur", "sharpen", "smudge"]);
   let opacityKey = null;
   let opacityKeys = 0;
   // With Shift, Fill
   const opacityByKey = (digit, toFill) => {
     const doc = app.doc;
+    // The Smudge, Blur and Sharpen take them as their Strength, as in Photoshop
+    if (RETOUCH_BRUSHES.has(app.tool) && !toFill && window.TypeRRetouch) {
+      const now = performance.now();
+      const second = opacityKey && opacityKey.strength && now - opacityKey.time < 800;
+      window.TypeRRetouch.setStrength(second ? opacityKey.digit * 10 + digit : digit === 0 ? 100 : digit * 10);
+      opacityKey = second ? null : { time: now, digit, strength: true };
+      return true;
+    }
     if (!doc || PAINTING_TOOLS.has(app.tool) || maskPainting()) return false;
     const layers = activeLayers().filter((layer) => !layer.isBackground);
     if (!layers.length) return false;
@@ -17199,7 +17236,7 @@
   // unless the user would rather not, what is being done on it, where it is in the chapter.
   // Null: nothing shown. Moving around or zooming doesn't change what was being done.
   const TYPESETTING = new Set(["text", "sfx", "wand"]);
-  const CLEANING = new Set(["brush", "eraser", "magicEraser", "stamp", "clean", "heal", "reshape"]);
+  const CLEANING = new Set(["brush", "eraser", "magicEraser", "stamp", "clean", "heal", "reshape", "blur", "sharpen", "smudge"]);
   let presenceWork = "";
   const presence = () => {
     if (settings.discord === "off") return null;
