@@ -4744,6 +4744,98 @@
     });
     return found;
   };
+  // A region bubbleAt found, as a selection: its mask and its outline, traced as the Magic Wand's
+  const regionSelection = (region) => {
+    const { seen, w, bounds } = region;
+    const boxW = bounds.right - bounds.left;
+    const boxH = bounds.bottom - bounds.top;
+    const mask = new Uint8Array(boxW * boxH);
+    for (let y = 0; y < boxH; y++) {
+      for (let x = 0; x < boxW; x++) mask[y * boxW + x] = seen[(bounds.top + y) * w + bounds.left + x];
+    }
+    return makeSelection({ source: "wand", mask, boxW, boxH, left: bounds.left, top: bounds.top });
+  };
+  // Where Align centres a text in a single bubble, as TypeR's Legacy host finds it
+  // (_getAdaptiveOpenedSelectionBounds, and openedBounds in the smart paste's engine, which aims
+  // there): the selection, the boxes in `holes` filled in, contracted then expanded by 10% of its
+  // short side (4 px at least, half of it less a pixel at most), which cuts a tail off. A radius
+  // that leaves less than 200 px² is halved. The bounds of what stays, or the selection's own.
+  const OPEN_RATIO = 0.1;
+  const MIN_OPEN_RADIUS = 4;
+  const openedSelectionBounds = (selection, holes) => {
+    const b = selection.bounds;
+    const shortest = Math.min(b.width, b.height);
+    const most = Math.floor(shortest / 2 - 1);
+    let radius = most > 0 ? Math.min(most, Math.max(MIN_OPEN_RADIUS, Math.round(shortest * OPEN_RATIO))) : 0;
+    const m = selection.mask;
+    if (!radius || !m) return b;
+    const data = holes && holes.length ? Uint8Array.from(m.data) : m.data;
+    // A box fills the pixels whose centre it holds, inside the selection's bounds
+    (holes || []).forEach((hole) => {
+      const x0 = Math.max(0, Math.ceil(hole.left - m.left - 0.5));
+      const x1 = Math.min(m.width - 1, Math.floor(hole.right - m.left - 0.5));
+      const y0 = Math.max(0, Math.ceil(hole.top - m.top - 0.5));
+      const y1 = Math.min(m.height - 1, Math.floor(hole.bottom - m.top - 0.5));
+      for (let y = y0; y <= y1; y++) data.fill(1, y * m.width + x0, y * m.width + x1 + 1);
+    });
+    // The selected runs of each row, in page pixels
+    const rows = [];
+    for (let y = 0; y < m.height; y++) {
+      const runs = [];
+      for (let x = 0, i = y * m.width; x < m.width; x++, i++) {
+        if (!data[i]) continue;
+        const from = x;
+        while (x + 1 < m.width && data[i + 1]) { x++; i++; }
+        runs.push([m.left + from, m.left + x]);
+      }
+      rows.push(runs);
+    }
+    // The pixels that keep every pixel within the radius selected (a disc): their bounds
+    const contracted = (r) => {
+      const reach = [];
+      for (let dy = 0; dy <= r; dy++) reach.push(Math.floor(Math.sqrt(r * r - dy * dy)));
+      let left = Infinity;
+      let right = -Infinity;
+      let top = Infinity;
+      let bottom = -Infinity;
+      for (let y = r; y < rows.length - r; y++) {
+        let available = rows[y].map((run) => [run[0] + reach[0], run[1] - reach[0]]).filter((run) => run[0] <= run[1]);
+        for (let dy = 1; dy <= r && available.length; dy++) {
+          for (let side = -1; side <= 1 && available.length; side += 2) {
+            const source = rows[y + side * dy];
+            const shrink = reach[dy];
+            const next = [];
+            let ai = 0;
+            let si = 0;
+            while (ai < available.length && si < source.length) {
+              const low = Math.max(available[ai][0], source[si][0] + shrink);
+              const high = Math.min(available[ai][1], source[si][1] - shrink);
+              if (low <= high) next.push([low, high]);
+              if (available[ai][1] < source[si][1] - shrink) ai++;
+              else si++;
+            }
+            available = next;
+          }
+        }
+        if (!available.length) continue;
+        left = Math.min(left, available[0][0]);
+        right = Math.max(right, available[available.length - 1][1]);
+        top = Math.min(top, m.top + y);
+        bottom = Math.max(bottom, m.top + y);
+      }
+      return Number.isFinite(left) ? { left, top, right, bottom } : null;
+    };
+    while (radius >= 1) {
+      const core = contracted(radius);
+      // Bounds are pixel edges: right and bottom past the last pixel
+      if (core && core.right + 1 - core.left > 1 && core.bottom + 1 - core.top > 1) {
+        const opened = rectFrom(Math.max(core.left - radius, b.left), Math.max(core.top - radius, b.top), Math.min(core.right + 1 + radius, b.right), Math.min(core.bottom + 1 + radius, b.bottom));
+        if (opened.width * opened.height >= MIN_BUBBLE_AREA) return opened;
+      }
+      radius = Math.floor(radius / 2);
+    }
+    return b;
+  };
   // The texts' order along an axis, when they don't overlap on it
   const separatedOrder = (boxes, lo, hi) => {
     const order = boxes.map((box, index) => ({ box, index, sum: box[lo] + box[hi] })).sort((a, b) => a.sum - b.sum);
@@ -10699,12 +10791,16 @@
         const s = doc.state.selection;
         bubbles.push({ selectionBounds: { left: s.bounds.left, top: s.bounds.top, right: s.bounds.right, bottom: s.bounds.bottom }, rawPath: ringsToPath(s.rings), textIds: texts.map((text) => text.id) });
       } else {
+        // As TypeR's Legacy host (_alignCaptureRun): the wand probes around each text, its
+        // centre first, and the bubble they find (probed: the panel then only places the texts that
+        // lie inside it)
         texts.forEach((text) => {
-          const scan = floodSelect(doc, text.box.xMid, text.box.yMid, 20);
-          const b = scan.bounds;
+          const found = probeBubble(doc, text.box, text.sizePixels, []).best;
+          if (!found) return;
+          const b = found.bounds;
           let known = bubbles.find((bubble) => bubble.selectionBounds.left === b.left && bubble.selectionBounds.top === b.top && bubble.selectionBounds.right === b.right && bubble.selectionBounds.bottom === b.bottom);
           if (!known) {
-            known = { selectionBounds: { left: b.left, top: b.top, right: b.right, bottom: b.bottom }, rawPath: ringsToPath(scan.rings), textIds: [] };
+            known = { selectionBounds: { left: b.left, top: b.top, right: b.right, bottom: b.bottom }, rawPath: ringsToPath(regionSelection(found).rings), textIds: [], probed: true };
             bubbles.push(known);
           }
           known.textIds.push(text.id);
@@ -10717,22 +10813,53 @@
       if (!doc) return "doc";
       const selected = selectedTextLayers(doc);
       if (!selected.length) return "layer";
+      // The chamber of a double or triple bubble the panel found for a text. Its centre (the
+      // chamber's body centre) is kept when it lies in its box, as in TypeR's Legacy host
+      // (_alignPlacementMap); otherwise the box's middle
       const placements = {};
       ((data && data.placements) || []).forEach((placement) => {
-        if (placement && placement.rect) placements[placement.id] = placement.rect;
+        const r = placement && placement.rect;
+        if (!r || placement.id === undefined || placement.id === null) return;
+        const [left, top, right, bottom] = [r.left, r.top, r.right, r.bottom].map(Number);
+        if (![left, top, right, bottom].every(Number.isFinite) || right <= left || bottom <= top) return;
+        const rect = rectFrom(left, top, right, bottom);
+        const x = Number(r.xMid);
+        const y = Number(r.yMid);
+        if (Number.isFinite(x) && Number.isFinite(y) && x >= left && x <= right && y >= top && y <= bottom) Object.assign(rect, { xMid: x, yMid: y });
+        placements[placement.id] = rect;
       });
       let layers = doc.state.layers;
+      let failure = "";
+      let aligned = 0;
       selected.forEach((layer) => {
         const box = boxOf(layer, doc);
-        let rect = placements[layer.id] || (doc.state.selection && doc.state.selection.bounds);
+        let rect = placements[layer.id];
         if (!rect) {
-          const scan = floodSelect(doc, box.xMid, box.yMid, 20);
-          if (scan.bounds.width * scan.bounds.height > box.width * box.height * 60) return;
-          rect = scan.bounds;
+          // A single bubble, as in TypeR's Legacy host (_alignCurrentTextLayerToSelection): the
+          // user's selection with the text's box filled in, else the bubble the wand takes at the
+          // text's middle (tolerance 20, the texts left out), opened: a tail does not pull the
+          // text off the bubble's middle. No size limit, as there.
+          let selection = doc.state.selection;
+          const holes = selection ? [box] : null;
+          if (!selection) {
+            const region = bubbleAt(doc, box.xMid, box.yMid);
+            selection = region ? regionSelection(region) : null;
+          }
+          if (!selection) {
+            failure = failure || "noSelection";
+            return;
+          }
+          rect = openedSelectionBounds(selection, holes);
+          if (rect.width * rect.height < MIN_BUBBLE_AREA) {
+            failure = failure || "smallSelection";
+            return;
+          }
         }
         const moved = centredOn(layer, doc, rect.xMid, rect.yMid);
         layers = layers.map((entry) => (entry.id === layer.id ? moved : entry));
+        aligned++;
       });
+      if (!aligned) return failure || "layer";
       commitState(doc, "TyperTools Align", { layers });
       emit("align");
       return "";
@@ -10912,15 +11039,16 @@
       const doc = app.doc;
       if (!doc) return JSON.stringify({ error: "doc" });
       const requests = (data && data.requests) || [];
+      // The ink of the line as the page will draw it (Roman Hanging Punctuation, the spaces that
+      // end a line), a point text at the page's centre: what the engine fits and centres is what
+      // shows. An atlas gets its first line, which the engine does not read (it measures each
+      // line again).
       const measure = () => JSON.stringify(requests.map((request) => {
         const lt = followTextDefaults(paramsInPoints(request.params, doc.resolution)).layerText;
-        const key = String(lt.textKey || "").replace(/\r$/, "");
-        const runs = splitLines(Object.assign({}, lt, { textKey: key }))[0] || [];
-        const m = measureRuns(runs, doc.resolution);
-        const cx = doc.width / 2;
-        const cy = doc.height / 2;
-        const x = cx - m.advance / 2;
-        return { bounds: { left: x + m.inkLeft, top: cy - m.ascent, right: x + m.inkRight, bottom: cy + m.descent } };
+        const key = String(lt.textKey || "").split(/\r\n?|\n/)[0];
+        const line = Object.assign({}, lt, { textKey: key, textClickPoint: { horizontal: 50, vertical: 50 }, textShape: [{ textType: "point", orientation: "horizontal" }] });
+        const b = layoutLayer({ params: { layerText: line } }, doc).box;
+        return { bounds: { left: b.left, top: b.top, right: b.right, bottom: b.bottom } };
       }));
       const names = [];
       requests.forEach((request) => (request.params.layerText.textStyleRange || []).forEach((range) => names.push(range.textStyle.fontPostScriptName)));
@@ -10941,7 +11069,16 @@
           const op = { t: "poly", polygon: plan.cleanupPolygon, color: plan.fillRGB || { red: 255, green: 255, blue: 255 }, inset: plan.cleanupInset || 0 };
           layers = paintOnCleanLayer(layers, () => op);
         }
-        const layer = newTextLayer(doc, followTextDefaults(paramsInPoints(session.text.params, doc.resolution)), session.text.stroke, session.layerName);
+        let layer = newTextLayer(doc, followTextDefaults(paramsInPoints(session.text.params, doc.resolution)), session.text.stroke, session.layerName);
+        // As TypeR's hosts settle a pasted text (_smartSettleInk): the middle of its ink box on
+        // the bubble's centre, where the engine laid it out and where Align puts it. Photoshop
+        // reads whole pixels and moves when half a pixel off; Studio's ink and moves are exact,
+        // so a hundredth of a pixel off is moved, and Align then has nothing left to move.
+        const target = session.text && session.text.target;
+        if (target && Number.isFinite(target.x) && Number.isFinite(target.y)) {
+          const ink = boxOf(layer, doc);
+          if (Math.abs(target.x - ink.xMid) > 0.01 || Math.abs(target.y - ink.yMid) > 0.01) layer = centredOn(layer, doc, target.x, target.y);
+        }
         layer.source = session.layerName || "";
         created.push(layer);
         layers = addNewTexts(layers, [layer], spot);
