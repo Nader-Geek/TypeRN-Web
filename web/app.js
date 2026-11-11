@@ -3557,6 +3557,7 @@
         if (shortcuts) {
           panes.shortcuts = shortcuts.pane;
           shortcuts.pane.classList.add("settings__pane--keys");
+          shortcuts.listen();
         }
         const nav = document.createElement("nav");
         nav.className = "settings__nav";
@@ -16389,10 +16390,11 @@
       };
     };
     render();
-    // The dialog starts clean: these go on once it is up
-    setTimeout(listen, 0);
     return {
       pane,
+      // From the dialog's ready, never on a timer: dialog() starts clean and clears these, and in the
+      // app the settings first wait for Discord's answer
+      listen,
       stopRecording,
       save: () => {
         customShortcuts = {};
