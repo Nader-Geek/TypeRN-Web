@@ -24,6 +24,17 @@ contextBridge.exposeInMainWorld("TypeRDesktop", {
   // A script sent by TypeR for Photoshop with the pages it opens here: { name, text }
   onImportScript: (listener) => ipcRenderer.on("import-script", (event, script) => listener(script)),
   reloadForUpdate: () => ipcRenderer.send("reload-for-update"),
+  // Help > Check for Updates…: "ready" (update-ready follows), "none" or "failed". `downloading`
+  // is told when a new version of the app itself starts downloading, which takes a while.
+  checkForUpdates: async (downloading) => {
+    const tell = () => { if (typeof downloading === "function") downloading(); };
+    ipcRenderer.on("update-downloading", tell);
+    try {
+      return await ipcRenderer.invoke("check-for-updates");
+    } finally {
+      ipcRenderer.removeListener("update-downloading", tell);
+    }
+  },
   // The Photoshop plugin's storage files on this computer, read only, or null
   findPhotoshopSettings: () => ipcRenderer.invoke("photoshop-settings"),
   // Installs the Font FindeR's fonts for this user, as the Photoshop plugin does: font files

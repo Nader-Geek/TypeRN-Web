@@ -451,25 +451,62 @@ const checkContent = async () => {
   if (await content.check()) updateReady();
 };
 
-const checkShell = () => {
-  if (!app.isPackaged || isTest || shellReady) return;
-  try {
-    const { autoUpdater } = require("electron-updater");
-    if (!shellUpdater) {
-      shellUpdater = autoUpdater;
-      autoUpdater.autoDownload = true;
-      autoUpdater.autoInstallOnAppQuit = true;
-      autoUpdater.on("error", (error) => console.warn("App update:", error.message));
-      autoUpdater.on("update-downloaded", () => {
-        shellReady = true;
-        updateReady();
-      });
+// "ready" once a new version of the app is downloaded, "none" without one (or where the app
+// doesn't update itself: not installed, in a test), "failed" when it couldn't be asked. A check
+// while one runs, or while its download goes on, waits for that one. `found` is told when a new
+// version starts downloading.
+let shellCheck = null;
+const shellFound = new Set();
+const checkShell = (found) => {
+  if (shellReady) return Promise.resolve("ready");
+  if (!app.isPackaged || isTest) return Promise.resolve("none");
+  if (found) shellFound.add(found);
+  if (shellCheck) return shellCheck;
+  shellCheck = (async () => {
+    try {
+      const { autoUpdater } = require("electron-updater");
+      if (!shellUpdater) {
+        shellUpdater = autoUpdater;
+        autoUpdater.autoDownload = true;
+        autoUpdater.autoInstallOnAppQuit = true;
+        autoUpdater.on("error", (error) => console.warn("App update:", error.message));
+        autoUpdater.on("update-downloaded", () => {
+          shellReady = true;
+          updateReady();
+        });
+      }
+      const result = await autoUpdater.checkForUpdates();
+      if (!result || !result.isUpdateAvailable || !result.downloadPromise) return "none";
+      shellFound.forEach((tell) => tell());
+      await result.downloadPromise;
+      shellReady = true;
+      return "ready";
+    } catch (error) {
+      console.warn("App update:", error.message);
+      return "failed";
+    } finally {
+      shellCheck = null;
+      shellFound.clear();
     }
-    autoUpdater.checkForUpdates().catch((error) => console.warn("App update:", error.message));
-  } catch (error) {
-    console.warn("App update:", error.message);
-  }
+  })();
+  return shellCheck;
 };
+
+// Help > Check for Updates…: both checks, now, even where they don't run on their own. What's found downloads, then the page offers to
+// restart as for an update found on its own.
+ipcMain.handle("check-for-updates", async (event) => {
+  if (!fromPage(event)) return "failed";
+  const sender = event.sender;
+  const [page, shell] = await Promise.all([
+    content.update(),
+    checkShell(() => { if (!sender.isDestroyed()) sender.send("update-downloading"); }),
+  ]);
+  if (page === "ready" || shell === "ready" || updatePending) {
+    updateReady();
+    return "ready";
+  }
+  return page === "failed" || shell === "failed" ? "failed" : "none";
+});
 
 /* ------------------------------ TypeR for Photoshop's settings ----------------------- */
 

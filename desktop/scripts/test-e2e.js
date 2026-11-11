@@ -911,6 +911,10 @@ const main = async () => {
   const good = manifest;
   manifest = { payload: good.payload, signature: Buffer.alloc(64, 1).toString("base64") };
   step("an update with a wrong signature is refused", (await checkNow(run.app)) === false);
+  // Help > Check for Updates…, as the page asks it
+  const checkFromMenu = () => run.page.evaluate(() => window.TypeRDesktop.checkForUpdates());
+  step("Help offers Check for Updates…", await run.page.evaluate(() => window.TypeRApp.MENUS.find(([name]) => name === "Help")[1].some((item) => item && item.label === "Check for Updates…")));
+  step("Check for Updates… says when the update can't be trusted", (await checkFromMenu()) === "failed");
   const wrong = JSON.parse(good.payload);
   wrong.files["web/app.css"].sha256 = "0".repeat(64);
   manifest = { payload: JSON.stringify(wrong), signature: crypto.sign(null, Buffer.from(JSON.stringify(wrong)), fs.readFileSync(keyPath)).toString("base64") };
@@ -923,8 +927,15 @@ const main = async () => {
   step("only the changed files are downloaded", asked.filter((item) => !item.endsWith("desktop-update.json")).join() === "/web/app.css", asked.join(", "));
   step("the open page doesn't change under the user", !(await cssHasMark(run.page)));
   step("the same update isn't taken twice", (await checkNow(run.app)) === false);
-  // What's downloaded is offered right away: Restart, or Later
-  await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send("update-ready"));
+  const upToDate = await run.page.evaluate(async () => {
+    await window.TypeRStudio.checkForUpdates();
+    return document.getElementById("toast").textContent === window.TypeRApp.T("TypeR Studio is up to date.");
+  });
+  step("Check for Updates… says when there's nothing new", upToDate);
+  // One more version, found from the menu: downloaded, then offered right away: Restart, or Later
+  fs.appendFileSync(path.join(site, "web", "app.css"), "\n");
+  manifest = publish(described);
+  step("Check for Updates… downloads a new version", (await checkFromMenu()) === "ready");
   await run.page.waitForSelector("#update-note", { timeout: 3000 }).catch(() => null);
   const note = await run.page.evaluate(() => {
     const shown = document.getElementById("update-note");

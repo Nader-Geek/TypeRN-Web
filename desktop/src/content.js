@@ -104,11 +104,16 @@ const inside = (root, file) => {
   return to;
 };
 
-let checking = false;
-// True when a new version is ready for the next launch
-const check = async () => {
-  if (checking) return false;
-  checking = true;
+// "ready" when a new version is there for the next launch, "none" when there's nothing new for
+// this app, "failed" when the site couldn't be reached. Two checks at once are the same check.
+let checking = null;
+const update = () => {
+  if (!checking) checking = download().finally(() => { checking = null; });
+  return checking;
+};
+const check = async () => (await update()) === "ready";
+
+const download = async () => {
   let building = null;
   try {
     const signed = JSON.parse((await fetchBytes(`${SITE}/web/desktop-update.json?t=${Date.now()}`)).toString("utf8"));
@@ -117,8 +122,8 @@ const check = async () => {
     const state = readState();
     const newest = state.id ? infoOf(state.id) : null;
     const known = Math.max(active.info.builtAt, newest ? newest.builtAt : 0);
-    if (update.builtAt <= known || (state.refused || []).includes(update.id)) return false;
-    if (!atLeast(app.getVersion(), update.minShell)) return false;
+    if (update.builtAt <= known || (state.refused || []).includes(update.id)) return "none";
+    if (!atLeast(app.getVersion(), update.minShell)) return "none";
 
     building = path.join(store(), `.${update.id}.part`);
     fs.rmSync(building, { recursive: true, force: true });
@@ -142,15 +147,14 @@ const check = async () => {
     for (const name of fs.readdirSync(store())) {
       if (name !== "state.json" && name !== update.id && name !== running) fs.rmSync(path.join(store(), name), { recursive: true, force: true });
     }
-    return true;
+    return "ready";
   } catch (error) {
     // No connection, or a publication under way: the next check tries again
     console.warn("Content update:", error.message);
-    return false;
+    return "failed";
   } finally {
     if (building) fs.rmSync(building, { recursive: true, force: true });
-    checking = false;
   }
 };
 
-module.exports = { choose, current, isDownloaded, confirm, check };
+module.exports = { choose, current, isDownloaded, confirm, check, update };
