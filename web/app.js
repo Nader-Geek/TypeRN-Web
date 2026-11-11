@@ -3999,7 +3999,7 @@
       window.addEventListener("typer-firefly-credits", event => showCredits(event.detail), { signal: listeners.signal });
       credits.append(creditLabel, creditMeter, resetDate, refreshCredits);
       const showAccount = (now) => {
-        status.textContent = T(now?.connected ? "Connected to Adobe Firefly" : now?.connecting ? "Finish signing in in the Adobe window." : "Connect your Adobe account to use Firefly.");
+        status.textContent = T(now?.connected ? "Connected to Adobe Firefly" : now?.connecting ? "Finish signing in in the Adobe window. If the Adobe page keeps loading, press F5 in that window." : "Connect your Adobe account to use Firefly.");
         adobeButton.hidden = Boolean(now?.connected);
         disconnect.hidden = !now?.connected;
         credits.hidden = !now?.connected;
@@ -4008,7 +4008,7 @@
       window.addEventListener("typer-firefly-state", (event) => showAccount(event.detail), { signal: listeners.signal });
       adobeButton.addEventListener("click", async () => {
         adobeButton.disabled = true;
-        status.textContent = T("Finish signing in in the Adobe window.");
+        status.textContent = T("Finish signing in in the Adobe window. If the Adobe page keeps loading, press F5 in that window.");
         try {
           const result = await Gen.adobeConnect();
           showAccount(await Gen.adobeStatus());

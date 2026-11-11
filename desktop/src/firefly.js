@@ -59,6 +59,9 @@ const createFirefly = ({ changed = () => {}, parent = () => null } = {}) => {
         const wasConnected = state().connected;
         token = result.token;
         expires = result.expires;
+        // Signed in: the sign-in popups have nothing left to show (Adobe sometimes leaves one
+        // open on a blank "Welcome back" page).
+        if (connecting || !wasConnected) for (const popup of popups) if (!popup.isDestroyed()) popup.close();
         if (connecting) {
           const resolve = connecting.resolve;
           clearTimeout(connecting.timeout);
@@ -71,7 +74,24 @@ const createFirefly = ({ changed = () => {}, parent = () => null } = {}) => {
     } catch { /* The page may be navigating through sign-in. */ }
     finally { reading = false; }
   };
+  const adobe = () => {
+    if (adobeSession) return adobeSession;
+    adobeSession = session.fromPartition(PARTITION);
+    adobeSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+    adobeSession.setPermissionCheckHandler(() => false);
+    adobeSession.on("will-download", (event) => event.preventDefault());
+    return adobeSession;
+  };
   const secure = (page) => {
+    // These windows have no menu, so give them the browser's reload keys. Adobe's identity check
+    // sometimes loads its methods twice and waits forever on its spinner; a reload gets past it.
+    page.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown" || input.alt || input.shift) return;
+      if (input.key === "F5" || ((input.control || input.meta) && input.key.toLowerCase() === "r")) {
+        event.preventDefault();
+        page.reload();
+      }
+    });
     page.on("will-navigate", (event, url) => { if (!authUrl(url)) event.preventDefault(); });
     page.on("will-redirect", (event, url) => { if (!authUrl(url)) event.preventDefault(); });
     page.setWindowOpenHandler(({ url }) => ({ action: authUrl(url) ? "allow" : "deny", overrideBrowserWindowOptions: {
@@ -86,10 +106,7 @@ const createFirefly = ({ changed = () => {}, parent = () => null } = {}) => {
   };
   const open = () => {
     if (login && !login.isDestroyed()) return login;
-    adobeSession ||= session.fromPartition(PARTITION);
-    adobeSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-    adobeSession.setPermissionCheckHandler(() => false);
-    if (!adobeSession.listenerCount("will-download")) adobeSession.on("will-download", (event) => event.preventDefault());
+    adobe();
     login = new BrowserWindow({
       width: 1000, height: 760, show: false, title: "Adobe Firefly", autoHideMenuBar: true,
       parent: parent() || undefined,
@@ -134,7 +151,7 @@ const createFirefly = ({ changed = () => {}, parent = () => null } = {}) => {
     if (version !== epoch || window !== login || shuttingDown || !state().connected) throw new FireflyError("adobeauth", "Sign in to Adobe Firefly in Generative Fill settings.");
     return { token, arpToken: context?.arpToken, userId: context?.userId };
   };
-  const client = createClient({ credentials, fetch: (...args) => adobeSession.fetch(...args) });
+  const client = createClient({ credentials, fetch: (...args) => adobe().fetch(...args) });
   const disposeWindow = () => {
     clearInterval(timer);
     timer = null;
@@ -150,7 +167,7 @@ const createFirefly = ({ changed = () => {}, parent = () => null } = {}) => {
       const version = epoch;
       const accountToken = token;
       try {
-        const balance = await fetchCredits((...args) => adobeSession.fetch(...args), accountToken, AbortSignal.timeout(15000));
+        const balance = await fetchCredits((...args) => adobe().fetch(...args), accountToken, AbortSignal.timeout(15000));
         if (version !== epoch || token !== accountToken || !state().connected || shuttingDown) return { status: "signedout" };
         return { status: "ready", ...balance, updatedAt: Date.now() };
       } catch { return { status: "unavailable" }; }
@@ -161,8 +178,7 @@ const createFirefly = ({ changed = () => {}, parent = () => null } = {}) => {
       if (!restored) {
         restored = true;
         const version = epoch;
-        adobeSession ||= session.fromPartition(PARTITION);
-        const cookies = await adobeSession.cookies.get({});
+        const cookies = await adobe().cookies.get({});
         if (version === epoch && !shuttingDown && cookies.some((cookie) => /(?:^|\.)adobelogin\.com$/.test(cookie.domain.replace(/^\./, "")))) open();
       }
       await readSession();

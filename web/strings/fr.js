@@ -8,7 +8,7 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Connect to Adobe": "Se connecter à Adobe",
     "Disconnect Adobe": "Déconnecter Adobe",
     "Connected to Adobe Firefly": "Connecté à Adobe Firefly",
-    "Finish signing in in the Adobe window.": "Terminez la connexion dans la fenêtre Adobe.",
+    "Finish signing in in the Adobe window. If the Adobe page keeps loading, press F5 in that window.": "Terminez la connexion dans la fenêtre Adobe. Si la page Adobe charge sans fin, appuyez sur F5 dans cette fenêtre.",
     "Connect your Adobe account to use Firefly.": "Connectez votre compte Adobe pour utiliser Firefly.",
     "Adobe connection could not be completed. Try again.": "La connexion Adobe n’a pas abouti. Réessayez.",
     "Your Adobe session stays on this device. Images and selections go directly to Adobe. No API key is needed.": "Votre session Adobe reste sur cet appareil. Les images et les sélections sont envoyées directement à Adobe. Aucune clé API n’est nécessaire.",
