@@ -1401,10 +1401,33 @@
     if (transform.doc !== app.doc || transform.state !== app.doc.state) endTransform();
     return transform;
   };
+  // As Photoshop reports a transform: the frame's sides scaled by W and H, then skewed by H and
+  // V (`kh`, `kv`: the tangents of those angles), then turned by the angle. Of a text already
+  // turned or skewed, in its own frame (`base.frame`, from its straight box to the page), as
+  // Photoshop shows its handles on its own sides. 2 × 2 matrices as the canvas's: [a, b, c, d].
+  const plainTransform = (t) => !t.base.frame && !t.kh && !t.kv;
+  const times2 = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3]];
+  const inverse2 = ([a, b, c, d]) => {
+    const det = a * d - b * c || 1e-12;
+    return [d / det, -b / det, -c / det, a / det];
+  };
+  const turnMatrix = (angle) => [Math.cos(angle), Math.sin(angle), -Math.sin(angle), Math.cos(angle)];
+  // From the frame's straight box (around its middle, in its own pixels) to the page
+  const frameLinear = (t) => {
+    const skew = [t.sx, (t.kv || 0) * t.sx, (t.kh || 0) * t.sy, t.sy];
+    return times2(turnMatrix(t.angle), t.base.frame ? times2(t.base.frame, skew) : skew);
+  };
   const transformMatrix = (t) => {
+    const clean = (value) => (Math.abs(value) < 1e-9 ? 0 : value);
+    if (!plainTransform(t)) {
+      // What the layers go through: in the frame's own axes, then back to the page's
+      const still = t.sx === 1 && t.sy === 1 && !t.kh && !t.kv;
+      const linear = !t.base.frame ? frameLinear(t) : still ? turnMatrix(t.angle) : times2(frameLinear(t), inverse2(t.base.frame));
+      const [a, b, c, d] = linear.map(clean);
+      return [a, b, c, d, t.cx - a * t.base.xMid - c * t.base.yMid, t.cy - b * t.base.xMid - d * t.base.yMid];
+    }
     const cos = Math.cos(t.angle);
     const sin = Math.sin(t.angle);
-    const clean = (value) => (Math.abs(value) < 1e-9 ? 0 : value);
     const a = clean(cos * t.sx);
     const b = clean(sin * t.sx);
     const c = clean(-sin * t.sy);
@@ -1412,12 +1435,26 @@
     return [a, b, c, d, t.cx - a * t.base.xMid - c * t.base.yMid, t.cy - b * t.base.xMid - d * t.base.yMid];
   };
   const transformPoint = (t, fx, fy) => {
+    if (!plainTransform(t)) {
+      const [a, b, c, d] = frameLinear(t);
+      const u = fx * t.base.width;
+      const v = fy * t.base.height;
+      return [t.cx + a * u + c * v, t.cy + b * u + d * v];
+    }
     const u = fx * t.base.width * t.sx;
     const v = fy * t.base.height * t.sy;
     const cos = Math.cos(t.angle);
     const sin = Math.sin(t.angle);
     return [t.cx + u * cos - v * sin, t.cy + u * sin + v * cos];
   };
+  // Where a point of the page is in the frame's straight box, around its middle
+  const inFrameBox = (t, [x, y]) => {
+    const [a, b, c, d] = inverse2(frameLinear(t));
+    const dx = x - t.cx;
+    const dy = y - t.cy;
+    return [a * dx + c * dy, b * dx + d * dy];
+  };
+  const transformState = (t) => ({ cx: t.cx, cy: t.cy, sx: t.sx, sy: t.sy, angle: t.angle, kh: t.kh || 0, kv: t.kv || 0 });
   const transformBounds = (t) => {
     const corners = [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].map(([fx, fy]) => transformPoint(t, fx, fy));
     const xs = corners.map((p) => p[0]);
@@ -1439,6 +1476,13 @@
   // All around the frame, a little outside it: by a side as by a corner, as in Photoshop.
   // Gives the cursor to show there, or null.
   const ROTATE_REACH = 22;
+  // A point (dx, dy from the middle) along a frame's sides u and v, as far as each goes: a
+  // skewed text's sides aren't square
+  const alongFrame = (u, v, dx, dy) => {
+    if (Math.abs(u[0] * v[0] + u[1] * v[1]) < 1e-6) return [dx * u[0] + dy * u[1], dx * v[0] + dy * v[1]];
+    const det = u[0] * v[1] - u[1] * v[0] || 1e-12;
+    return [(dx * v[1] - dy * v[0]) / det, (u[0] * dy - u[1] * dx) / det];
+  };
   const rotateZoneCursor = (event) => {
     const controls = pixelControls ? { center: [(pixelControls.x0 + pixelControls.x1) / 2, (pixelControls.y0 + pixelControls.y1) / 2], u: [1, 0], v: [0, 1], hw: (pixelControls.x1 - pixelControls.x0) / 2, hh: (pixelControls.y1 - pixelControls.y0) / 2 } : turnControls;
     if (!controls) return null;
@@ -1446,8 +1490,7 @@
     const dx = event.clientX - rect.left - controls.center[0];
     const dy = event.clientY - rect.top - controls.center[1];
     const { u, v, hw, hh } = controls;
-    const pu = dx * u[0] + dy * u[1];
-    const pv = dx * v[0] + dy * v[1];
+    const [pu, pv] = alongFrame(u, v, dx, dy);
     const out = Math.hypot(Math.max(0, Math.abs(pu) - hw), Math.max(0, Math.abs(pv) - hh));
     if (!out || out > ROTATE_REACH) return null;
     return rotateCursor(sideOfFrame(pu, pv, hw, hh, u));
@@ -1466,10 +1509,13 @@
     const dx = event.clientX - rect.left - turnControls.center[0];
     const dy = event.clientY - rect.top - turnControls.center[1];
     const { u, v, hw, hh } = turnControls;
-    const out = Math.hypot(Math.max(0, Math.abs(dx * u[0] + dy * u[1]) - hw), Math.max(0, Math.abs(dx * v[0] + dy * v[1]) - hh));
+    const [pu, pv] = alongFrame(u, v, dx, dy);
+    const out = Math.hypot(Math.max(0, Math.abs(pu) - hw), Math.max(0, Math.abs(pv) - hh));
     return out > ROTATE_REACH && out <= ROTATE_REACH + MOVE_REACH;
   };
-  const beginTransform = () => {
+  // `square`: around what the layers cover, even a turned text (Edit's flips and turns go by
+  // the page's sides, as in Photoshop)
+  const beginTransform = (square) => {
     if (transformOf()) return true;
     if (warpedLayer()) leaveSurface();
     setTool("move");
@@ -1484,8 +1530,19 @@
     const top = Math.min(...boxes.map((b) => b.top));
     const right = Math.max(...boxes.map((b) => b.right));
     const bottom = Math.max(...boxes.map((b) => b.bottom));
-    const base = { left, top, right, bottom, width: right - left, height: bottom - top, xMid: (left + right) / 2, yMid: (top + bottom) / 2 };
-    transform = { doc, state: doc.state, ids, base, cx: base.xMid, cy: base.yMid, sx: 1, sy: 1, angle: 0, keep: true, targets: snapTargets(ids) };
+    let base = { left, top, right, bottom, width: right - left, height: bottom - top, xMid: (left + right) / 2, yMid: (top + bottom) / 2 };
+    // A text turned or skewed on its own: the frame sits on its own sides, as in Photoshop,
+    // and W, H, the angle and the skew start again from there
+    const one = square === true || ids.length !== 1 ? null : doc.state.layers.find((layer) => layer.id === ids[0]);
+    if (one && one.kind === "text" && one.rotated && one.spin && !one.warp && !PS.meshOk(one.mesh) && !PS.outlineOk(one.outline)) {
+      const f = PS.turnedFrame(one, doc);
+      if (f.width > 0 && f.height > 0 && Math.abs(one.spin[0] * one.spin[3] - one.spin[1] * one.spin[2]) > 1e-6) {
+        const xs = f.corners.map((p) => p[0]);
+        const ys = f.corners.map((p) => p[1]);
+        base = { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys), width: f.width, height: f.height, xMid: f.center[0], yMid: f.center[1], frame: one.spin.slice(0, 4) };
+      }
+    }
+    transform = { doc, state: doc.state, ids, base, cx: base.xMid, cy: base.yMid, sx: 1, sy: 1, angle: 0, kh: 0, kv: 0, keep: true, targets: snapTargets(ids) };
     showTransform();
     renderOptions();
     renderStatus();
@@ -1497,7 +1554,7 @@
   const commitTransform = () => {
     const t = transformOf();
     if (!t) return;
-    const unchanged = t.sx === 1 && t.sy === 1 && !t.angle && t.cx === t.base.xMid && t.cy === t.base.yMid;
+    const unchanged = t.sx === 1 && t.sy === 1 && !t.angle && !t.kh && !t.kv && t.cx === t.base.xMid && t.cy === t.base.yMid;
     const b = transformBounds(t);
     if (b.right - b.left > MAX_SIDE || b.bottom - b.top > MAX_SIDE) {
       toast(T("The result would be too large: 30000 pixels at most."), true);
@@ -1511,7 +1568,7 @@
   const transformStep = (change) => {
     const pending = Boolean(transformOf());
     const tool = app.tool;
-    if (!beginTransform()) {
+    if (!beginTransform(true)) {
       setTool(tool);
       return;
     }
@@ -1524,12 +1581,15 @@
       setTool(tool);
     }
   };
+  // Across the frame's own axis: a skew goes the other way too
   const flipH = (t) => {
     t.sx = -t.sx;
+    if (t.kh || t.kv) Object.assign(t, { kh: -t.kh, kv: -t.kv });
     showTransform();
   };
   const flipV = (t) => {
     t.sy = -t.sy;
+    if (t.kh || t.kv) Object.assign(t, { kh: -t.kh, kv: -t.kv });
     showTransform();
   };
   const turnBy = (degrees) => (t) => {
@@ -1549,14 +1609,33 @@
     });
   };
   const inTransform = (t, [x, y]) => {
+    if (!plainTransform(t)) {
+      const [u, v] = inFrameBox(t, [x, y]);
+      return Math.abs(u) <= t.base.width / 2 && Math.abs(v) <= t.base.height / 2;
+    }
     const dx = x - t.cx;
     const dy = y - t.cy;
     const cos = Math.cos(t.angle);
     const sin = Math.sin(t.angle);
     return Math.abs(dx * cos + dy * sin) <= Math.abs(t.base.width * t.sx) / 2 && Math.abs(-dx * sin + dy * cos) <= Math.abs(t.base.height * t.sy) / 2;
   };
+  // Which way a handle points out of the frame, on the page, in degrees
+  const handleHeading = (t, kind) => {
+    const [x, y] = transformPoint(t, ...HANDLE_SIDES[kind]);
+    return (Math.atan2(y - t.cy, x - t.cx) * 180) / Math.PI;
+  };
+  const resizeCursorAt = (degrees) => RESIZE_CURSORS[Math.round((((degrees % 180) + 180) % 180) / 45) % 4];
   const transformCursor = (t, event) => {
     const over = hitHandle(event);
+    // Ctrl or Cmd: a side slides along itself, a corner goes where it's taken
+    if (over && isCommand(event)) return over.kind.length === 1 ? resizeCursorAt(handleHeading(t, over.kind) + 90) : "default";
+    if (over && !plainTransform(t)) return resizeCursorAt(handleHeading(t, over.kind));
+    if (!plainTransform(t)) {
+      if (inTransform(t, toDoc(event))) return "move";
+      const [u, v] = inFrameBox(t, toDoc(event));
+      const [a, b] = frameLinear(t);
+      return rotateCursor(sideOfFrame(u, v, t.base.width / 2, t.base.height / 2, [a, b]));
+    }
     if (over) {
       const [fx, fy] = HANDLE_SIDES[over.kind];
       const x = Math.sign(fx) * Math.sign(t.sx);
@@ -1574,10 +1653,100 @@
     const dy = y - t.cy;
     return rotateCursor(sideOfFrame(dx * cos + dy * sin, -dx * sin + dy * cos, Math.abs(t.base.width * t.sx) / 2, Math.abs(t.base.height * t.sy) / 2, [cos, sin]));
   };
-  // Scaling keeps the opposite handle where it is, or the middle with Ctrl, Cmd or Alt, which
-  // leaves the smart guides on: here, Ctrl has a job of its own. Every handle keeps
-  // the proportions, the sides around their own middle, unless Shift is held. Going past the
-  // other side flips.
+  // Ctrl or Cmd on a handle skews, as in Photoshop: a side goes where it's taken, the opposite
+  // side staying, or going the other way with Alt; with Shift, it only slides along itself.
+  // A corner goes where it's taken with the side along which it goes the most: the frame stays
+  // a parallelogram, as Photoshop keeps a text's (a picture too, here). It can go past the
+  // opposite side. Shows the skew of that side, as Photoshop's H or V.
+  const skewTransform = (t, current, point, event) => {
+    const { from, mode, start } = current;
+    const [hx, hy] = HANDLE_SIDES[mode];
+    const was = Object.assign({}, t, from);
+    const [a, b, c, d] = frameLinear(was);
+    const W = t.base.width;
+    const H = t.base.height;
+    let dx = point[0] - start[0];
+    let dy = point[1] - start[1];
+    const unit = (x, y) => {
+      const length = Math.hypot(x, y) || 1;
+      return [x / length, y / length];
+    };
+    const across = unit(a, b);
+    const down = unit(c, d);
+    // A corner: the side it goes along the most, by the frame's own directions
+    let horizontal = !hx;
+    if (hx && hy) {
+      const det = across[0] * down[1] - across[1] * down[0] || 1e-12;
+      const along = (dx * down[1] - dy * down[0]) / det;
+      const upDown = (across[0] * dy - across[1] * dx) / det;
+      horizontal = Math.abs(along) >= Math.abs(upDown);
+    }
+    if (event.shiftKey) {
+      const [ex, ey] = horizontal ? across : down;
+      const length = dx * ex + dy * ey;
+      dx = ex * length;
+      dy = ey * length;
+    }
+    const both = event.altKey;
+    let x = [a, b];
+    let y = [c, d];
+    if (horizontal) {
+      const k = (both ? 1 : 2) * hy * H;
+      y = [c + dx / k, d + dy / k];
+    } else {
+      const k = (both ? 1 : 2) * hx * W;
+      x = [a + dx / k, b + dy / k];
+    }
+    // Back to W, H and the skew, the angle as it was
+    const unturned = times2(inverse2(times2(turnMatrix(from.angle), t.base.frame || [1, 0, 0, 1])), [x[0], x[1], y[0], y[1]]);
+    const least = (value, size) => (Math.abs(value) * size < 1 ? (Math.sign(value) || 1) / size : value);
+    t.angle = from.angle;
+    t.sx = least(unturned[0], W);
+    t.sy = least(unturned[3], H);
+    t.kv = unturned[1] / t.sx;
+    t.kh = unturned[2] / t.sy;
+    t.cx = from.cx + (both ? 0 : dx / 2);
+    t.cy = from.cy + (both ? 0 : dy / 2);
+    hud(shownAngle((Math.atan(horizontal ? t.kh : t.kv) * 180) / Math.PI), event);
+  };
+  // Scaling a frame of its own (a turned or skewed text's) or a skewed one: as below, along its
+  // own sides, worked out in its straight box
+  const scaleSkewedTransform = (t, current, point, event) => {
+    const { from, mode } = current;
+    const [hx, hy] = HANDLE_SIDES[mode];
+    const was = Object.assign({}, t, from);
+    const W = t.base.width;
+    const H = t.base.height;
+    const [px, py] = inFrameBox(was, point);
+    const fromMiddle = event.altKey;
+    const ax = fromMiddle ? 0 : -hx * W;
+    const ay = fromMiddle ? 0 : -hy * H;
+    const reach = fromMiddle ? 1 : 2;
+    let rx = hx ? (px - ax) / (reach * hx * W) : 1;
+    let ry = hy ? (py - ay) / (reach * hy * H) : 1;
+    if (!event.shiftKey) {
+      const r = Math.max(hx ? Math.abs(rx) : 0, hy ? Math.abs(ry) : 0);
+      rx = r * (hx ? Math.sign(rx) || 1 : 1);
+      ry = r * (hy ? Math.sign(ry) || 1 : 1);
+    }
+    const least = (value, size) => (Math.abs(value) * size < 1 ? (Math.sign(value) || 1) / size : value);
+    t.sx = least(from.sx * rx, W);
+    t.sy = least(from.sy * ry, H);
+    rx = t.sx / from.sx;
+    ry = t.sy / from.sy;
+    const [a, b, c, d] = frameLinear(was);
+    const u = ax + (fromMiddle ? 0 : rx * hx * W);
+    const v = ay + (fromMiddle ? 0 : ry * hy * H);
+    t.cx = from.cx + a * u + c * v;
+    t.cy = from.cy + b * u + d * v;
+    t.angle = from.angle;
+    t.kh = from.kh;
+    t.kv = from.kv;
+    hud(`${Math.round(Math.abs(W * t.sx))} × ${Math.round(Math.abs(H * t.sy))} px`, event);
+  };
+  // Scaling keeps the opposite handle where it is, or the middle with Alt, which leaves the
+  // smart guides on. Every handle keeps the proportions, the sides around their own middle,
+  // unless Shift is held. Going past the other side flips. Ctrl or Cmd skews (see above).
   const dragTransform = (current, point, event) => {
     const t = transformOf();
     if (!t) return;
@@ -1610,7 +1779,9 @@
       if (event.shiftKey) degrees = Math.round(degrees / 15) * 15;
       t.angle = (degrees * Math.PI) / 180;
       hud(shownAngle(degrees), event);
-    } else {
+    } else if (isCommand(event)) skewTransform(t, current, point, event);
+    else if (!plainTransform(Object.assign({}, t, from))) scaleSkewedTransform(t, current, point, event);
+    else {
       const [hx, hy] = HANDLE_SIDES[mode];
       const cos = Math.cos(from.angle);
       const sin = Math.sin(from.angle);
@@ -1623,7 +1794,7 @@
       }
       const W0 = t.base.width * from.sx;
       const H0 = t.base.height * from.sy;
-      const fromMiddle = event.altKey || isCommand(event);
+      const fromMiddle = event.altKey;
       const anchorU = fromMiddle ? 0 : -hx * W0;
       const anchorV = fromMiddle ? 0 : -hy * H0;
       const ax = from.cx + anchorU * cos - anchorV * sin;
@@ -1648,6 +1819,9 @@
       t.cx = ax + u * cos - v * sin;
       t.cy = ay + u * sin + v * cos;
       t.angle = from.angle;
+      // Ctrl let go of during the drag: no skew left from it
+      t.kh = 0;
+      t.kv = 0;
       if (square && settings.smartGuides) showLinesFor(box(), t.targets);
       hud(`${Math.round(Math.abs(W1))} × ${Math.round(Math.abs(H1))} px`, event);
     }
@@ -1679,6 +1853,13 @@
     }));
     const degrees = (t.angle * 180) / Math.PI;
     bar.appendChild(scrubbed(T("Angle"), numberInput(Number.parseFloat(shownAngle(degrees)), undefined, undefined, live((now, value) => { now.angle = (value * Math.PI) / 180; }))));
+    // Photoshop's H and V: the skew of the top and bottom sides, then of the left and right ones
+    const skewField = (name, key) => {
+      const shown = Math.round((Math.atan(t[key] || 0) * 180) / Math.PI * 100) / 100;
+      bar.appendChild(scrubbed(name, numberInput(shown || 0, -89, 89, live((now, value) => { now[key] = Math.tan((value * Math.PI) / 180); }))));
+    };
+    skewField(T("H Skew"), "kh");
+    skewField(T("V Skew"), "kv");
     const press = (text, title, className, action) => {
       const button = document.createElement("button");
       button.type = "button";
@@ -1905,7 +2086,7 @@
   ];
   // While a text is typed in: what the handles and the edges of its box do
   const TYPING_HINT = "Handles: the text box, the text flows again. Cmd + handle: the text size. Just outside: turn. A little further: move. Esc or Cmd+Enter: done.";
-  const TRANSFORM_HINT = "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Cmd or Alt: from the middle. Enter: apply. Esc: cancel.";
+  const TRANSFORM_HINT = "Handle: scale. Outside: rotate. Inside: move. Shift: free shape, 15° steps. Alt: from the middle. Cmd + handle: skew. Enter: apply. Esc: cancel.";
   const TOOL_HINT = {
     move: "Drag to move, live. Arrows: 1 px, Shift: 10 px. Side points: the text box. Corners: the text size. Double-click: edit.",
     rectangle: "Drag. Shift while dragging: a square. Alt while dragging: from the centre. Space while dragging: move it. Shift before: add, Alt before: subtract.",
@@ -6610,8 +6791,7 @@
     const turning = transformOf();
     if (turning) {
       const over = hitHandle(event);
-      const { cx, cy, sx, sy, angle } = turning;
-      gesture = Object.assign(base, { kind: "transform", from: { cx, cy, sx, sy, angle }, mode: over ? over.kind : inTransform(turning, point) ? "move" : "rotate" });
+      gesture = Object.assign(base, { kind: "transform", from: transformState(turning), mode: over ? over.kind : inTransform(turning, point) ? "move" : "rotate" });
       ui.stage.setPointerCapture(event.pointerId);
       return;
     }
@@ -6668,8 +6848,7 @@
     if (tool === "move" && !lent && pixelControls) {
       const over = hitHandle(event);
       if ((over || inRotateZone(event)) && beginTransform()) {
-        const { cx, cy, sx, sy, angle } = transform;
-        gesture = Object.assign(base, { kind: "transform", from: { cx, cy, sx, sy, angle }, mode: over ? over.kind : "rotate" });
+        gesture = Object.assign(base, { kind: "transform", from: transformState(transform), mode: over ? over.kind : "rotate" });
         ui.stage.setPointerCapture(event.pointerId);
         return;
       }

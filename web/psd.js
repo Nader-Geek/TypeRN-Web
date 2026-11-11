@@ -229,7 +229,8 @@
 
   const paramsFromPsd = (text, doc) => {
     const transform = text.transform || [1, 0, 0, 1, 0, 0];
-    const scale = Math.hypot(transform[1] || 0, transform[3] === undefined ? 1 : transform[3]) || 1;
+    // The size Photoshop shows: along the frame's side (yx, yy), which a skew leaves alone
+    const scale = Math.hypot(transform[2] || 0, transform[3] === undefined ? 1 : transform[3]) || 1;
     const value = String(text.text || "").replace(/\r\n?|\n/g, "\r");
     const base = text.style || {};
     const runs = text.styleRuns && text.styleRuns.length ? text.styleRuns : [{ length: value.length, style: {} }];
@@ -663,7 +664,7 @@
           // Sizes come out of the transform's scale when read: what is left of it is the turn
           if (layer.rotated) {
             const t = node.text.transform;
-            const scale = Math.hypot(t[1], t[3]) || 1;
+            const scale = Math.hypot(t[2], t[3]) || 1;
             layer.spin = [t[0] / scale, t[1] / scale, t[2] / scale, t[3] / scale];
           }
           layers.push(layer);

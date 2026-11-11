@@ -334,6 +334,58 @@ const main = async () => {
     step("Photoshop's keys are shown, and left to the page", shortcuts["CmdOrCtrl+T"] === false && shortcuts["Shift+CmdOrCtrl+N"] === false && shortcuts["CmdOrCtrl+W"] === false, Object.keys(shortcuts).length + " shortcuts");
   }
 
+  /* --------------------------- Free Transform: Cmd + a side skews -------------------------- */
+  {
+    const start = await page.evaluate(() => window.TypeRPhotoshop.app.doc.historyIndex);
+    const command = process.platform === "darwin" ? "Meta" : "Control";
+    const id = await page.evaluate(() => {
+      const { ops, app } = window.TypeRPhotoshop;
+      window.TypeRApp.setTool("move");
+      const layer = ops.newText(Math.round(app.doc.width / 2), Math.round(app.doc.height / 3), "Skew me");
+      ops.setTextStyle([layer.id], { size: Math.max(24, Math.round(app.doc.height / 20)) });
+      window.TypeRApp.fitView();
+      document.getElementById("stage").focus();
+      return layer.id;
+    });
+    const handles = () => page.evaluate(() => Array.from(document.querySelectorAll("#handles rect.handle")).map((rect) => { const b = rect.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }));
+    await page.keyboard.press(`${command}+T`);
+    await page.waitForFunction(() => document.querySelectorAll("#handles rect.handle").length === 8, null, { timeout: 5000 }).catch(() => {});
+    const top = (await handles())[1];
+    await page.keyboard.down(command);
+    await page.mouse.move(top[0], top[1]);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) await page.mouse.move(top[0] + 6 * i, top[1]);
+    const hud = await page.evaluate(() => document.getElementById("hud").textContent);
+    await page.mouse.up();
+    await page.keyboard.up(command);
+    const shown = await page.evaluate(() => Array.from(document.querySelectorAll("#options input")).map((input) => Number(input.value)));
+    await page.keyboard.press("Enter");
+    const skewed = await page.evaluate((id) => {
+      const { app, ops, turnedFrame } = window.TypeRPhotoshop;
+      const layer = app.doc.state.layers.find((one) => one.id === id);
+      const frame = turnedFrame(layer, app.doc);
+      const hit = ops.hitLayer(frame.center[0], frame.center[1]);
+      // In the corner the parallelogram leaves out of the square around it: not the text
+      const [a, , , d] = frame.corners;
+      const off = ops.hitLayer(Math.min(a[0], d[0]) + 2, Math.min(a[1], d[1]) + 2);
+      return { spin: layer.spin, hit: Boolean(hit && hit.id === id), off: Boolean(off && off.id === id), history: app.doc.history[app.doc.historyIndex].name };
+    }, id);
+    // Free Transform again starts on its own sides: a parallelogram, from 100 % and no skew
+    await page.evaluate(() => document.getElementById("stage").focus());
+    await page.keyboard.press(`${command}+T`);
+    await page.waitForFunction(() => document.querySelectorAll("#handles rect.handle").length === 8 && document.querySelector("#handles .transform-frame"), null, { timeout: 5000 }).catch(() => {});
+    const again = await handles();
+    const slanted = again.length === 8 && Math.abs(again[0][0] - again[6][0]) > 5;
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => window.TypeRPhotoshop.ops.undo());
+    const undone = await page.evaluate((id) => window.TypeRPhotoshop.app.doc.state.layers.find((one) => one.id === id).spin || null, id);
+    const sheared = Boolean(skewed.spin) && Math.abs(skewed.spin[1]) < 1e-9 && skewed.spin[2] < -0.1;
+    step("Free Transform: Cmd + the top side skews the text, which stays a text, skewed, picked inside its own frame, undone in one step", /°$/.test(hud) && shown.some((value) => value < -5) && sheared && skewed.hit && !skewed.off && skewed.history === "Free Transform" && slanted && !undone, JSON.stringify({ hud, spin: skewed.spin, hit: skewed.hit, off: skewed.off, slanted, undone }));
+    await page.evaluate((index) => {
+      while (window.TypeRPhotoshop.app.doc.historyIndex > index) window.TypeRPhotoshop.ops.undo();
+    }, start);
+  }
+
   /* ---------------------------------- leaving the app --------------------------------- */
   const windows = () => run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
   await run.app.evaluate(({ shell }) => {

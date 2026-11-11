@@ -752,6 +752,16 @@
 
   // A text turned in Photoshop stays turned when it's edited, around its anchor
   const spinOf = (layer) => (layer.rotated && layer.spin && !layer.warp ? layer.spin : null);
+  // A spin whose sides aren't square any more: a skewed text (Free Transform, or Photoshop's)
+  const skewedSpin = (m) => Boolean(m) && Math.abs(m[0] * m[2] + m[1] * m[3]) > 1e-6 * Math.hypot(m[0], m[1]) * Math.hypot(m[2], m[3]);
+  // Turned only, or grown as much both ways: a stroke drawn through it stays as wide all round
+  const evenSpin = (m) => !skewedSpin(m) && Math.abs(Math.hypot(m[0], m[1]) - Math.hypot(m[2], m[3])) < 1e-6 * Math.hypot(m[2], m[3]);
+  // The size of a text's last run, as grownText takes it
+  const lastSize = (layer) => {
+    const ranges = layer.params.layerText.textStyleRange;
+    const style = ranges.length ? ranges[ranges.length - 1].textStyle : null;
+    return style ? style.impliedFontSize || style.size || 14 : 0;
+  };
   const spunBounds = (box, [a, b, c, d]) => {
     const xs = [];
     const ys = [];
@@ -2173,7 +2183,20 @@
       relative.lines.forEach((line) => line.m.placed.forEach((item) => { largest = Math.max(largest, item.size); }));
       const pad = Math.ceil(6 + largest * 0.2 + strokeReach(stroke) * 1.5);
       const b = relative.box;
-      if (spin) {
+      if (spin && stroke && !evenSpin(spin)) {
+        // Skewed or stretched: the letters drawn through it, then their stroke around what
+        // shows, as Photoshop lays a stroke after the transform: as wide all round
+        const reach = Math.ceil(strokeReach(stroke) + 2);
+        const { minX, minY, maxX, maxY } = spunBounds({ left: b.left - pad, top: b.top - pad, right: b.right + pad, bottom: b.bottom + pad }, spin);
+        const x = Math.floor(minX) - reach;
+        const y = Math.floor(minY) - reach;
+        const letters = newCanvas(Math.ceil(maxX) + reach - x, Math.ceil(maxY) + reach - y);
+        const ctx = letters.getContext("2d", { willReadFrequently: true });
+        const k = outlineScale(relative.lines, Math.min(Math.hypot(spin[0], spin[1]), Math.hypot(spin[2], spin[3])));
+        drawFromOutlines(letters, ctx, [spin[0], spin[1], spin[2], spin[3], -x, -y], k, (g) => drawLines(g, relative.lines, null, Object.assign({}, layer, { knockout: false, fill: undefined })));
+        applyAntiAlias(letters, ctx, antiAlias);
+        entry = strokedLetters(letters, x, y, layer, stroke);
+      } else if (spin) {
         const { minX, minY, maxX, maxY } = spunBounds({ left: b.left - pad, top: b.top - pad, right: b.right + pad, bottom: b.bottom + pad }, spin);
         const canvas = newCanvas(Math.ceil(maxX - minX), Math.ceil(maxY - minY));
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -6424,16 +6447,25 @@
       const linear = ([x, y]) => [a * x + c * y, b * x + d * y];
       return Object.assign({}, layer, { raster: null, warp: Object.assign({}, layer.warp, { corners: layer.warp.corners.map(map), bendTop: linear(layer.warp.bendTop), bendBottom: linear(layer.warp.bendBottom) }) });
     }
-    const sx = Math.hypot(a, b);
-    const sy = Math.hypot(c, d);
+    // Skewed, or a skewed text: the text's own frame goes where the transform takes it
+    const own = spinOf(layer);
+    const whole = own ? [a * own[0] + c * own[1], b * own[0] + d * own[1], a * own[2] + c * own[3], b * own[2] + d * own[3]] : [a, b, c, d];
+    if (skewedSpin(whole)) return skewedText(layer, whole, map(middleOfText(layer, doc)), doc);
+    // Its own frame, as it now is: stretched along its own sides, turned
+    const [wa, wb, wc, wd] = whole;
+    const sx = Math.hypot(wa, wb);
+    const sy = Math.hypot(wc, wd);
     if (sx < 1e-6 || sy < 1e-6) return layer;
     // Flipped, the turn is the one that leaves the text the most upright
-    const turns = [Math.atan2(b, a), Math.atan2(-c, d)];
+    const turns = [Math.atan2(wb, wa), Math.atan2(-wc, wd)];
     const tilt = (angle) => Math.abs(Math.atan2(Math.sin(angle), Math.cos(angle)));
-    const turn = a * d - b * c < 0 ? (tilt(turns[1]) < tilt(turns[0]) ? turns[1] : turns[0]) : turns[0];
+    const turn = wa * wd - wb * wc < 0 ? (tilt(turns[1]) < tilt(turns[0]) ? turns[1] : turns[0]) : turns[0];
     const to = map(middleOfText(layer, doc));
+    // A skewed text made square again: straight, then turned as far as its frame now is
+    const unskewed = own && skewedSpin(own) ? Object.assign({}, layer, { rotated: false, spin: null }) : layer;
+    const already = unskewed === layer ? turnOf(layer) : 0;
     // Only turned or moved, its size isn't touched, not even rounded
-    let next = Math.abs(sy - 1) > 1e-6 ? grownText(layer, sy).next : Object.assign({}, layer, { params: clone(layer.params), raster: null });
+    let next = Math.abs(sy - 1) > 1e-6 ? grownText(unskewed, sy).next : Object.assign({}, unskewed, { params: clone(layer.params), raster: null });
     const ratio = sx / sy;
     if (Math.abs(ratio - 1) > 0.005) {
       const lt = next.params.layerText;
@@ -6443,7 +6475,35 @@
       const shape = boxShape(lt);
       if (shape) shape.box.width = Math.max(1, shape.box.width * ratio);
     }
-    if (Math.abs(turn) > 1e-9) next = turnedText(next, turn, middleOfText(next, doc), doc);
+    if (Math.abs(turn - already) > 1e-9) next = turnedText(next, turn - already, middleOfText(next, doc), doc);
+    const now = middleOfText(next, doc);
+    return shifted(next, to[0] - now[0], to[1] - now[1], doc);
+  };
+  // A text whose own frame goes through `whole` (from its straight letters to the page, its
+  // size aside), its middle landing on `to`. As Photoshop keeps a skewed text: its size is the
+  // one Photoshop shows, measured along its frame's side (its transform's yx, yy), the rest is
+  // its skew, kept in `spin`. Flipped, it still reads the right way: its letters are turned
+  // back along whichever side leaves them the most upright.
+  const skewedText = (layer, whole, to, doc) => {
+    let spin = whole.slice(0, 4);
+    if (spin[0] * spin[3] - spin[1] * spin[2] < 0) {
+      const alongX = [-spin[0], -spin[1], spin[2], spin[3]];
+      const alongY = [spin[0], spin[1], -spin[2], -spin[3]];
+      const tilt = (m) => Math.abs(Math.atan2(m[1], m[0]));
+      spin = tilt(alongX) <= tilt(alongY) ? alongX : alongY;
+    }
+    const factor = Math.hypot(spin[2], spin[3]);
+    if (!(factor > 1e-6)) return layer;
+    let next = Object.assign({}, layer, { params: clone(layer.params), raster: null });
+    if (Math.abs(factor - 1) > 1e-6) {
+      // Its letters are rounded to a tenth: the skew takes what the rounding left
+      const before = lastSize(layer);
+      next = grownText(layer, factor).next;
+      const grown = before > 0 ? lastSize(next) / before : factor;
+      spin = spin.map((value) => value / grown);
+    }
+    const clean = (value) => (Math.abs(value) < 1e-12 ? 0 : value);
+    next = Object.assign(next, { rotated: true, spin: spin.map(clean) });
     const now = middleOfText(next, doc);
     return shifted(next, to[0] - now[0], to[1] - now[1], doc);
   };
@@ -7832,6 +7892,7 @@
             const near = window.TypeROutline.nearest(outline, x, y);
             inside = window.TypeROutline.contains(outline, x, y) || Boolean(near && near.distance <= 6);
           } else if (meshOn(layer)) inside = insidePolygon(meshOutline(layer, doc), x, y, 6);
+          else if (layer.rotated && !layer.warp && skewedSpin(layer.spin)) inside = insidePolygon(turnedFrame(layer, doc).corners, x, y, 6);
           else if (layer.rotated && !layer.warp) {
             const f = turnedFrame(layer, doc);
             const [a, b, , d] = f.corners;
