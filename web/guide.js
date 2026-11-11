@@ -343,14 +343,21 @@
     folio();
     return canvas;
   };
+  const pageFile = async (n) => {
+    const canvas = drawPage(n);
+    const blob = canvas.convertToBlob ? await canvas.convertToBlob({ type: "image/png" }) : await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    return new File([blob], FILE(n), { type: "image/png", lastModified: Date.now() });
+  };
   const practiceFiles = async () => {
     const files = [];
-    for (let n = 1; n <= 3; n++) {
-      const canvas = drawPage(n);
-      const blob = canvas.convertToBlob ? await canvas.convertToBlob({ type: "image/png" }) : await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
-      files.push(new File([blob], FILE(n), { type: "image/png", lastModified: Date.now() }));
-    }
+    for (let n = 1; n <= 3; n++) files.push(await pageFile(n));
     return files;
+  };
+  // A practice page the panel asks for by its path, after a reload forgot the files: drawn
+  // again, the same. Null for any other path.
+  const practiceFile = (path) => {
+    const found = /^web-file:\/\/typer-practice-0([1-3])\.png$/.exec(String(path || ""));
+    return found ? pageFile(Number(found[1])) : null;
   };
 
   // The script, one line per spot; "Page n" lines are the panel's page markers
@@ -1706,5 +1713,5 @@
     go.focus();
   }
 
-  window.TypeRGuide = { show, start, end: endLesson, closePractice, active: () => Boolean(run), lessons: () => LESSONS.map((lesson) => lesson.id), drawPage, SPOTS };
+  window.TypeRGuide = { show, start, end: endLesson, closePractice, active: () => Boolean(run), lessons: () => LESSONS.map((lesson) => lesson.id), drawPage, practiceFile, SPOTS };
 })();

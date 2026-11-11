@@ -12420,6 +12420,9 @@
       // At startup, the page may be among the documents still coming back from last time
       const restoring = window.TypeRSession && window.TypeRSession.restoring();
       if (restoring) return restoring.catch(() => null).then(() => host.openFile(raw));
+      // The tutorial's practice pages aren't kept after a reload: they are drawn again
+      const practice = window.TypeRGuide && window.TypeRGuide.practiceFile && window.TypeRGuide.practiceFile(raw);
+      if (practice) return practice.then((drawn) => ops.openBlob(drawn, name)).then(done, fail);
       return fail("Open this file first: it is not in the browser yet.");
     },
     // A document already open is read as it is now, unsaved work included, as in Photoshop
