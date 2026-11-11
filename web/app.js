@@ -8045,6 +8045,32 @@
     characterKey = "";
     renderCharacter();
   };
+  // Leading and baseline shift by Photoshop's keys, 2 points a press and 10 with Cmd: on the
+  // letters selected in the editor, else on the whole of the selected texts. Auto leading
+  // starts from the leading it gives, as the Leading field's own steps do.
+  const stepLeading = (direction, large) => {
+    const delta = direction * (large ? 10 : 2);
+    const range = editRange();
+    const layers = range ? app.doc.state.layers.filter((layer) => layer.id === editing.id) : activeTexts();
+    layers.forEach((layer) => {
+      const paragraph = layer.params.layerText.paragraphStyleRange[0].paragraphStyle || {};
+      const change = (style) => {
+        const from = style.autoLeading === false && style.leading > 0 ? style.leading : (style.impliedFontSize || style.size || 12) * (paragraph.autoLeadingPercentage || 1.2);
+        return { autoLeading: false, leading: Math.max(0.1, Math.min(5000, Math.round((from + delta) * 100) / 100)) };
+      };
+      ops.setTextStyle([layer.id], change, null, "leading", range || undefined);
+    });
+    characterKey = "";
+    renderCharacter();
+    if (!ui.editor.hidden) placeEditor();
+  };
+  const shiftBaseline = (direction, large) => {
+    const delta = direction * (large ? 10 : 2);
+    applyTextPatch((style) => ({ baselineShift: Math.max(-1000, Math.min(1000, Math.round((((style.impliedBaselineShift !== undefined ? style.impliedBaselineShift : style.baselineShift) || 0) + delta) * 100) / 100)) }), null, "baseline");
+    characterKey = "";
+    renderCharacter();
+    if (!ui.editor.hidden) placeEditor();
+  };
 
   // What is selected in the text shows in the controls, and pressing one leaves it selected
   ["select", "keyup", "pointerup"].forEach((type) => ui.editor.addEventListener(type, () => renderCharacter()));
@@ -8110,6 +8136,11 @@
     } else if (event.altKey && !event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
       event.preventDefault();
       kern(event.key === "ArrowLeft" ? -1 : 1, isCommand(event));
+    } else if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      // As in Photoshop: Alt + ↓ opens the lines up, Alt + ↑ closes them; with Shift, the baseline
+      event.preventDefault();
+      if (event.shiftKey) shiftBaseline(event.key === "ArrowUp" ? 1 : -1, isCommand(event));
+      else stepLeading(event.key === "ArrowUp" ? -1 : 1, isCommand(event));
     } else if (isCommand(event) && event.shiftKey && !event.altKey && /^(b|i)$/i.test(event.key)) {
       // As in Photoshop, while typing these two are about the letters
       event.preventDefault();
@@ -15976,7 +16007,7 @@
       }
       if (more) list.appendChild(more);
       // What stays as it is: other tools count on them
-      const fixed = [["← ↑ → ↓", T("Move the active layer by 1 px (Shift: 10 px), or the selection if a selection tool is on")], [T("Space"), T("Pan")], [IS_MAC ? `⌘${T("Space")} / ⌃${T("Space")}` : `Ctrl+${T("Space")}`, T("Zoom: drag right to zoom in, left to zoom out")], [T("Hold a tool's key"), T("Use the tool until you let go")], ["Enter", T("Apply")], ["Esc", T("Cancel")]].filter(([keys, label]) => !words || label.toLowerCase().includes(words) || keys.toLowerCase().includes(words));
+      const fixed = [["← ↑ → ↓", T("Move the active layer by 1 px (Shift: 10 px), or the selection if a selection tool is on")], [IS_MAC ? "⌥← / ⌥→" : "Alt+← / Alt+→", fill(T("Kerning or tracking of the text: tighter or looser. With {key}, five times as much."), { key: IS_MAC ? "⌘" : "Ctrl" })], [IS_MAC ? "⌥↑ / ⌥↓" : "Alt+↑ / Alt+↓", fill(T("Leading of the text: tighter or looser. With {key}, five times as much."), { key: IS_MAC ? "⌘" : "Ctrl" })], [IS_MAC ? "⇧⌥↑ / ⇧⌥↓" : "Shift+Alt+↑ / Shift+Alt+↓", fill(T("Baseline shift of the text: up or down. With {key}, five times as much."), { key: IS_MAC ? "⌘" : "Ctrl" })], [T("Space"), T("Pan")], [IS_MAC ? `⌘${T("Space")} / ⌃${T("Space")}` : `Ctrl+${T("Space")}`, T("Zoom: drag right to zoom in, left to zoom out")], [T("Hold a tool's key"), T("Use the tool until you let go")], ["Enter", T("Apply")], ["Esc", T("Cancel")]].filter(([keys, label]) => !words || label.toLowerCase().includes(words) || keys.toLowerCase().includes(words));
       if (fixed.length) {
         make("div", "sk__group", placeOf(false), T("Fixed"));
         fixed.forEach(([keys, label]) => {
@@ -16676,6 +16707,12 @@
     if ((key === "arrowleft" || key === "arrowright") && event.altKey && !event.shiftKey && activeTexts().length) {
       event.preventDefault();
       kern(key === "arrowleft" ? -1 : 1, command);
+      return;
+    }
+    if ((key === "arrowup" || key === "arrowdown") && event.altKey && activeTexts().length) {
+      event.preventDefault();
+      if (event.shiftKey) shiftBaseline(key === "arrowup" ? 1 : -1, command);
+      else stepLeading(key === "arrowup" ? -1 : 1, command);
       return;
     }
     if (key.indexOf("arrow") === 0 && !(command && event.altKey)) {
