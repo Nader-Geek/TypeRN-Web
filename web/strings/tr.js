@@ -1293,5 +1293,10 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Export Styles…": "Stilleri Dışa Aktar…",
     "Layer Styles": "Katman Stilleri",
     "Apply Style": "Stil Uygula",
+    "Check for Updates…": "Güncellemeleri denetle…",
+    "Checking for updates…": "Güncellemeler denetleniyor…",
+    "Downloading the update…": "Güncelleme indiriliyor…",
+    "TypeR Studio is up to date.": "TypeR Studio güncel.",
+    "Couldn't check for updates. Check your connection and try again.": "Güncellemeler denetlenemedi. Bağlantınızı kontrol edip yeniden deneyin.",
   },
 });

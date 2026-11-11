@@ -1293,5 +1293,10 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Export Styles…": "スタイルを書き出し…",
     "Layer Styles": "スタイル（レイヤースタイル）",
     "Apply Style": "スタイルを適用",
+    "Check for Updates…": "アップデートを確認…",
+    "Checking for updates…": "アップデートを確認しています…",
+    "Downloading the update…": "アップデートをダウンロードしています…",
+    "TypeR Studio is up to date.": "TypeR Studio は最新です。",
+    "Couldn't check for updates. Check your connection and try again.": "アップデートを確認できませんでした。接続を確認してもう一度お試しください。",
   },
 });

@@ -229,6 +229,27 @@
     document.body.appendChild(note);
   };
 
+  // Help > Check for Updates…: what's found downloads, then the note above offers to restart.
+  // Up to date, or no connection, is said in a toast.
+  let checkingUpdates = false;
+  const checkForUpdates = async () => {
+    const App = window.TypeRApp;
+    if (checkingUpdates || !Desktop.checkForUpdates) return;
+    checkingUpdates = true;
+    App.toast(App.T("Checking for updates…"));
+    try {
+      const result = await Desktop.checkForUpdates(() => App.toast(App.T("Downloading the update…"), true));
+      if (result === "none") App.toast(App.T("TypeR Studio is up to date."));
+      else if (result !== "ready") App.toast(App.T("Couldn't check for updates. Check your connection and try again."), true);
+    } catch (error) {
+      console.warn("TypeR Studio: update check", error);
+      App.toast(App.T("Couldn't check for updates. Check your connection and try again."), true);
+    } finally {
+      checkingUpdates = false;
+    }
+  };
+  window.TypeRStudio.checkForUpdates = checkForUpdates;
+
   /* ----------------------------------- once it's up ------------------------------------ */
 
   const ACCELERATOR_KEYS = { ArrowRight: "Right", ArrowLeft: "Left", ArrowUp: "Up", ArrowDown: "Down" };

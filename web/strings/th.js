@@ -1293,5 +1293,10 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Export Styles…": "ส่งออกสไตล์…",
     "Layer Styles": "สไตล์เลเยอร์",
     "Apply Style": "ใช้สไตล์",
+    "Check for Updates…": "ตรวจหาอัปเดต…",
+    "Checking for updates…": "กำลังตรวจหาอัปเดต…",
+    "Downloading the update…": "กำลังดาวน์โหลดอัปเดต…",
+    "TypeR Studio is up to date.": "TypeR Studio เป็นเวอร์ชันล่าสุดแล้ว",
+    "Couldn't check for updates. Check your connection and try again.": "ตรวจหาอัปเดตไม่ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง",
   },
 });

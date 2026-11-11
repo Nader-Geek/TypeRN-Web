@@ -1293,5 +1293,10 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Export Styles…": "스타일 내보내기…",
     "Layer Styles": "레이어 스타일 모음",
     "Apply Style": "스타일 적용",
+    "Check for Updates…": "업데이트 확인…",
+    "Checking for updates…": "업데이트를 확인하는 중…",
+    "Downloading the update…": "업데이트를 다운로드하는 중…",
+    "TypeR Studio is up to date.": "TypeR Studio가 최신 버전입니다.",
+    "Couldn't check for updates. Check your connection and try again.": "업데이트를 확인할 수 없습니다. 연결을 확인한 뒤 다시 시도하세요.",
   },
 });

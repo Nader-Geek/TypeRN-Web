@@ -1293,5 +1293,10 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Export Styles…": "Stile exportieren…",
     "Layer Styles": "Ebenenstile",
     "Apply Style": "Stil anwenden",
+    "Check for Updates…": "Nach Updates suchen…",
+    "Checking for updates…": "Suche nach Updates…",
+    "Downloading the update…": "Update wird heruntergeladen…",
+    "TypeR Studio is up to date.": "TypeR Studio ist auf dem neuesten Stand.",
+    "Couldn't check for updates. Check your connection and try again.": "Suche nach Updates nicht möglich. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
   },
 });

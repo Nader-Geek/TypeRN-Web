@@ -15977,6 +15977,8 @@
       ...(DESKTOP && window.TypeRDesktop.showLog ? [{ label: "Show Log File", action: () => window.TypeRDesktop.showLog() }] : []),
       { label: "Discord Server", action: () => window.open(DISCORD, "_blank", "noopener") },
       { label: "Support the Project", action: () => window.open(KOFI, "_blank", "noopener") },
+      // The desktop app looks for a new version now (desktop.js); an app too old to do it doesn't offer it
+      ...(DESKTOP && window.TypeRDesktop.checkForUpdates ? [{ label: "Check for Updates…", action: () => window.TypeRStudio.checkForUpdates() }] : []),
       { label: "About TypeR Studio…", action: () => showAbout() },
       ...(DESKTOP ? [] : [{ label: "Back to the Site", action: () => { window.location.href = "../"; } }]),
     ]],

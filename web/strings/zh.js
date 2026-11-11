@@ -1293,5 +1293,10 @@ window.TYPER_WEB_STRINGS = Object.assign(window.TYPER_WEB_STRINGS || {}, {
     "Export Styles…": "导出样式…",
     "Layer Styles": "图层样式库",
     "Apply Style": "应用样式",
+    "Check for Updates…": "检查更新…",
+    "Checking for updates…": "正在检查更新…",
+    "Downloading the update…": "正在下载更新…",
+    "TypeR Studio is up to date.": "TypeR Studio 已是最新版本。",
+    "Couldn't check for updates. Check your connection and try again.": "无法检查更新。请检查网络连接后重试。",
   },
 });
