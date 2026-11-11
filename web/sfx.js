@@ -1457,15 +1457,19 @@
     renderPanel(true);
   };
 
+  // The middle of what the view shows, on the page
+  const viewMiddle = (doc) => {
+    const v = doc.view;
+    const stage = $("stage").getBoundingClientRect();
+    return [clamp((stage.width / 2 - v.x) / v.zoom, 0, doc.width), clamp((stage.height / 2 - v.y) / v.zoom, 0, doc.height)];
+  };
+
   // An SFX from the bank, on this page: where the view's middle is, its letters as they were
   const placeFromBank = async (item) => {
     const doc = app.doc;
     if (!doc) return;
-    const v = doc.view;
-    const stage = $("stage").getBoundingClientRect();
-    const at = [(stage.width / 2 - v.x) / v.zoom, (stage.height / 2 - v.y) / v.zoom];
     const recipe = normal(clone(item.recipe));
-    recipe.origin = [clamp(at[0], 0, doc.width), clamp(at[1], 0, doc.height)];
+    recipe.origin = viewMiddle(doc);
     if (recipe.source && item.sourceLocal) recipe.source.at = toPage(recipe, recipe.source.at[0], recipe.source.at[1]);
     await ensureFont(recipe);
     const group = { id: PS.newId(), kind: "group", name: "SFX", visible: true, opacity: 1, blend: "normal", open: false, group: null };
@@ -2876,6 +2880,23 @@
       if (item) applyLook(item.look, "SFX Preset");
     }
   };
+  // A style picked in the panel: on the SFX chosen, or, with none, a new one in the middle of the
+  // view, so that a click always shows something
+  const lookOfPreset = (value) => {
+    if (value.startsWith("b:")) {
+      const item = BUILTIN.find((preset) => preset.id === value.slice(2));
+      return item ? builtinLook(item) : null;
+    }
+    const item = presets[Number(value.slice(2))];
+    return item ? item.look : null;
+  };
+  const usePreset = async (value) => {
+    const doc = app.doc;
+    const look = lookOfPreset(value);
+    if (!doc || !look || activeSfx()) return pickPreset(value);
+    const made = await newSfx({ at: viewMiddle(doc), look });
+    if (made) App().setTool("sfx");
+  };
   const reroll = () => edit((recipe) => { recipe.seed = 1 + Math.floor(Math.random() * 100000); }, null, "SFX Dice");
 
   /* ----------------------------- a letter, by hand ----------------------------- */
@@ -3394,8 +3415,8 @@
     const grid = el("div", "sfx__tiles", box);
     const word = thumbWord(recipe);
     if (galleryTab === "styles") {
-      BUILTIN.forEach((item) => tile(grid, T(item.name), () => pickPreset(`b:${item.id}`), { look: builtinLook(item), word, from: recipe }));
-      presets.forEach((item, i) => tile(grid, item.name, () => pickPreset(`u:${i}`), { look: item.look, word, from: recipe }, () => {
+      BUILTIN.forEach((item) => tile(grid, T(item.name), () => usePreset(`b:${item.id}`), { look: builtinLook(item), word, from: recipe }));
+      presets.forEach((item, i) => tile(grid, item.name, () => usePreset(`u:${i}`), { look: item.look, word, from: recipe }, () => {
         presets.splice(i, 1);
         writeStore(STORE_PRESETS, presets);
         renderPanel(true);
