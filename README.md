@@ -6,6 +6,9 @@ built in, so you don't need Photoshop at all.
 - Use it in your browser at [typer.hayasaku.fr](https://typer.hayasaku.fr), nothing to install.
 - Or get the [desktop app](https://github.com/ScanR/TypeR-Studio/releases/latest) for Mac and Windows.
 
+<img width="1785" height="939" alt="image" src="https://github.com/user-attachments/assets/a77485dc-ec33-4ed8-9ade-f055cf7e31d7" />
+
+
 ## Why not Photoshop?
 
 Photoshop does a bit of everything. It's heavy, it's paid, and typesetting is only one of the many
