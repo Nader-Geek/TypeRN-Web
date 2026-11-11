@@ -617,6 +617,139 @@
     return points;
   };
 
+  /* ------------------------------ a letter reshaped ----------------------------- */
+
+  // A letter given a shape of its own (an SFX's, as Photoshop's Convert to Shape would let a
+  // letterer pull it): `mesh` is a grid of n × n points laid over the letter's box, each moved
+  // by `p` = [across, down], in parts of the box's width and height. Between the points the
+  // letter follows them smoothly; past the box's edges, as at the edge, so its stroke goes
+  // with it. The text stays a text: turned, resized, retyped, it keeps that shape.
+  const meshOk = (mesh) => Boolean(mesh) && Number.isInteger(mesh.n) && mesh.n >= 2 && mesh.n <= 8 && Array.isArray(mesh.p) && mesh.p.length === mesh.n * mesh.n && mesh.p.every((d) => Array.isArray(d) && Number.isFinite(d[0]) && Number.isFinite(d[1]));
+  // Or given an outline of its own (`outline`), its anchor points pulled one by one: `c`, the
+  // paths of TypeROutline, in parts of the letter's box, drawn in place of its letters; `ch`,
+  // the letter it was made from. A shape (`mesh`) on top of it bends it further.
+  const validOutlines = new WeakMap();
+  const outlineOk = (outline) => {
+    if (!outline || typeof outline !== "object" || !window.TypeROutline) return false;
+    let ok = validOutlines.get(outline);
+    if (ok === undefined) {
+      ok = window.TypeROutline.valid(outline);
+      validOutlines.set(outline, ok);
+    }
+    return ok;
+  };
+  const meshOn = (layer) => Boolean(layer && layer.kind === "text" && !layer.warp && !layer.raster && (meshOk(layer.mesh) || outlineOk(layer.outline)));
+  // Catmull-Rom through the values at 0, 1/(n-1)… 1, going on straight past both ends
+  const catmull = (values, t) => {
+    const n = values.length;
+    const x = Math.max(0, Math.min(1, t)) * (n - 1);
+    const i = Math.min(Math.floor(x), n - 2);
+    const s = x - i;
+    const at = (k) => (k < 0 ? 2 * values[0] - values[1] : k >= n ? 2 * values[n - 1] - values[n - 2] : values[k]);
+    const p0 = at(i - 1);
+    const p1 = at(i);
+    const p2 = at(i + 1);
+    const p3 = at(i + 2);
+    return 0.5 * (2 * p1 + (p2 - p0) * s + (2 * p0 - 5 * p1 + 4 * p2 - p3) * s * s + (3 * p1 - p0 - 3 * p2 + p3) * s * s * s);
+  };
+  // How far the point at (u, v) of the box moves, in parts of the box
+  const meshShift = (mesh) => {
+    const { n, p } = mesh;
+    const rowsX = [];
+    const rowsY = [];
+    for (let j = 0; j < n; j++) {
+      rowsX.push(p.slice(j * n, j * n + n).map((d) => d[0]));
+      rowsY.push(p.slice(j * n, j * n + n).map((d) => d[1]));
+    }
+    const across = new Array(n);
+    const down = new Array(n);
+    return (u, v) => {
+      for (let j = 0; j < n; j++) {
+        across[j] = catmull(rowsX[j], u);
+        down[j] = catmull(rowsY[j], u);
+      }
+      return [catmull(across, v), catmull(down, v)];
+    };
+  };
+  // From the text's own frame (around its anchor) to where it lands, anchor aside: reshaped,
+  // then turned as the text is
+  const meshMapOf = (layer, box) => {
+    const shift = meshOk(layer.mesh) ? meshShift(layer.mesh) : () => [0, 0];
+    const spin = (layer.rotated && layer.spin) || [1, 0, 0, 1];
+    const w = box.width || 1;
+    const h = box.height || 1;
+    return (x, y) => {
+      const [du, dv] = shift((x - box.left) / w, (y - box.top) / h);
+      const X = x + du * w;
+      const Y = y + dv * h;
+      return [spin[0] * X + spin[2] * Y, spin[1] * X + spin[3] * Y];
+    };
+  };
+  // The edge of a reshaped letter's box, on the page, going round
+  const meshOutline = (layer, doc, steps = 12) => {
+    const b = relativeLayout(layer.params.layerText, doc.resolution).box;
+    const map = meshMapOf(layer, b);
+    const [ax, ay] = anchorOf(layer.params.layerText, doc);
+    const out = [];
+    const edge = (x0, y0, x1, y1) => {
+      for (let i = 0; i < steps; i++) {
+        const [x, y] = map(x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps);
+        out.push([ax + x, ay + y]);
+      }
+    };
+    edge(b.left, b.top, b.right, b.top);
+    edge(b.right, b.top, b.right, b.bottom);
+    edge(b.right, b.bottom, b.left, b.bottom);
+    edge(b.left, b.bottom, b.left, b.top);
+    return out;
+  };
+  // A letter's outline on the page, in its own frame (anchor aside) or on the page
+  const outlineOnPage = (layer, doc, onPage = true) => {
+    const b = relativeLayout(layer.params.layerText, doc.resolution).box;
+    const map = meshMapOf(layer, b);
+    const [ax, ay] = onPage ? anchorOf(layer.params.layerText, doc) : [0, 0];
+    return window.TypeROutline.mapped(layer.outline.c, (u, v) => {
+      const [x, y] = map(b.left + u * b.width, b.top + v * b.height);
+      return [ax + x, ay + y];
+    });
+  };
+  // Where a letter's outline sits, to find it again from a shape Photoshop changed: its box (in
+  // its own frame), its anchor on the page, its turn
+  const shapeFrameOf = (layer, doc) => {
+    const b = relativeLayout(layer.params.layerText, doc.resolution).box;
+    return { box: [b.left, b.top, b.width, b.height], anchor: anchorOf(layer.params.layerText, doc), spin: (layer.rotated && layer.spin) || null };
+  };
+  // All of it, the inside too, which a point pulled far can take past the edges
+  const meshBounds = (layer, doc) => {
+    if (outlineOk(layer.outline)) {
+      const { left, top, right, bottom } = window.TypeROutline.boundsOf(outlineOnPage(layer, doc));
+      return rectFrom(left, top, right, bottom);
+    }
+    const b = relativeLayout(layer.params.layerText, doc.resolution).box;
+    const map = meshMapOf(layer, b);
+    const [ax, ay] = anchorOf(layer.params.layerText, doc);
+    const points = [];
+    for (let j = 0; j <= 8; j++) for (let i = 0; i <= 8; i++) {
+      const [x, y] = map(b.left + (b.width * i) / 8, b.top + (b.height * j) / 8);
+      points.push([ax + x, ay + y]);
+    }
+    return boundsOfPoints(points);
+  };
+  const insidePolygon = (polygon, x, y, slack) => {
+    let inside = false;
+    let near = Infinity;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const [xi, yi] = polygon[i];
+      const [xj, yj] = polygon[j];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+      const dx = xj - xi;
+      const dy = yj - yi;
+      const t = Math.max(0, Math.min(1, ((x - xi) * dx + (y - yi) * dy) / (dx * dx + dy * dy || 1)));
+      near = Math.min(near, Math.hypot(xi + dx * t - x, yi + dy * t - y));
+    }
+    return inside || near <= slack;
+  };
+
   // A text turned in Photoshop stays turned when it's edited, around its anchor
   const spinOf = (layer) => (layer.rotated && layer.spin && !layer.warp ? layer.spin : null);
   const spunBounds = (box, [a, b, c, d]) => {
@@ -638,6 +771,7 @@
         const b = relativeLayout(layer.params.layerText, doc.resolution).box;
         return boundsOfPoints(surfaceEdge(layer.warp, (b.left - source.left) / source.width, (b.top - source.top) / source.height, (b.right - source.left) / source.width, (b.bottom - source.top) / source.height));
       }
+      if (meshOn(layer)) return meshBounds(layer, doc);
       const layout = layoutLayer(layer, doc);
       if (!spinOf(layer)) return layout.box;
       const { minX, minY, maxX, maxY } = spunBounds(layout.relative.box, spinOf(layer));
@@ -782,7 +916,7 @@
 
   // The box the handles sit on: a paragraph's own box, the room a point text takes
   const frameOf = (layer, doc) => {
-    if (layer.kind !== "text" || layer.rotated) return boxOf(layer, doc);
+    if (layer.kind !== "text" || layer.rotated || meshOn(layer)) return boxOf(layer, doc);
     if (layer.warp) return boundsOfPoints(surfaceEdge(layer.warp, 0, 0, 1, 1));
     const layout = layoutLayer(layer, doc);
     if (layout.frame) return layout.frame;
@@ -804,7 +938,7 @@
   // A text's frame as it shows: the box its handles sit on, turned with it around its anchor.
   // The corners go clockwise from the top left.
   const turnedFrame = (layer, doc) => {
-    const f = frameOf(Object.assign({}, layer, { rotated: false, spin: null, raster: null }), doc);
+    const f = frameOf(Object.assign({}, layer, { rotated: false, spin: null, raster: null, mesh: null, outline: null }), doc);
     const spin = spinOf(layer) || [1, 0, 0, 1];
     const [ax, ay] = anchorOf(layer.params.layerText, doc);
     const at = (x, y) => [ax + spin[0] * (x - ax) + spin[2] * (y - ay), ay + spin[1] * (x - ax) + spin[3] * (y - ay)];
@@ -1534,6 +1668,70 @@
     ctx.restore();
   };
 
+  // A picture laid on a grid of points, triangle by triangle: `pixels` (sw × sh) spread over
+  // `cols` × `rows` cells, the cell corners where destX and destY put them in `out` (W × H)
+  const layMesh = (out, W, H, pixels, sw, sh, destX, destY, cols, rows) => {
+    const triangle = (x0, y0, s0, t0, x1, y1, s1, t1, x2, y2, s2, t2) => {
+      const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+      if (Math.abs(area) < 1e-6) return;
+      const inv = 1 / area;
+      const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2)));
+      const maxY = Math.min(H - 1, Math.ceil(Math.max(y0, y1, y2)));
+      const minX = Math.max(0, Math.floor(Math.min(x0, x1, x2)));
+      const maxX = Math.min(W - 1, Math.ceil(Math.max(x0, x1, x2)));
+      const stepA = (y1 - y2) * inv;
+      const stepB = (y2 - y0) * inv;
+      for (let y = minY; y <= maxY; y++) {
+        const py = y + 0.5;
+        const px = minX + 0.5;
+        let wa = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * inv;
+        let wb = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * inv;
+        for (let x = minX; x <= maxX; x++, wa += stepA, wb += stepB) {
+          const wc = 1 - wa - wb;
+          if (wa < -1e-4 || wb < -1e-4 || wc < -1e-4) continue;
+          const sx = wa * s0 + wb * s1 + wc * s2 - 0.5;
+          const sy = wa * t0 + wb * t1 + wc * t2 - 0.5;
+          const ix = Math.floor(sx);
+          const iy = Math.floor(sy);
+          if (ix < 0 || iy < 0 || ix + 1 >= sw || iy + 1 >= sh) continue;
+          const a00 = (iy * sw + ix) * 4;
+          const a10 = a00 + 4;
+          const a01 = a00 + sw * 4;
+          const a11 = a01 + 4;
+          if (!(pixels[a00 + 3] | pixels[a10 + 3] | pixels[a01 + 3] | pixels[a11 + 3])) continue;
+          const fx = sx - ix;
+          const fy = sy - iy;
+          // Weighed by alpha: a transparent pixel has no colour to give
+          const w00 = (1 - fx) * (1 - fy) * pixels[a00 + 3];
+          const w10 = fx * (1 - fy) * pixels[a10 + 3];
+          const w01 = (1 - fx) * fy * pixels[a01 + 3];
+          const w11 = fx * fy * pixels[a11 + 3];
+          const sum = w00 + w10 + w01 + w11;
+          if (sum <= 0) continue;
+          const to = (y * W + x) * 4;
+          out[to] = (w00 * pixels[a00] + w10 * pixels[a10] + w01 * pixels[a01] + w11 * pixels[a11]) / sum;
+          out[to + 1] = (w00 * pixels[a00 + 1] + w10 * pixels[a10 + 1] + w01 * pixels[a01 + 1] + w11 * pixels[a11 + 1]) / sum;
+          out[to + 2] = (w00 * pixels[a00 + 2] + w10 * pixels[a10 + 2] + w01 * pixels[a01 + 2] + w11 * pixels[a11 + 2]) / sum;
+          out[to + 3] = sum;
+        }
+      }
+    };
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i00 = r * (cols + 1) + c;
+        const i10 = i00 + 1;
+        const i01 = i00 + cols + 1;
+        const i11 = i01 + 1;
+        const s0 = (c / cols) * sw;
+        const s1 = ((c + 1) / cols) * sw;
+        const t0 = (r / rows) * sh;
+        const t1 = ((r + 1) / rows) * sh;
+        triangle(destX(i00), destY(i00), s0, t0, destX(i10), destY(i10), s1, t0, destX(i11), destY(i11), s1, t1);
+        triangle(destX(i00), destY(i00), s0, t0, destX(i11), destY(i11), s1, t1, destX(i01), destY(i01), s0, t1);
+      }
+    }
+  };
+
   const textBitmaps = new WeakMap();
   // The text drawn again at the size it lands at, so it stays sharp, then laid on the surface
   // triangle by triangle, at twice the resolution for clean edges. Canvas can't do this:
@@ -1598,67 +1796,7 @@
     const big = new ImageData(W, H);
     const out = big.data;
 
-    const triangle = (x0, y0, s0, t0, x1, y1, s1, t1, x2, y2, s2, t2) => {
-      const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
-      if (Math.abs(area) < 1e-6) return;
-      const inv = 1 / area;
-      const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2)));
-      const maxY = Math.min(H - 1, Math.ceil(Math.max(y0, y1, y2)));
-      const minX = Math.max(0, Math.floor(Math.min(x0, x1, x2)));
-      const maxX = Math.min(W - 1, Math.ceil(Math.max(x0, x1, x2)));
-      const stepA = (y1 - y2) * inv;
-      const stepB = (y2 - y0) * inv;
-      for (let y = minY; y <= maxY; y++) {
-        const py = y + 0.5;
-        const px = minX + 0.5;
-        let wa = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * inv;
-        let wb = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * inv;
-        for (let x = minX; x <= maxX; x++, wa += stepA, wb += stepB) {
-          const wc = 1 - wa - wb;
-          if (wa < -1e-4 || wb < -1e-4 || wc < -1e-4) continue;
-          const sx = wa * s0 + wb * s1 + wc * s2 - 0.5;
-          const sy = wa * t0 + wb * t1 + wc * t2 - 0.5;
-          const ix = Math.floor(sx);
-          const iy = Math.floor(sy);
-          if (ix < 0 || iy < 0 || ix + 1 >= sw || iy + 1 >= sh) continue;
-          const a00 = (iy * sw + ix) * 4;
-          const a10 = a00 + 4;
-          const a01 = a00 + sw * 4;
-          const a11 = a01 + 4;
-          if (!(pixels[a00 + 3] | pixels[a10 + 3] | pixels[a01 + 3] | pixels[a11 + 3])) continue;
-          const fx = sx - ix;
-          const fy = sy - iy;
-          // Weighed by alpha: a transparent pixel has no colour to give
-          const w00 = (1 - fx) * (1 - fy) * pixels[a00 + 3];
-          const w10 = fx * (1 - fy) * pixels[a10 + 3];
-          const w01 = (1 - fx) * fy * pixels[a01 + 3];
-          const w11 = fx * fy * pixels[a11 + 3];
-          const sum = w00 + w10 + w01 + w11;
-          if (sum <= 0) continue;
-          const to = (y * W + x) * 4;
-          out[to] = (w00 * pixels[a00] + w10 * pixels[a10] + w01 * pixels[a01] + w11 * pixels[a11]) / sum;
-          out[to + 1] = (w00 * pixels[a00 + 1] + w10 * pixels[a10 + 1] + w01 * pixels[a01 + 1] + w11 * pixels[a11 + 1]) / sum;
-          out[to + 2] = (w00 * pixels[a00 + 2] + w10 * pixels[a10 + 2] + w01 * pixels[a01 + 2] + w11 * pixels[a11 + 2]) / sum;
-          out[to + 3] = sum;
-        }
-      }
-    };
-    const destX = (i) => (mesh[i * 2] - left) * over;
-    const destY = (i) => (mesh[i * 2 + 1] - top) * over;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const i00 = r * (cols + 1) + c;
-        const i10 = i00 + 1;
-        const i01 = i00 + cols + 1;
-        const i11 = i01 + 1;
-        const s0 = (c / cols) * sw;
-        const s1 = ((c + 1) / cols) * sw;
-        const t0 = (r / rows) * sh;
-        const t1 = ((r + 1) / rows) * sh;
-        triangle(destX(i00), destY(i00), s0, t0, destX(i10), destY(i10), s1, t0, destX(i11), destY(i11), s1, t1);
-        triangle(destX(i00), destY(i00), s0, t0, destX(i11), destY(i11), s1, t1, destX(i01), destY(i01), s0, t1);
-      }
-    }
+    layMesh(out, W, H, pixels, sw, sh, (i) => (mesh[i * 2] - left) * over, (i) => (mesh[i * 2 + 1] - top) * over, cols, rows);
     const canvas = newCanvas(width, height);
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (quick) {
@@ -1678,6 +1816,128 @@
     }
     applyAntiAlias(canvas, ctx, antiAlias);
     return { canvas, x: left, y: top };
+  };
+
+  // A letter's stroke around what shows of it (`letters`, at left, top), as drawLines draws it:
+  // the stroke around the stroke, the stroke's part outside, the letters at their Fill, the
+  // stroke's part inside over them
+  const strokedLetters = (letters, left, top, layer, stroke) => {
+    const fill = fillOf(layer);
+    if (!stroke && fill === 1) return { canvas: letters, x: left, y: top };
+    const canvas = newCanvas(letters.width, letters.height);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (stroke && stroke.outer && stroke.outer.size > 0) ringOf(letters, 0, strokeReach(stroke) + EMBOLDEN, stroke.outer.color, canvas);
+    const outside = strokeOutside(stroke);
+    if (outside > 0) ringOf(letters, 0, outside + EMBOLDEN, stroke.color, canvas);
+    if (fill < 1 && stroke) {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.drawImage(letters, 0, 0);
+      ctx.globalCompositeOperation = "source-over";
+    }
+    if (fill > 0) {
+      ctx.globalAlpha = fill;
+      ctx.drawImage(letters, 0, 0);
+      ctx.globalAlpha = 1;
+    }
+    const inside = stroke ? stroke.size - outside : 0;
+    if (inside > 0) innerRingOf(letters, 0, inside, stroke.color, canvas);
+    return { canvas, x: left, y: top };
+  };
+  // A letter drawn from its own outline (see `outline`), in its colour, then its stroke around
+  // it. Around the text's anchor, as the plain text's picture.
+  const outlinedBitmap = (layer, doc, relative, stroke, antiAlias) => {
+    const outline = outlineOnPage(layer, doc, false);
+    const { left: l, top: t, right: r, bottom: b } = window.TypeROutline.boundsOf(outline);
+    if (!(r >= l && b >= t)) return { canvas: newCanvas(1, 1), x: 0, y: 0 };
+    const reach = Math.ceil(strokeReach(stroke) + 2);
+    const left = Math.floor(l) - reach;
+    const top = Math.floor(t) - reach;
+    const width = Math.max(1, Math.ceil(r) + reach - left);
+    const height = Math.max(1, Math.ceil(b) + reach - top);
+    const letters = newCanvas(width, height);
+    const ctx = letters.getContext("2d", { willReadFrequently: true });
+    const style = layer.params.layerText.textStyleRange[0] && layer.params.layerText.textStyleRange[0].textStyle;
+    ctx.fillStyle = rgbCss(style && style.color);
+    ctx.beginPath();
+    window.TypeROutline.toPath(ctx, outline, (x, y) => [x - left, y - top]);
+    ctx.fill("nonzero");
+    applyAntiAlias(letters, ctx, antiAlias);
+    return strokedLetters(letters, left, top, layer, stroke);
+  };
+
+  // A reshaped letter: its letters alone drawn large and laid on the grid, then its stroke
+  // drawn around what shows, so the stroke keeps its width wherever the letter is pulled.
+  // Around the text's anchor, as the plain text's picture.
+  const meshedBitmap = (layer, doc, relative, stroke, antiAlias) => {
+    const b = relative.box;
+    const map = meshMapOf(layer, b);
+    let largest = 0;
+    relative.lines.forEach((line) => line.m.placed.forEach((item) => { largest = Math.max(largest, item.size); }));
+    const pad = Math.ceil(4 + largest * 0.1);
+    const sourceW = b.width + pad * 2;
+    const sourceH = b.height + pad * 2;
+    const cols = Math.max(8, Math.min(96, Math.ceil(sourceW / 5)));
+    const rows = Math.max(8, Math.min(96, Math.ceil(sourceH / 5)));
+    const mesh = new Float64Array((cols + 1) * (rows + 1) * 2);
+    let at = 0;
+    for (let r = 0; r <= rows; r++) {
+      for (let c = 0; c <= cols; c++) {
+        const point = map(b.left - pad + (sourceW * c) / cols, b.top - pad + (sourceH * r) / rows);
+        mesh[at++] = point[0];
+        mesh[at++] = point[1];
+      }
+    }
+    // Drawn as large as the most the shape stretches it, twice over, so that it stays sharp
+    let stretch = 1;
+    const cellW = sourceW / cols;
+    const cellH = sourceH / rows;
+    for (let r = 0; r <= rows; r++) {
+      for (let c = 0; c <= cols; c++) {
+        const i = (r * (cols + 1) + c) * 2;
+        if (c < cols) stretch = Math.max(stretch, Math.hypot(mesh[i + 2] - mesh[i], mesh[i + 3] - mesh[i + 1]) / cellW);
+        if (r < rows) stretch = Math.max(stretch, Math.hypot(mesh[i + (cols + 1) * 2] - mesh[i], mesh[i + (cols + 1) * 2 + 1] - mesh[i + 1]) / cellH);
+      }
+    }
+    const scale = Math.min(4096 / sourceW, 4096 / sourceH, 2 * Math.min(stretch, 6));
+    const source = newCanvas(Math.max(1, Math.ceil(sourceW * scale)), Math.max(1, Math.ceil(sourceH * scale)));
+    const sourceCtx = source.getContext("2d", { willReadFrequently: true });
+    sourceCtx.scale(scale, scale);
+    sourceCtx.translate(pad - b.left, pad - b.top);
+    // The letters whole, whatever their Fill: the stroke is drawn around them
+    drawLines(sourceCtx, relative.lines, null, Object.assign({}, layer, { knockout: false, fill: undefined }));
+    const pixels = sourceCtx.getImageData(0, 0, source.width, source.height).data;
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    for (let i = 0; i < mesh.length; i += 2) {
+      left = Math.min(left, mesh[i]);
+      right = Math.max(right, mesh[i]);
+      top = Math.min(top, mesh[i + 1]);
+      bottom = Math.max(bottom, mesh[i + 1]);
+    }
+    const reach = Math.ceil(strokeReach(stroke) + 2);
+    left = Math.floor(left) - reach;
+    top = Math.floor(top) - reach;
+    const width = Math.max(1, Math.ceil(right) + reach - left);
+    const height = Math.max(1, Math.ceil(bottom) + reach - top);
+    const over = width * height > 4000000 ? 1 : 2;
+    const W = width * over;
+    const H = height * over;
+    const big = new ImageData(W, H);
+    layMesh(big.data, W, H, pixels, source.width, source.height, (i) => (mesh[i * 2] - left) * over, (i) => (mesh[i * 2 + 1] - top) * over, cols, rows);
+    const letters = newCanvas(width, height);
+    const lettersCtx = letters.getContext("2d", { willReadFrequently: true });
+    if (over === 1) lettersCtx.putImageData(big, 0, 0);
+    else {
+      const large = newCanvas(W, H);
+      large.getContext("2d").putImageData(big, 0, 0);
+      lettersCtx.imageSmoothingEnabled = true;
+      lettersCtx.imageSmoothingQuality = "high";
+      lettersCtx.drawImage(large, 0, 0, width, height);
+    }
+    applyAntiAlias(letters, lettersCtx, antiAlias);
+    return strokedLetters(letters, left, top, layer, stroke);
   };
 
   // A surface being dragged asks for a new picture at every step: the second one on is drawn
@@ -1730,6 +1990,48 @@
     }
   };
 
+  // An object's settings as a short key: the same object, the same key. Shapes and outlines
+  // are replaced when they change, never changed in place.
+  const objectKeys = new WeakMap();
+  let objectCount = 0;
+  const objectKey = (value) => {
+    if (!value || typeof value !== "object") return "-";
+    let key = objectKeys.get(value);
+    if (!key) {
+      key = "o" + ++objectCount;
+      objectKeys.set(value, key);
+    }
+    return key;
+  };
+
+  // A letter's outline traced from what it draws (see TypeROutline): `ch` and the paths, in
+  // parts of its box. Drawn large, so that its curves are found finely.
+  const TRACE_SIZE = 480;
+  const traceText = (layer, doc, options = {}) => {
+    const T = window.TypeROutline;
+    if (!T || layer.kind !== "text") return null;
+    const relative = relativeLayout(layer.params.layerText, doc.resolution);
+    const b = relative.box;
+    if (!(b.width > 0 && b.height > 0)) return null;
+    const scale = TRACE_SIZE / Math.max(b.width, b.height);
+    const pad = 6;
+    const width = Math.ceil(b.width * scale) + pad * 2;
+    const height = Math.ceil(b.height * scale) + pad * 2;
+    const canvas = newCanvas(width, height);
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.setTransform(scale, 0, 0, scale, pad - b.left * scale, pad - b.top * scale);
+    drawLines(ctx, relative.lines, null, Object.assign({}, layer, { knockout: false, fill: undefined, stroke: null }));
+    const data = ctx.getImageData(0, 0, width, height).data;
+    const alpha = new Uint8Array(width * height);
+    for (let i = 0; i < alpha.length; i++) alpha[i] = data[i * 4 + 3];
+    const contours = T.trace(alpha, width, height, Object.assign({ tolerance: 1.1, reach: 8, angle: 0.75, speck: 6 }, options));
+    if (!contours.length) return null;
+    const w = b.width * scale;
+    const h = b.height * scale;
+    const round = (value) => Math.round(value * 100000) / 100000;
+    return { ch: layer.params.layerText.textKey, c: T.mapped(contours, (x, y) => [round((x - pad) / w), round((y - pad) / h)]) };
+  };
+
   const mixedTexts = new WeakMap();
   const textVisual = (layer, doc) => {
     if (layer.raster) return { canvas: layer.raster.display || layer.raster.bitmap, x: layer.raster.displayLeft !== undefined ? layer.raster.left + layer.raster.displayLeft : layer.raster.left, y: layer.raster.displayTop !== undefined ? layer.raster.top + layer.raster.displayTop : layer.raster.top };
@@ -1772,6 +2074,16 @@
         if (quick) refineWarpLater(layer, doc, relative, stroke, antiAlias, forLayout, warpKey, strokeKey);
       }
       return forLayout.get(warpKey);
+    }
+    if (meshOn(layer)) {
+      const outlined = outlineOk(layer.outline);
+      const style = layer.params.layerText.textStyleRange[0] && layer.params.layerText.textStyleRange[0].textStyle;
+      const meshKey = strokeKey + "|mesh|" + (layer.rotated && layer.spin ? layer.spin.join(",") : "") + "|" + fillOf(layer) + "|" + objectKey(layer.mesh) + "|" + objectKey(outlined ? layer.outline : null) + (outlined ? "|" + rgbCss(style && style.color) : "");
+      // A shape being pulled draws one at every step: only the latest ones are worth keeping
+      if (!forLayout.has(meshKey) && forLayout.size > 6) forLayout.clear();
+      if (!forLayout.has(meshKey)) keepText(forLayout, meshKey, outlined ? outlinedBitmap(layer, doc, relative, stroke, antiAlias) : meshedBitmap(layer, doc, relative, stroke, antiAlias));
+      const entry = forLayout.get(meshKey);
+      return { canvas: entry.canvas, x: Math.round(layout.anchor[0]) + entry.x, y: Math.round(layout.anchor[1]) + entry.y };
     }
     const spin = spinOf(layer);
     const entryKey = spin ? strokeKey + "|" + spin.join(",") : strokeKey;
@@ -6894,7 +7206,12 @@
         if (layer.kind === "text") {
           // A turned letter answers inside its own turned box, not the square around it
           let inside;
-          if (layer.rotated && !layer.warp) {
+          if (meshOn(layer) && outlineOk(layer.outline)) {
+            const outline = outlineOnPage(layer, doc);
+            const near = window.TypeROutline.nearest(outline, x, y);
+            inside = window.TypeROutline.contains(outline, x, y) || Boolean(near && near.distance <= 6);
+          } else if (meshOn(layer)) inside = insidePolygon(meshOutline(layer, doc), x, y, 6);
+          else if (layer.rotated && !layer.warp) {
             const f = turnedFrame(layer, doc);
             const [a, b, , d] = f.corners;
             const ux = b[0] - a[0];
@@ -10424,6 +10741,13 @@
     layoutLayer,
     caretLines,
     surfaceOf,
+    meshOk,
+    meshShift,
+    meshOutline,
+    outlineOk,
+    outlineOnPage,
+    shapeFrameOf,
+    traceText,
     isDirty,
     newRaster,
     newId,

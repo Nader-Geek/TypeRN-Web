@@ -480,15 +480,50 @@
   // nodesFor). Its surface goes in the metadata, so that it opens as the text it was: one layer,
   // still in perspective, that the Move tool takes by its frame and not by its letters. Left
   // as two layers if Photoshop changed the text, or took the pixels away.
+  // A letter reshaped (an SFX's) is saved the same way, its shape (`mesh`) in place of a surface.
+  const meshed = (layer) => layer.kind === "text" && !layer.warp && !layer.raster && (PS().meshOk(layer.mesh) || PS().outlineOk(layer.outline));
+  // A letter drawn point by point (`outline`) is saved as a shape, as Photoshop's Convert to
+  // Shape makes one: its points can be pulled there too. Its frame goes in the metadata, so
+  // that what Photoshop changed of its points comes back here.
+  const outlined = (layer) => meshed(layer) && PS().outlineOk(layer.outline);
   const warpsForSave = (doc) => doc.state.layers
-    .filter((layer) => layer.kind === "text" && layer.warp)
-    .map((layer) => ({ name: layer.name, text: layer.params.layerText.textKey, warp: layer.warp }));
+    .filter((layer) => layer.kind === "text" && (layer.warp || meshed(layer)))
+    .map((layer) => {
+      if (layer.warp) return { name: layer.name, text: layer.params.layerText.textKey, warp: layer.warp };
+      const entry = { name: layer.name, text: layer.params.layerText.textKey };
+      if (PS().meshOk(layer.mesh)) entry.mesh = layer.mesh;
+      if (outlined(layer)) Object.assign(entry, { outline: layer.outline, frame: PS().shapeFrameOf(layer, doc) });
+      return entry;
+    });
+  // A shape's paths back into a letter's outline, through the frame it was saved in
+  const outlineFromPaths = (vectorMask, frame, ch) => {
+    if (!vectorMask || !Array.isArray(vectorMask.paths) || !frame || !Array.isArray(frame.box) || !Array.isArray(frame.anchor)) return null;
+    const [left, top, width, height] = frame.box;
+    const [ax, ay] = frame.anchor;
+    const s = Array.isArray(frame.spin) ? frame.spin : [1, 0, 0, 1];
+    const det = s[0] * s[3] - s[1] * s[2];
+    if (!(width > 0) || !(height > 0) || !det) return null;
+    const uv = (x, y) => {
+      const dx = x - ax;
+      const dy = y - ay;
+      return [round(((s[3] * dx - s[2] * dy) / det - left) / width, 5), round(((-s[1] * dx + s[0] * dy) / det - top) / height, 5)];
+    };
+    const c = vectorMask.paths.filter((path) => !path.open && Array.isArray(path.knots) && path.knots.length >= 2).map((path) => path.knots.map(({ points, linked }) => {
+      const [ix, iy] = uv(points[0], points[1]);
+      const [x, y] = uv(points[2], points[3]);
+      const [ox, oy] = uv(points[4], points[5]);
+      return [x, y, ix, iy, ox, oy, linked ? 1 : 0];
+    }));
+    const outline = { ch, c };
+    return PS().outlineOk(outline) ? outline : null;
+  };
   const attachWarps = (layers, xmp) => {
     const list = listOfXmp(xmp, "warps");
     if (!list.length) return;
     const gone = new Set();
     list.forEach((entry) => {
-      if (!entry || !entry.warp || !Array.isArray(entry.warp.corners) || !entry.warp.source) return;
+      const surface = Boolean(entry && entry.warp && Array.isArray(entry.warp.corners) && entry.warp.source);
+      if (!surface && !(entry && (PS().meshOk(entry.mesh) || PS().outlineOk(entry.outline)))) return;
       const at = layers.findIndex((layer, index) => {
         const shown = layers[index + 1];
         return layer.kind === "text" && !gone.has(layer) && layer.visible === false && layer.name === `${entry.name} (text)` && layer.params.layerText.textKey === entry.text
@@ -497,7 +532,15 @@
       if (at < 0) return;
       const text = layers[at];
       const shown = layers[at + 1];
-      Object.assign(text, { name: shown.name, visible: shown.visible, opacity: shown.opacity, blend: shown.blend, clipping: shown.clipping, locked: shown.locked, locks: shown.locks, color: shown.color, warp: entry.warp, raster: null });
+      // A shape: its points as Photoshop left them, its shape (`mesh`) in them
+      let outline = !surface && PS().outlineOk(entry.outline) ? entry.outline : undefined;
+      let mesh = surface || !PS().meshOk(entry.mesh) ? undefined : entry.mesh;
+      const fromPaths = outline ? outlineFromPaths(shown.vectorMask, entry.frame, outline.ch) : null;
+      if (fromPaths) {
+        outline = fromPaths;
+        mesh = undefined;
+      }
+      Object.assign(text, { name: shown.name, visible: shown.visible, opacity: shown.opacity, blend: shown.blend, clipping: shown.clipping, locked: shown.locked, locks: shown.locks, color: shown.color, warp: surface ? entry.warp : undefined, mesh, outline, raster: null });
       gone.add(text);
       gone.add(shown);
     });
@@ -980,13 +1023,30 @@
   // Photoshop's text can't follow a surface. It gets what shows, as pixels, with the text
   // itself below it, hidden: still editable there, and nothing else in the file depends on it.
   const nodesFor = (layer, doc, flags) => {
-    if (layer.kind !== "text" || !layer.warp) return [nodeFor(layer, doc, flags)];
-    const text = nodeFor(Object.assign({}, layer, { warp: null }), doc, flags);
+    if (layer.kind !== "text" || !(layer.warp || meshed(layer))) return [nodeFor(layer, doc, flags)];
+    const text = nodeFor(Object.assign({}, layer, { warp: null, mesh: null, outline: null }), doc, flags);
     // What shows is drawn through the masks: the copy needs none of its own
     text.name = `${layer.name} (text)`;
     text.hidden = true;
     const shown = { name: layer.name, hidden: layer.visible === false, opacity: layer.opacity === undefined ? 1 : layer.opacity, blendMode: layer.blend || "normal" };
     if (layer.clipping) shown.clipping = true;
+    if (outlined(layer) && !PS().maskOn(layer) && !PS().vectorOn(layer)) {
+      const engine = PS();
+      // A shape layer: its paths, its colour, its pixels the letter alone; its stroke and its
+      // effects its layer style, as a text's
+      const paths = engine.outlineOnPage(layer, doc);
+      shown.vectorMask = { paths: paths.map((contour, k) => ({ open: false, fillRule: "non-zero", operation: k ? undefined : "combine", knots: contour.map((p) => ({ linked: Boolean(p[6]), points: [p[2], p[3], p[0], p[1], p[4], p[5]] })) })) };
+      const style = layer.params.layerText.textStyleRange[0] && layer.params.layerText.textStyleRange[0].textStyle;
+      const color = (style && style.color) || { red: 0, green: 0, blue: 0 };
+      shown.vectorFill = { type: "color", color: { r: color.red, g: color.green, b: color.blue } };
+      const bare = engine.visualOf(Object.assign({}, layer, { stroke: null, effects: undefined, knockout: false, fill: undefined }), doc);
+      if (bare) place(shown, bare.canvas, bare.x, bare.y);
+      if (layer.stroke && layer.stroke.enabled && layer.stroke.size > 0) shown.effects = { stroke: strokesToPsd(layer.stroke) };
+      effectsOut(shown, layer, doc);
+      const amount = engine.fillOf(layer);
+      if (amount < 1) shown.fillOpacity = amount;
+      return [text, shown];
+    }
     // With its shadow and glows, made part of the pixels
     const visual = PS().flatVisual(PS().visualOf(layer, doc));
     if (visual) place(shown, visual.canvas, visual.x, visual.y);

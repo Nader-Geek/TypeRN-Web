@@ -49,7 +49,8 @@
     bulge: 0,
     source: null,
     chaos: 100,
-    jitter: { rotate: 12, size: 12, shift: 10, stretch: 6, skew: 0 },
+    // `warp`: each letter pulled a little out of shape by chance, as if drawn by hand
+    jitter: { rotate: 12, size: 12, shift: 10, stretch: 6, skew: 0, warp: 0 },
     zigzag: 0,
     // Every letter turned by this much, the path staying as it is
     turn: 0,
@@ -70,6 +71,15 @@
   const STACKS = ["left", "right", "alternate"];
 
   const isObject = (value) => value && typeof value === "object" && !Array.isArray(value);
+  // A letter's own shape, as it can be read (see "the letters' shapes")
+  const shapeOk = (shape) => Boolean(PS.meshOk && PS.meshOk(shape)) && shape.n >= 3;
+  // A letter's own outline (see "a letter's own outline"), kept while it is the same letter
+  const outlineOk = (outline, ch) => Boolean(PS.outlineOk && PS.outlineOk(outline)) && outline.ch === ch;
+  const sameOutline = (a, b) => {
+    if (a === b) return true;
+    if (!a || !b || a.c.length !== b.c.length) return false;
+    return a.c.every((contour, c) => contour.length === b.c[c].length && contour.every((p, i) => p.every((value, k) => Math.abs(value - b.c[c][i][k]) < 1e-5)));
+  };
   // A recipe from another version, a preset or a file: every setting there, nothing foreign
   const merged = (base, value) => {
     const out = {};
@@ -85,7 +95,7 @@
     const out = merged(BASE, value);
     if (value && isObject(value.source)) out.source = { at: Array.isArray(value.source.at) ? value.source.at.slice(0, 2) : [0, 0], amount: Number(value.source.amount) || 0, radial: Number(value.source.radial) || 0 };
     if (!Array.isArray(out.letters)) out.letters = [];
-    out.letters = out.letters.filter((letter) => letter && typeof letter.ch === "string").map((letter) => ({ key: Number(letter.key) || 0, ch: letter.ch, o: isObject(letter.o) ? letter.o : null, lock: isObject(letter.lock) ? letter.lock : null }));
+    out.letters = out.letters.filter((letter) => letter && typeof letter.ch === "string").map((letter) => ({ key: Number(letter.key) || 0, ch: letter.ch, o: isObject(letter.o) ? letter.o : null, lock: isObject(letter.lock) ? letter.lock : null, shape: shapeOk(letter.shape) ? letter.shape : null, outline: outlineOk(letter.outline, letter.ch) ? letter.outline : null }));
     out.next = Math.max(out.next || 1, ...out.letters.map((letter) => letter.key + 1));
     if (!PATHS.includes(out.path.kind)) out.path.kind = "line";
     if (!CURVES.includes(out.curve.kind)) out.curve.kind = "flat";
@@ -186,6 +196,50 @@
     if (window.Intl && Intl.Segmenter) return Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (part) => part.segment);
     return Array.from(text);
   };
+
+  // Arabic letters hold on to their neighbours. Each letter of an SFX is a layer of its own,
+  // so it is given the form it has in the word: an invisible joiner (ZWJ) on each side where
+  // it joins, which Photoshop understands too. Letters that join on both sides (`DUAL`), on
+  // the right only (`RIGHT`, as ا د ر و), the others (ء, Latin…) not at all. A joiner at the
+  // end is followed by a right-to-left mark (RLM), or it is read apart from the letter and
+  // ignored.
+  const ZWJ = "\u200D";
+  const RLM = "\u200F";
+  const ZWJS = /[\u200D\u200F]/g;
+  const RIGHT = new Set([0x0622, 0x0623, 0x0624, 0x0625, 0x0627, 0x0629, 0x062f, 0x0630, 0x0631, 0x0632, 0x0648, 0x0671, 0x0672, 0x0673, 0x0675, 0x0676, 0x0677, 0x06c0, 0x06c3, 0x06cd, 0x06cf, 0x06d2, 0x06d3, 0x06d5, 0x06ee, 0x06ef, 0x0759, 0x075a, 0x075b, 0x076b, 0x076c, 0x0771, 0x0773, 0x0774, 0x0778, 0x0779]);
+  const DUAL = [[0x0620, 0x0620], [0x0626, 0x0626], [0x0628, 0x0628], [0x062a, 0x062e], [0x0633, 0x063f], [0x0640, 0x0647], [0x0649, 0x064a], [0x066e, 0x066f], [0x0678, 0x0687], [0x069a, 0x06bf], [0x06c1, 0x06c2], [0x06cc, 0x06cc], [0x06ce, 0x06ce], [0x06d0, 0x06d1], [0x06fa, 0x06fc], [0x06ff, 0x06ff], [0x0750, 0x077f]];
+  const joiningOf = (c) => {
+    const cp = c.codePointAt(0);
+    if (RIGHT.has(cp) || (cp >= 0x0688 && cp <= 0x0699) || (cp >= 0x06c4 && cp <= 0x06cb)) return "R";
+    return DUAL.some(([a, b]) => cp >= a && cp <= b) ? "D" : "U";
+  };
+  // A letter's own characters, without its marks (ـَ ـّ…)
+  const basesOf = (ch) => Array.from(ch.replace(ZWJS, "")).filter((c) => !/\p{M}/u.test(c));
+  const joinsBefore = (ch) => {
+    const bases = basesOf(ch);
+    return bases.length > 0 && joiningOf(bases[0]) !== "U";
+  };
+  const joinsAfter = (ch) => {
+    const bases = basesOf(ch);
+    return bases.length > 0 && joiningOf(bases[bases.length - 1]) === "D";
+  };
+  const isArabic = (ch) => /\p{Script=Arabic}/u.test(ch);
+  // A word reads from the right when its first letter does (Arabic, Hebrew…)
+  const fromRight = (text) => {
+    const first = /\p{L}/u.exec(text);
+    return Boolean(first && /[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}]/u.test(first[0]));
+  };
+  // The letters of a word: lam and alef make one letter (لا), as they are always written
+  const lettersIn = (text) => {
+    const out = [];
+    graphemes(text).forEach((part) => {
+      const last = out.length ? basesOf(out[out.length - 1]) : [];
+      const bases = basesOf(part);
+      if (last.length === 1 && last[0] === "\u0644" && bases.length && [0x0622, 0x0623, 0x0625, 0x0627].includes(bases[0].codePointAt(0))) out[out.length - 1] += part;
+      else out.push(part);
+    });
+    return out;
+  };
   const PUNCTUATION = /^[!?.,;:…¡¿'"«»“”‘’()\-–—~！？。、]+$/u;
   const isShown = (recipe, letter) => Boolean(letter.ch.trim()) && !(recipe.noPunctuation && PUNCTUATION.test(letter.ch));
 
@@ -193,7 +247,7 @@
   // and their pins: typing an O in BOM doesn't throw the other letters again
   const relink = (recipe, text) => {
     const old = recipe.letters;
-    const chars = graphemes(String(text).replace(/[\r\n\t]+/g, " ")).slice(0, MAX_LETTERS);
+    const chars = lettersIn(String(text).replace(ZWJS, "").replace(/[\r\n\t]+/g, " ")).slice(0, MAX_LETTERS);
     const n = old.length;
     const m = chars.length;
     const table = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
@@ -236,6 +290,65 @@
     return (h / 4294967295) * 2 - 1;
   };
 
+  /* ------------------------------ the letters' shapes ------------------------------ */
+
+  // A letter's own shape (`letter.shape`): a grid of n × n points over its box, each moved by
+  // [across, down] in parts of the box (see TypeRPhotoshop's `mesh`). The dice add a shape of
+  // their own (`jitter.warp`), unless the letter is pinned: a pinned letter keeps the one it had.
+  const SHAPE_LIMIT = 1.5;
+  const flat = (shape) => !shape || shape.p.every((d) => Math.abs(d[0]) < 1e-4 && Math.abs(d[1]) < 1e-4);
+  const gridOf = (n, f) => {
+    const p = [];
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) p.push(f(i / (n - 1), j / (n - 1), i, j));
+    return { n, p };
+  };
+  const tidyShape = (shape) => (flat(shape) ? null : { n: shape.n, p: shape.p.map((d) => [round(clamp(d[0], -SHAPE_LIMIT, SHAPE_LIMIT), 10000), round(clamp(d[1], -SHAPE_LIMIT, SHAPE_LIMIT), 10000)]) });
+  // The same shape on a grid of another size
+  const regrid = (shape, n) => {
+    if (!shape) return gridOf(n, () => [0, 0]);
+    if (shape.n === n) return { n, p: shape.p.map((d) => d.slice()) };
+    const shift = PS.meshShift(shape);
+    return gridOf(n, (u, v) => shift(u, v));
+  };
+  // Two shapes as one, on the first one's grid
+  const plus = (shape, other, sign = 1) => {
+    if (!other) return shape;
+    const n = shape ? shape.n : other.n;
+    const base = regrid(shape, n);
+    const shift = PS.meshShift(other);
+    return { n, p: base.p.map((d, k) => {
+      const [x, y] = shift((k % n) / (n - 1), Math.floor(k / n) / (n - 1));
+      return [d[0] + sign * x, d[1] + sign * y];
+    }) };
+  };
+  // A hand-drawn letter: one side taller, the top narrower or wider or pushed aside, the
+  // foot on a slope, the sides in or out, the middle higher or lower
+  const shapeByChance = (amount, throwOf) => {
+    const a = clamp(amount, 0, 2);
+    if (a <= 0) return null;
+    const tall = throwOf(6) * 0.45 * a;
+    const taper = throwOf(7) * 0.3 * a;
+    const lean = throwOf(8) * 0.28 * a;
+    const foot = throwOf(9) * 0.22 * a;
+    const belly = throwOf(10) * 0.22 * a;
+    const waist = throwOf(11) * 0.16 * a;
+    return gridOf(3, (u, v, i, j) => {
+      const side = 2 * u - 1;
+      if (j === 0) return [lean - taper * side, (tall * side) / 2];
+      if (j === 1) return [belly * side + lean / 2, waist];
+      return [0, (foot * side) / 2];
+    });
+  };
+  const chanceShape = (r, key) => shapeByChance((clamp(Number(r.jitter.warp) || 0, 0, 100) / 100) * (clamp(r.chaos, 0, 200) / 100), (channel) => chance(r.seed, key, channel));
+  // What a letter shows: its own shape, and the dice's unless it is pinned or drawn point by
+  // point (its outline has the dice's shape in it)
+  const shapeOf = (r, letter) => {
+    const random = letter.lock || letter.outline ? null : chanceShape(r, letter.key);
+    const own = letter.shape;
+    if (!own) return random;
+    return random ? plus(own, random) : own;
+  };
+
   /* -------------------------------- measuring -------------------------------- */
 
   const languageOf = () => app.textDefaults.language;
@@ -271,10 +384,22 @@
     if (found) return found;
     if (measures.size > 3000) measures.clear();
     const layer = { kind: "text", params: paramsFor(doc, ch, styleFor(font, 100, 1, 1, { red: 0, green: 0, blue: 0 }), [0, 0]) };
-    const box = PS.layoutLayer(layer, doc).relative.box;
+    const relative = PS.layoutLayer(layer, doc).relative;
+    const box = relative.box;
     const empty = !(box.width > 0);
     const em = (100 * doc.resolution) / 72;
     found = empty ? { w: em * 0.4, h: em * 0.7, cx: 0, cy: -em * 0.35 } : { w: box.width, h: box.height, cx: box.left + box.width / 2, cy: box.top + box.height / 2 };
+    // Arabic letters meet as in a word set as a whole: each takes its own width in the line,
+    // where it joins its neighbours, not the width of its ink (a tail reaches under the next
+    // letter), and they stay on one line: each is held by the middle of a letter that sits on
+    // it (ـسـ), not by its own
+    const line = ZWJ + "\u0633" + ZWJ + RLM;
+    const set = relative.lines[0];
+    if (!empty && isArabic(ch) && set && set.m && set.m.advance > 0) {
+      found.w = set.m.advance;
+      found.cx = set.x + set.m.advance / 2;
+      if (ch !== line) found.cy = measure(doc, font, line).cy;
+    }
     measures.set(key, found);
     return found;
   };
@@ -374,6 +499,18 @@
     });
     const n = shown.length;
     const vertical = r.path.kind === "vertical";
+    // Arabic and Hebrew go from the right: the first letter at the path's end
+    const rtl = !vertical && fromRight(shown.map((item) => item.letter.ch).join(""));
+    // What each letter's layer says: the letter, joined to the ones next to it in the word
+    shown.forEach((item, i) => {
+      const ch = item.letter.ch;
+      const prev = shown[i - 1];
+      const next = shown[i + 1];
+      const before = prev && prev.index === item.index - 1 && joinsAfter(prev.letter.ch) && joinsBefore(ch);
+      const after = next && next.index === item.index + 1 && joinsAfter(ch) && joinsBefore(next.letter.ch);
+      item.joinsNext = Boolean(after);
+      item.glyph = (before ? ZWJ : "") + ch + (after ? ZWJ + RLM : "");
+    });
     // Readability first: chance moves letters within limits that keep the word legible
     shown.forEach((item) => {
       const { letter, k } = item;
@@ -390,16 +527,18 @@
       item.turn = clamp(clamp(J.rotate, 0, 35) * chaos * chance(r.seed, key, 3) + clamp(r.zigzag, -25, 25) * (k % 2 ? 1 : -1), -40, 40);
       item.shift = clamp((clamp(J.shift, 0, 40) / 100) * chaos * chance(r.seed, key, 4), -0.5, 0.5);
       item.skew = clamp(clamp(r.slant, -25, 25) + clamp(J.skew, 0, 15) * chaos * chance(r.seed, key, 5), -25, 25);
-      item.m = measure(doc, r.font, letter.ch);
+      item.m = measure(doc, r.font, item.glyph);
     });
     const along = (item, fit) => (vertical ? item.m.h * (item.size / 100) * item.sy : item.m.w * (item.size / 100) * item.sx) * fit;
     const gapOf = (fit) => (clamp(r.spacing, -80, 200) / 100) * unit * fit;
     const spaceOf = (fit) => unit * 0.45 * fit;
+    // What follows a letter: nothing between two letters that join, they meet
+    const after = (item, fit) => (item.joinsNext ? 0 : gapOf(fit) + (item.spaceAfter || 0) * spaceOf(fit));
     const natural = (fit) => {
       let total = 0;
       shown.forEach((item, i) => {
         total += along(item, fit);
-        if (i < n - 1) total += gapOf(fit) + (item.spaceAfter || 0) * spaceOf(fit);
+        if (i < n - 1) total += after(item, fit);
       });
       return total;
     };
@@ -408,7 +547,8 @@
       if (r.path.kind === "circle") total += gapOf(fit);
       const at = pathFor(r.path, total, unit * fit);
       let s = 0;
-      shown.forEach((item, i) => {
+      const row = rtl ? shown.slice().reverse() : shown;
+      row.forEach((item, i) => {
         const w = along(item, fit);
         const p = at(s + w / 2);
         const size = item.size * fit;
@@ -420,7 +560,7 @@
         if (r.path.kind === "stairs") y -= (item.k - (n - 1) / 2) * (clamp(r.path.step, -100, 100) / 100) * unit * fit;
         item.pose = { x, y, rot: turn + item.turn + (Number(r.turn) || 0), skew: item.skew, size, sx: item.sx, sy: item.sy };
         s += w;
-        if (i < n - 1) s += gapOf(fit) + (item.spaceAfter || 0) * spaceOf(fit);
+        if (i < n - 1) s += after(rtl ? row[i + 1] : item, fit);
       });
       return { total, at };
     };
@@ -449,7 +589,7 @@
     }
     // What was done by hand: a nudge, a turn, a size on top of the layout, or a letter pinned
     const letters = shown.map((item) => {
-      const { letter } = item;
+      const { letter, glyph } = item;
       let local = item.pose;
       const o = letter.o;
       if (letter.lock) local = Object.assign({}, local, letter.lock);
@@ -457,7 +597,7 @@
       const font = (letter.lock && letter.lock.font) || (o && o.font) || r.font;
       const color = (letter.lock && letter.lock.color) || (o && o.color) || r.color;
       const center = toPage(r, local.x, local.y);
-      return { key: letter.key, ch: letter.ch, k: item.k, local, font, color, center, rot: r.angle + local.rot, skew: local.skew, size: local.size * r.scale, sx: local.sx, sy: local.sy };
+      return { key: letter.key, ch: glyph, k: item.k, local, font, color, center, rot: r.angle + local.rot, skew: local.skew, size: local.size * r.scale, sx: local.sx, sy: local.sy, mesh: shapeOf(r, letter), outline: letter.outline || null };
     });
     // The path, on the page, for the handles
     const guide = [];
@@ -490,7 +630,8 @@
     const spin = spinOf(pose.rot, pose.skew);
     const center = look.center || pose.center;
     const anchor = [center[0] - (spin[0] * cx + spin[2] * cy), center[1] - (spin[1] * cx + spin[3] * cy)];
-    const name = part.role === "letter" ? pose.ch : `${pose.ch} (${part.role}${part.role === "echo" ? " " + part.n : ""})`;
+    const label = pose.ch.replace(ZWJS, "");
+    const name = part.role === "letter" ? label : `${label} (${part.role}${part.role === "echo" ? " " + part.n : ""})`;
     const layer = PS.newTextLayer(doc, paramsFor(doc, pose.ch, style, anchor), look.stroke, name);
     const straight = isStraight(spin);
     return Object.assign(layer, {
@@ -502,6 +643,8 @@
       spin: straight ? null : spin,
       knockout: Boolean(look.knockout),
       opacity: look.opacity === undefined ? 1 : look.opacity,
+      mesh: pose.mesh && !flat(pose.mesh) ? pose.mesh : null,
+      outline: pose.outline || null,
       sfxPart: part,
     });
   };
@@ -589,7 +732,7 @@
     const k = size / 100;
     const cx = m.cx * k * sx;
     const cy = m.cy * k * sy;
-    return { ch: lt.textKey || "", center: [anchor[0] + spin[0] * cx + spin[2] * cy, anchor[1] + spin[1] * cx + spin[3] * cy], rot: deg(turn), skew: deg(Math.atan(lean)), size, sx, sy, font, color: style.color || { red: 0, green: 0, blue: 0 } };
+    return { ch: (lt.textKey || "").replace(ZWJS, ""), center: [anchor[0] + spin[0] * cx + spin[2] * cy, anchor[1] + spin[1] * cx + spin[3] * cy], rot: deg(turn), skew: deg(Math.atan(lean)), size, sx, sy, font, color: style.color || { red: 0, green: 0, blue: 0 } };
   };
 
   const roleByName = (layer) => {
@@ -636,9 +779,18 @@
     recipe.letters = recipe.letters.filter((letter) => !isShown(recipe, letter) || byKey.has(letter.key));
     recipe.letters.forEach((letter) => {
       const layer = byKey.get(letter.key);
-      if (layer && layer.params.layerText.textKey && layer.params.layerText.textKey !== letter.ch) letter.ch = layer.params.layerText.textKey;
+      const said = layer && layer.params.layerText.textKey ? layer.params.layerText.textKey.replace(ZWJS, "") : "";
+      if (said && said !== letter.ch) letter.ch = said;
     });
     recipe.text = recipe.letters.map((letter) => letter.ch).join("");
+    // A letter's points changed elsewhere (in Photoshop, read back from the file): its own now,
+    // its shape in them
+    recipe.letters.forEach((letter) => {
+      const layer = byKey.get(letter.key);
+      if (!layer || !layer.outline || !outlineOk(layer.outline, letter.ch) || sameOutline(letter.outline, layer.outline)) return;
+      letter.outline = layer.outline;
+      letter.shape = null;
+    });
     if (recipe.mode === "fusion" && group.stroke && group.stroke.enabled) {
       recipe.stroke = { enabled: true, size: group.stroke.size, color: Object.assign({}, group.stroke.color), outer: group.stroke.outer ? { size: group.stroke.outer.size, color: Object.assign({}, group.stroke.outer.color) } : { size: 0, color: BLACK } };
     }
@@ -1396,7 +1548,14 @@
       if (pose.font.ps !== recipe.font.ps) letter.lock.font = pose.font;
       if (!sameColor(pose.color, recipe.color)) letter.lock.color = pose.color;
       letter.o = null;
-    } else letter.lock = null;
+      // The shape the dice gave it stays its own
+      letter.shape = pose.mesh ? tidyShape(pose.mesh) : null;
+    } else {
+      letter.lock = null;
+      // …and the dice give theirs again: the letter looks the same once let go
+      const random = chanceShape(recipe, key);
+      if (random && letter.shape) letter.shape = tidyShape(plus(letter.shape, random, -1));
+    }
     apply(group, recipe, { name: on ? "SFX Letter" : "SFX Letter" });
   };
 
@@ -1404,7 +1563,7 @@
   const elongate = (key) => edit((recipe) => {
     const at = recipe.letters.findIndex((item) => item.key === key);
     if (at < 0 || recipe.letters.length >= MAX_LETTERS) return;
-    recipe.letters.splice(at + 1, 0, { key: recipe.next++, ch: recipe.letters[at].ch, o: null, lock: null });
+    recipe.letters.splice(at + 1, 0, { key: recipe.next++, ch: recipe.letters[at].ch, o: null, lock: null, shape: recipe.letters[at].shape || null, outline: recipe.letters[at].outline || null });
     recipe.text = recipe.letters.map((letter) => letter.ch).join("");
   }, null, "SFX Letter");
 
@@ -1439,6 +1598,496 @@
 
   let handles = [];
   let preview = null;
+
+  // A letter being given a shape of its own: the picked one, its grid over it
+  let shapeMode = false;
+  const shapingNow = (group) => shapeMode && pickedLetter(group) !== null;
+  // How many points a side of a new grid has: 3 for a start, more for finer shapes
+  let gridSize = clamp(Math.round(Number(readStore("typer.web.sfx.grid", 3)) || 3), 3, 5);
+  // Where a letter's box lands on the page, as it is shaped: `at(u, v)` for a point of its box
+  // (0 to 1 across and down), and `toLetter` for a move on the page in parts of the box
+  const geometryOf = (doc, pose) => {
+    const m = measure(doc, pose.font, pose.ch);
+    const k = pose.size / 100;
+    const w = m.w * k * pose.sx;
+    const h = m.h * k * pose.sy;
+    const spin = spinOf(pose.rot, pose.skew);
+    const shift = pose.mesh ? PS.meshShift(pose.mesh) : null;
+    const at = (u, v) => {
+      const d = shift ? shift(u, v) : null;
+      const x = (u - 0.5 + (d ? d[0] : 0)) * w;
+      const y = (v - 0.5 + (d ? d[1] : 0)) * h;
+      return [pose.center[0] + spin[0] * x + spin[2] * y, pose.center[1] + spin[1] * x + spin[3] * y];
+    };
+    const det = spin[0] * spin[3] - spin[1] * spin[2] || 1;
+    const toLetter = (dx, dy) => [((spin[3] * dx - spin[2] * dy) / det) / (w || 1), ((-spin[1] * dx + spin[0] * dy) / det) / (h || 1)];
+    // The same without its shape, as an outline is drawn (its shape is in it), and back
+    const plain = (u, v) => {
+      const x = (u - 0.5) * w;
+      const y = (v - 0.5) * h;
+      return [pose.center[0] + spin[0] * x + spin[2] * y, pose.center[1] + spin[1] * x + spin[3] * y];
+    };
+    const toUv = (x, y) => {
+      const [du, dv] = toLetter(x - pose.center[0], y - pose.center[1]);
+      return [du + 0.5, dv + 0.5];
+    };
+    return { pose, w, h, spin, at, toLetter, plain, toUv };
+  };
+  const edgeOf = (box) => {
+    const out = [];
+    [[0, 0, 1, 0], [1, 0, 1, 1], [1, 1, 0, 1], [0, 1, 0, 0]].forEach(([u0, v0, u1, v1]) => {
+      for (let i = 0; i < 10; i++) out.push(box.at(u0 + ((u1 - u0) * i) / 10, v0 + ((v1 - v0) * i) / 10));
+    });
+    return out;
+  };
+  // The point of a letter's box nearest to a point of the page, and how far it is, on the page
+  const nearestOnLetter = (box, point) => {
+    let best = { u: 0.5, v: 0.5, far: Infinity };
+    for (let j = 0; j <= 24; j++) {
+      for (let i = 0; i <= 24; i++) {
+        const [x, y] = box.at(i / 24, j / 24);
+        const far = Math.hypot(x - point[0], y - point[1]);
+        if (far < best.far) best = { u: i / 24, v: j / 24, far };
+      }
+    }
+    return best;
+  };
+  // A drag on the letter, away from the points: the part under the pointer follows it, the rest
+  // less and less with the distance
+  const pullWeights = (n, u0, v0) => {
+    const sigma = 0.3;
+    const weights = [];
+    for (let k = 0; k < n * n; k++) {
+      const du = (k % n) / (n - 1) - u0;
+      const dv = Math.floor(k / n) / (n - 1) - v0;
+      weights.push(Math.exp(-(du * du + dv * dv) / (2 * sigma * sigma)));
+    }
+    // So that the very spot taken goes exactly where the pointer goes
+    const reach = PS.meshShift({ n, p: weights.map((w) => [w, 0]) })(u0, v0)[0];
+    const f = reach > 0.2 ? 1 / reach : 1;
+    return weights.map((w) => Math.min(1.5, w * f));
+  };
+  const shapeGesture = (doc, group, key, base, extra) => {
+    const { recipe } = settled(doc, group);
+    const layout = layoutOf(recipe, doc);
+    const pose = layout.letters.find((item) => item.key === key);
+    const letter = recipe.letters.find((item) => item.key === key);
+    if (!pose || !letter) return null;
+    const n = letter.shape ? letter.shape.n : gridSize;
+    const geo = geometryOf(doc, pose);
+    return Object.assign(base, { kind: "sfx", group: group.id, key, recipe, layout, n, own: regrid(letter.shape, n), geo }, extra(n, geo));
+  };
+
+  /* ---------------------------- a letter's own outline ---------------------------- */
+
+  // In Shape mode a letter is worked on by its points (`points`): its outline, as Photoshop's
+  // Convert to Shape gives it, anchors and handles and the curves between them, pulled one by
+  // one or with a brush. Or by a grid laid over it (`grid`): its shape, which bends it whole.
+  const Outline = window.TypeROutline;
+  let shapeTool = readStore("typer.web.sfx.shapeTool", "points") === "grid" ? "grid" : "points";
+  const pointsNow = (group) => shapingNow(group) && shapeTool === "points";
+  // The anchors picked on the letter, as "path:index"
+  let pointsPicked = { key: null, set: new Set() };
+  const pickedPoints = (key) => (pointsPicked.key === key ? pointsPicked.set : new Set());
+  const pickPoints = (key, list) => {
+    pointsPicked = { key, set: new Set(list) };
+  };
+  // The brush that pulls the outline: across, in pixels of the screen
+  let brushSize = clamp(Math.round(Number(readStore("typer.web.sfx.brush", 60)) || 60), 10, 400);
+  let brushAt = null;
+  // A rectangle dragged to pick points, on the page
+  let marquee = null;
+
+  // The font's own letter, traced, in parts of its box: a letter's outline before it has one
+  const tracedOutlines = new Map();
+  const tracedOutline = (doc, pose) => {
+    const key = [Fonts.generation, doc.resolution, pose.font.ps, pose.ch].join("|");
+    if (tracedOutlines.has(key)) return tracedOutlines.get(key);
+    if (tracedOutlines.size > 200) tracedOutlines.clear();
+    const layer = { kind: "text", params: paramsFor(doc, pose.ch, styleFor(pose.font, 100, 1, 1, { red: 0, green: 0, blue: 0 }), [0, 0]) };
+    let outline = null;
+    try {
+      outline = PS.traceText(layer, doc);
+    } catch (error) {
+      outline = null;
+    }
+    tracedOutlines.set(key, outline);
+    return outline;
+  };
+  // An outline with a shape on it, the shape made part of it
+  const bentOutline = (contours, mesh) => {
+    if (!mesh) return contours;
+    const shift = PS.meshShift(mesh);
+    return Outline.mapped(contours, (u, v) => {
+      const [du, dv] = shift(u, v);
+      return [u + du, v + dv];
+    });
+  };
+  // The outline a letter is worked on with: its own or the font's, its shape in it
+  let editKept = null;
+  const outlineToEdit = (doc, letter, pose) => {
+    const kept = editKept;
+    if (kept && kept.letter === letter && kept.mesh === pose.mesh && kept.doc === doc && kept.gen === Fonts.generation && kept.ch === pose.ch && kept.font === pose.font.ps) return kept.contours;
+    const base = letter.outline || tracedOutline(doc, pose);
+    const contours = base ? bentOutline(base.c, pose.mesh) : null;
+    editKept = { letter, mesh: pose.mesh, doc, gen: Fonts.generation, ch: pose.ch, font: pose.font.ps, contours };
+    return contours;
+  };
+  const tidyOutline = (contours) => contours.filter((contour) => contour.length >= 2).map((contour) => contour.map((p) => [round(p[0], 100000), round(p[1], 100000), round(p[2], 100000), round(p[3], 100000), round(p[4], 100000), round(p[5], 100000), p[6] ? 1 : 0]));
+  // The letter given that outline (its shape now in it), in one step of history
+  const setOutline = (group, recipe, key, contours, options) => {
+    const letter = recipe.letters.find((item) => item.key === key);
+    if (!letter) return;
+    const paths = contours ? tidyOutline(contours) : [];
+    letter.outline = paths.length ? { ch: letter.ch, c: paths } : null;
+    letter.shape = null;
+    apply(group, normal(recipe), options);
+  };
+  // A change to the picked letter's outline, from the buttons: `change(contours, geometry)`
+  const outlineEdit = (key, change, name) => {
+    const doc = app.doc;
+    const group = activeSfx();
+    if (!doc || !group) return;
+    const { recipe } = settled(doc, group);
+    const pose = layoutOf(recipe, doc).letters.find((item) => item.key === key);
+    const letter = recipe.letters.find((item) => item.key === key);
+    if (!pose || !letter) return;
+    const contours = outlineToEdit(doc, letter, pose);
+    if (!contours) return;
+    const next = change(contours, geometryOf(doc, pose));
+    if (next) setOutline(group, recipe, key, next, { name: name || "SFX Letter Shape" });
+  };
+  // A ready-made shape, or the dice's, on the outline itself
+  const bendLetter = (key, f) => outlineEdit(key, (contours) => Outline.mapped(contours, (u, v) => {
+    const [du, dv] = f(u, v);
+    return [u + du, v + dv];
+  }));
+  // In pixels of the page, as tolerances are, then back in parts of the box
+  const inPixels = (contours, geo, change) => {
+    const w = geo.w || 1;
+    const h = geo.h || 1;
+    const out = change(Outline.mapped(contours, (u, v) => [u * w, v * h]), Math.max(w, h));
+    return out ? Outline.mapped(out, (x, y) => [x / w, y / h]) : null;
+  };
+  // Rough edges, as drawn with a brush: more points, each pushed in or out a little
+  const roughen = (key) => outlineEdit(key, (contours, geo) => inPixels(contours, geo, (paths, size) => {
+    const dense = Outline.densify(paths, Math.max(1.5, size * 0.06));
+    const reach = size * 0.014;
+    return dense.map((contour) => contour.map((p, i) => {
+      const n = contour.length;
+      const a = contour[(i - 1 + n) % n];
+      const b = contour[(i + 1) % n];
+      const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      const k = (Math.random() * 2 - 1) * reach;
+      const nx = ((b[1] - a[1]) / length) * k;
+      const ny = (-(b[0] - a[0]) / length) * k;
+      return [p[0] + nx, p[1] + ny, p[2] + nx, p[3] + ny, p[4] + nx, p[5] + ny, p[6]];
+    }));
+  }));
+  // The same outline with fewer points: followed, and drawn again with fewer curves
+  const fewerPoints = (key) => {
+    outlineEdit(key, (contours, geo) => inPixels(contours, geo, (paths, size) => Outline.simplify(paths, Math.max(0.5, size * 0.012), { reach: Math.max(1.5, size * 0.012) })));
+    pickPoints(key, []);
+  };
+  // The points picked taken away (a path left with too few goes with them)
+  const removePoints = (key) => {
+    const chosen = Array.from(pickedPoints(key)).map((id) => id.split(":").map(Number)).sort((a, b) => b[0] - a[0] || b[1] - a[1]);
+    if (!chosen.length) return false;
+    outlineEdit(key, (contours) => {
+      let next = Outline.copy(contours);
+      chosen.forEach(([c, i]) => {
+        if (next[c] && next[c][i]) next = Outline.remove(next, c, i);
+      });
+      return next;
+    }, "SFX Letter Shape");
+    pickPoints(key, []);
+    return true;
+  };
+  // The points picked moved by (dx, dy) on the page
+  const nudgePoints = (key, dx, dy, coalesce) => {
+    const chosen = Array.from(pickedPoints(key)).map((id) => id.split(":").map(Number));
+    if (!chosen.length) return false;
+    const doc = app.doc;
+    const group = activeSfx();
+    if (!doc || !group) return false;
+    const { recipe } = settled(doc, group);
+    const pose = layoutOf(recipe, doc).letters.find((item) => item.key === key);
+    const letter = recipe.letters.find((item) => item.key === key);
+    if (!pose || !letter) return false;
+    const contours = outlineToEdit(doc, letter, pose);
+    if (!contours) return false;
+    const [du, dv] = geometryOf(doc, pose).toLetter(dx, dy);
+    const next = Outline.copy(contours);
+    chosen.forEach(([c, i]) => {
+      const p = next[c] && next[c][i];
+      if (!p) return;
+      for (let k = 0; k < 6; k += 2) {
+        p[k] += du;
+        p[k + 1] += dv;
+      }
+    });
+    setOutline(group, recipe, key, next, { name: "SFX Letter Shape", coalesce });
+    return true;
+  };
+  const allPoints = (doc, group, key) => {
+    const read = settledNow(doc, group);
+    const letter = read.recipe.letters.find((item) => item.key === key);
+    const pose = read.layout && read.layout.letters.find((item) => item.key === key);
+    const contours = letter && pose ? outlineToEdit(doc, letter, pose) : null;
+    const out = [];
+    (contours || []).forEach((contour, c) => contour.forEach((point, i) => out.push(`${c}:${i}`)));
+    return out;
+  };
+
+  // A press while the letter's points show: on a handle, an anchor, the outline, the letter
+  // (the brush), or nothing (null)
+  const lastPress = { time: 0, at: [0, 0] };
+  const pointsGesture = (doc, group, key, base, event, point, handle, token) => {
+    const { recipe } = settled(doc, group);
+    const layout = layoutOf(recipe, doc);
+    const pose = layout.letters.find((item) => item.key === key);
+    const letter = recipe.letters.find((item) => item.key === key);
+    if (!pose || !letter) return null;
+    const geo = geometryOf(doc, pose);
+    const contours = outlineToEdit(doc, letter, pose);
+    if (!contours) return null;
+    const now = Date.now();
+    const twice = now - lastPress.time < 400 && Math.hypot(point[0] - lastPress.at[0], point[1] - lastPress.at[1]) * doc.view.zoom < 6;
+    lastPress.time = twice ? 0 : now;
+    lastPress.at = point;
+    const common = { kind: "sfx", group: group.id, key, recipe, layout, geo, contours, token };
+    if (handle && handle.kind === "pointHandle") return Object.assign(base, common, { mode: "pointHandle", c: handle.c, i: handle.i, side: handle.side, free: event.altKey });
+    if (handle && handle.kind === "anchor") {
+      const id = `${handle.c}:${handle.i}`;
+      const chosen = pickedPoints(key);
+      if (event.shiftKey) {
+        const next = new Set(chosen);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        pickPoints(key, next);
+      } else if (!chosen.has(id)) pickPoints(key, [id]);
+      drawOverlay();
+      return Object.assign(base, common, { mode: event.altKey ? "pointConvert" : "pointMove", c: handle.c, i: handle.i, chosen: Array.from(pickedPoints(key)), wasPicked: chosen.has(id) });
+    }
+    const page = Outline.mapped(contours, (u, v) => geo.plain(u, v));
+    const near = Outline.nearest(page, point[0], point[1]);
+    const zoom = doc.view.zoom;
+    if (near && near.distance * zoom <= 6) {
+      // A double-click on the outline: a new point there
+      if (twice) {
+        const made = Outline.split(contours, near.c, near.i, near.t);
+        setOutline(layerById(doc, group.id) || group, recipe, key, made.contours, { name: "SFX Letter Shape" });
+        pickPoints(key, [`${near.c}:${made.index}`]);
+        drawOverlay();
+        return Object.assign(base, { kind: "sfx", mode: "none", group: group.id, token });
+      }
+      return Object.assign(base, common, { mode: "pointBend", c: near.c, i: near.i, t: near.t });
+    }
+    const radius = brushSize / 2 / zoom;
+    if ((near && near.distance <= radius) || Outline.contains(page, point[0], point[1])) return Object.assign(base, common, { mode: "pointSculpt", radius });
+    return null;
+  };
+  // The brush: what is near where the drag began follows it, less and less further away
+  // (Liquify's), its handles with it. Alt: the other side of the letter too, mirrored.
+  const falloff = (d) => (d >= 1 ? 0 : (1 - d * d) * (1 - d * d));
+  const sculpted = (gesture, du, dv, mirror) => {
+    const { geo } = gesture;
+    if (!gesture.dense) {
+      // Points enough under the brush, and only there
+      const most = gesture.radius / 2 / Math.max(geo.w, geo.h, 1);
+      const reach = gesture.radius * 1.2;
+      const under = (bez) => {
+        for (let k = 0; k <= 16; k++) {
+          const [u, v] = Outline.bezierAt(bez, k / 16);
+          const [x, y] = geo.plain(u, v);
+          if (Math.hypot(x - gesture.start[0], y - gesture.start[1]) <= reach) return true;
+        }
+        return false;
+      };
+      gesture.dense = Outline.densify(gesture.contours, Math.max(0.004, most), under);
+      const [su, sv] = geo.toUv(gesture.start[0], gesture.start[1]);
+      const mirrored = geo.plain(1 - su, sv);
+      const weigh = (from) => gesture.dense.map((contour) => contour.map((p) => [0, 2, 4].map((k) => {
+        const [x, y] = geo.plain(p[k], p[k + 1]);
+        return falloff(Math.hypot(x - from[0], y - from[1]) / gesture.radius);
+      })));
+      gesture.weights = weigh(gesture.start);
+      gesture.mirrorWeights = weigh(mirrored);
+    }
+    return gesture.dense.map((contour, c) => contour.map((p, i) => {
+      const out = p.slice();
+      [0, 2, 4].forEach((k, j) => {
+        const w = gesture.weights[c][i][j];
+        const m = mirror ? gesture.mirrorWeights[c][i][j] : 0;
+        out[k] += du * w - du * m;
+        out[k + 1] += dv * w + dv * m;
+      });
+      return out;
+    }));
+  };
+  const pointsMove = (gesture, event, point) => {
+    const doc = app.doc;
+    const group = layerById(doc, gesture.group);
+    if (!group) return;
+    if (gesture.mode === "pointMarquee") {
+      marquee = [gesture.start, point];
+      drawOverlay();
+      return;
+    }
+    const { geo, contours, c, i } = gesture;
+    let dx = point[0] - gesture.start[0];
+    let dy = point[1] - gesture.start[1];
+    // Shift: straight across or up and down
+    if (event.shiftKey && gesture.mode !== "pointHandle" && gesture.mode !== "pointConvert") {
+      if (Math.abs(dx) > Math.abs(dy)) dy = 0;
+      else dx = 0;
+    }
+    const [du, dv] = geo.toLetter(dx, dy);
+    let next = null;
+    if (gesture.mode === "pointMove") {
+      next = Outline.copy(contours);
+      gesture.chosen.forEach((id) => {
+        const [pc, pi] = id.split(":").map(Number);
+        const p = next[pc] && next[pc][pi];
+        if (!p) return;
+        for (let k = 0; k < 6; k += 2) {
+          p[k] += du;
+          p[k + 1] += dv;
+        }
+      });
+    } else if (gesture.mode === "pointHandle" || gesture.mode === "pointConvert") {
+      next = Outline.copy(contours);
+      const p = next[c] && next[c][i];
+      if (!p) return;
+      const [u, v] = geo.toUv(point[0], point[1]);
+      if (gesture.mode === "pointConvert") {
+        // Alt + drag from an anchor: its handles drawn out of it, in line
+        p[4] = u;
+        p[5] = v;
+        p[2] = 2 * p[0] - u;
+        p[3] = 2 * p[1] - v;
+        p[6] = 1;
+      } else {
+        const side = gesture.side;
+        p[side === "in" ? 2 : 4] = u;
+        p[side === "in" ? 3 : 5] = v;
+        // Alt: this handle alone, the anchor a corner; else a smooth anchor keeps both in line
+        if (gesture.free) p[6] = 0;
+        else if (p[6]) next[c][i] = Outline.alignHandles(p, side);
+      }
+    } else if (gesture.mode === "pointBend") {
+      next = Outline.bend(contours, c, i, gesture.t, du, dv);
+    } else if (gesture.mode === "pointSculpt") {
+      next = sculpted(gesture, du, dv, event.altKey);
+      if (gesture.dense !== contours) pickPoints(gesture.key, []);
+    }
+    if (!next) return;
+    setOutline(group, normal(clone(gesture.recipe)), gesture.key, next, { name: "SFX Letter Shape", coalesce: gesture.token });
+  };
+  const pointsUp = (gesture, event) => {
+    const doc = app.doc;
+    const key = gesture.key;
+    if (gesture.mode === "pointMarquee") {
+      const area = marquee;
+      marquee = null;
+      if (gesture.moved && area) {
+        const group = layerById(doc, gesture.group);
+        const read = group ? settledNow(doc, group) : null;
+        const letter = read && read.recipe.letters.find((item) => item.key === key);
+        const pose = read && read.layout && read.layout.letters.find((item) => item.key === key);
+        const contours = letter && pose ? outlineToEdit(doc, letter, pose) : null;
+        const geo = pose ? geometryOf(doc, pose) : null;
+        const left = Math.min(area[0][0], area[1][0]);
+        const right = Math.max(area[0][0], area[1][0]);
+        const top = Math.min(area[0][1], area[1][1]);
+        const bottom = Math.max(area[0][1], area[1][1]);
+        const inside = gesture.add ? Array.from(pickedPoints(key)) : [];
+        (contours || []).forEach((contour, c) => contour.forEach((p, i) => {
+          const [x, y] = geo.plain(p[0], p[1]);
+          if (x >= left && x <= right && y >= top && y <= bottom) inside.push(`${c}:${i}`);
+        }));
+        pickPoints(key, inside);
+      } else if (pickedPoints(key).size) pickPoints(key, []);
+      else shapeMode = false;
+      showAll();
+      return true;
+    }
+    if (gesture.mode === "pointConvert" && !gesture.moved) {
+      // Alt + click on an anchor: a corner becomes smooth, a smooth one a corner
+      outlineEdit(key, (contours) => {
+        const next = Outline.copy(contours);
+        const contour = next[gesture.c];
+        if (!contour || !contour[gesture.i]) return null;
+        contour[gesture.i] = contour[gesture.i][6] ? Outline.sharpen(contour[gesture.i]) : Outline.smoothen(contour, gesture.i);
+        return next;
+      });
+      tell({ mode: "pointConvert" });
+      return true;
+    }
+    // A click on one of several picked: that one alone
+    if (gesture.mode === "pointMove" && !gesture.moved && gesture.wasPicked && !event.shiftKey) pickPoints(key, [`${gesture.c}:${gesture.i}`]);
+    drawOverlay();
+    if (gesture.moved) tell({ mode: gesture.mode });
+    return true;
+  };
+  // What the overlay shows of the letter's points: its outline, its anchors, the handles of
+  // those picked and of the curves next to them, the brush, a rectangle being dragged
+  const drawPoints = (g, box, letter, pose) => {
+    const doc = app.doc;
+    const contours = outlineToEdit(doc, letter, pose);
+    if (!contours) return;
+    const toScreen = (u, v) => screen(box.plain(u, v));
+    svg("path", { d: Outline.svgPath(contours, toScreen), class: "sfx-path" }, g);
+    const chosen = pickedPoints(pose.key);
+    const shown = new Set();
+    chosen.forEach((id) => {
+      const [c, i] = id.split(":").map(Number);
+      const contour = contours[c];
+      if (!contour || !contour[i]) return;
+      const n = contour.length;
+      shown.add(`${c}:${i}:in`);
+      shown.add(`${c}:${i}:out`);
+      shown.add(`${c}:${(i - 1 + n) % n}:out`);
+      shown.add(`${c}:${(i + 1) % n}:in`);
+    });
+    shown.forEach((id) => {
+      const [c, i, side] = id.split(":");
+      const p = contours[Number(c)][Number(i)];
+      const hx = side === "in" ? p[2] : p[4];
+      const hy = side === "in" ? p[3] : p[5];
+      if (Math.abs(hx - p[0]) < 1e-6 && Math.abs(hy - p[1]) < 1e-6) return;
+      const [ax, ay] = toScreen(p[0], p[1]);
+      const [x, y] = toScreen(hx, hy);
+      svg("line", { x1: ax, y1: ay, x2: x, y2: y, class: "sfx-tangent-line" }, g);
+      svg("circle", { cx: x, cy: y, r: 3.5, class: "sfx-tangent" }, g);
+      handles.push({ kind: "pointHandle", c: Number(c), i: Number(i), side, at: [x, y], key: pose.key });
+    });
+    contours.forEach((contour, c) => contour.forEach((p, i) => {
+      const [x, y] = toScreen(p[0], p[1]);
+      const on = chosen.has(`${c}:${i}`);
+      svg("rect", { x: x - 3, y: y - 3, width: 6, height: 6, class: `sfx-anchor${on ? " is-on" : ""}` }, g);
+      handles.push({ kind: "anchor", c, i, at: [x, y], key: pose.key });
+    }));
+    if (marquee) {
+      const [a, b] = marquee.map(screen);
+      svg("rect", { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), width: Math.abs(b[0] - a[0]), height: Math.abs(b[1] - a[1]), class: "sfx-marquee" }, g);
+    }
+    const brush = svg("circle", { cx: brushAt ? brushAt[0] : -999, cy: brushAt ? brushAt[1] : -999, r: brushSize / 2, class: "sfx-brush" }, g);
+    brush.style.display = brushAt ? "" : "none";
+  };
+  const setBrush = (size) => {
+    brushSize = clamp(Math.round(size), 10, 400);
+    writeStore("typer.web.sfx.brush", brushSize);
+    drawOverlay();
+    renderOptions();
+  };
+  const setShapeTool = (tool) => {
+    shapeTool = tool === "grid" ? "grid" : "points";
+    writeStore("typer.web.sfx.shapeTool", shapeTool);
+    brushAt = null;
+    showAll();
+  };
+
   // A handle the SFX guide points at: an end of the path, the picked letter, its ● or its corner
   let mark = null;
   const setMark = (kind) => {
@@ -1465,26 +2114,61 @@
     // The letters' boxes on the page, kept with the reading: a zoom or a pan only projects them
     if (!read.boxes) {
       const byKey = new Map(recipe.letters.map((item) => [item.key, item]));
-      read.boxes = layout.letters.map((pose) => {
-        const m = measure(doc, pose.font, pose.ch);
-        const k = pose.size / 100;
-        return { pose, letter: byKey.get(pose.key) || null, w: (m.w * k * pose.sx) / 2, h: (m.h * k * pose.sy) / 2, spin: spinOf(pose.rot, pose.skew) };
-      });
+      read.boxes = layout.letters.map((pose) => Object.assign(geometryOf(doc, pose), { letter: byKey.get(pose.key) || null }));
     }
     svg("polyline", { points: layout.guide.map(screen).map((p) => p.join(",")).join(" "), class: "sfx-guide" }, g);
     const key = pickedLetter(group);
+    const shaping = shapingNow(group);
     const pad = 2 / doc.view.zoom;
-    read.boxes.forEach(({ pose, letter, spin, w: hw, h: hh }) => {
-      const w = hw + pad;
-      const h = hh + pad;
-      const corners = [[-w, -h], [w, -h], [w, h], [-w, h]].map(([x, y]) => screen([pose.center[0] + spin[0] * x + spin[2] * y, pose.center[1] + spin[1] * x + spin[3] * y]));
+    read.boxes.forEach((box) => {
+      const { pose, letter, spin } = box;
       const on = pose.key === key;
-      svg("polygon", { points: corners.map((p) => p.join(",")).join(" "), class: `sfx-letter${on ? " is-on" : ""}${letter && (letter.o || letter.lock) ? " is-touched" : ""}` }, g);
+      let corners;
+      let outline;
+      if (pose.mesh) {
+        // A letter with a shape of its own: the edge of its box, as it is pulled
+        if (!box.edge) box.edge = edgeOf(box);
+        outline = box.edge.map(screen);
+        corners = [box.at(0, 0), box.at(1, 0), box.at(1, 1), box.at(0, 1)].map(screen);
+      } else {
+        const w = box.w / 2 + pad;
+        const h = box.h / 2 + pad;
+        corners = [[-w, -h], [w, -h], [w, h], [-w, h]].map(([x, y]) => screen([pose.center[0] + spin[0] * x + spin[2] * y, pose.center[1] + spin[1] * x + spin[3] * y]));
+        outline = corners;
+      }
+      svg("polygon", { points: outline.map((p) => p.join(",")).join(" "), class: `sfx-letter${on ? " is-on" : ""}${on && shaping ? " is-shaping" : ""}${letter && (letter.o || letter.lock || letter.shape || letter.outline) ? " is-touched" : ""}` }, g);
       if (letter && letter.lock) {
         const [x, y] = corners[1];
         svg("circle", { cx: x, cy: y, r: 3, class: "sfx-pin" }, g);
       }
-      if (on) {
+      if (on && shaping && shapeTool === "points") drawPoints(g, box, letter, pose);
+      else if (on && shaping) {
+        // Its grid: the lines through its points, each point a handle
+        const n = letter && letter.shape ? letter.shape.n : gridSize;
+        let d = "";
+        for (let line = 0; line < n; line++) {
+          const t = line / (n - 1);
+          [(s) => box.at(s, t), (s) => box.at(t, s)].forEach((at) => {
+            for (let step = 0; step <= 16; step++) {
+              const [x, y] = screen(at(step / 16));
+              d += `${step ? "L" : "M"}${round(x, 10)} ${round(y, 10)}`;
+            }
+          });
+        }
+        svg("path", { d, class: "sfx-mesh" }, g);
+        for (let k = 0; k < n * n; k++) {
+          const [x, y] = screen(box.at((k % n) / (n - 1), Math.floor(k / n) / (n - 1)));
+          svg("circle", { cx: x, cy: y, r: 4, class: "sfx-mesh-point" }, g);
+          handles.push({ kind: "shapePoint", index: k, at: [x, y], key: pose.key });
+        }
+      } else if (on) {
+        // Its shape: a click on the ◆ at its top-left corner
+        const [sx, sy] = corners[0];
+        const outward = [sx - screen(pose.center)[0], sy - screen(pose.center)[1]];
+        const far = Math.hypot(outward[0], outward[1]) || 1;
+        const at = [sx + (outward[0] / far) * 9, sy + (outward[1] / far) * 9];
+        svg("path", { d: `M${at[0]} ${at[1] - 5}L${at[0] + 5} ${at[1]}L${at[0]} ${at[1] + 5}L${at[0] - 5} ${at[1]}Z`, class: "sfx-shape" }, g);
+        handles.push({ kind: "letterShape", at, key: pose.key });
         const top = [(corners[0][0] + corners[1][0]) / 2, (corners[0][1] + corners[1][1]) / 2];
         const center = screen(pose.center);
         const away = [top[0] - center[0], top[1] - center[1]];
@@ -1498,7 +2182,8 @@
         handles.push({ kind: "letterSize", at: corner, key: pose.key });
       }
     });
-    // The path's ends and its bend
+    // The path's ends and its bend (not while a letter is being shaped: the drags are its)
+    if (shaping) return;
     if (recipe.path.kind !== "free" && recipe.path.kind !== "circle") {
       const ends = [layout.guide[0], layout.guide[layout.guide.length - 1]];
       ends.forEach((p, i) => {
@@ -1573,6 +2258,37 @@
     const handle = group ? handleAt(event) : null;
     gestures++;
     const token = `gesture:sfx${gestures}`;
+    if (shapingNow(group)) {
+      const key = pickedLetter(group);
+      if (shapeTool === "points") {
+        const made = pointsGesture(doc, group, key, base, event, point, handle, token);
+        if (made) return made;
+      } else {
+        if (handle && handle.kind === "shapePoint") {
+          const made = shapeGesture(doc, group, key, base, (n) => ({ mode: "shapePoint", token, weights: Array.from({ length: n * n }, (_, k) => (k === handle.index ? 1 : 0)) }));
+          if (made) return made;
+        }
+        const made = shapeGesture(doc, group, key, base, (n, geo) => {
+          const near = nearestOnLetter(geo, point);
+          if (near.far * doc.view.zoom > 14) return null;
+          return { mode: "shapePull", token, weights: pullWeights(n, near.u, near.v) };
+        });
+        if (made && made.mode === "shapePull") return made;
+      }
+      // Another letter of the SFX: its shape is worked on next
+      const other = letterAt(point);
+      if (other && other.group.id === group.id && other.key !== null && other.key !== key) {
+        picked = { group: group.id, key: other.key };
+        pickPoints(other.key, []);
+        showAll();
+        return Object.assign(base, { kind: "sfx", mode: "none", group: group.id, token });
+      }
+      // Away from it: a rectangle picks points, a click lets them go, then is done
+      if (shapeTool === "points") return Object.assign(base, { kind: "sfx", mode: "pointMarquee", group: group.id, key, token, add: event.shiftKey });
+      if (!(other && other.group.id === group.id)) shapeMode = false;
+      showAll();
+      return Object.assign(base, { kind: "sfx", mode: "none", group: group.id, token });
+    }
     if (handle) {
       const { recipe } = settled(doc, group);
       const layout = layoutOf(recipe, doc);
@@ -1598,7 +2314,11 @@
     const doc = app.doc;
     if (!doc) return;
     if (Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > gesture.slop) gesture.moved = true;
-    if (!gesture.moved) return;
+    if (!gesture.moved || gesture.mode === "none" || gesture.mode === "letterShape") return;
+    if (gesture.mode.startsWith("point")) {
+      pointsMove(gesture, event, point);
+      return;
+    }
     const group = layerById(doc, gesture.group);
     if (gesture.mode === "create") {
       const last = gesture.points[gesture.points.length - 1];
@@ -1659,6 +2379,23 @@
         if (locked) o.size *= factor;
         else o.scale *= factor;
       });
+    } else if ((gesture.mode === "shapePoint" || gesture.mode === "shapePull") && letter) {
+      // In the letter's own frame. Shift: straight across or up and down. Alt: both sides
+      // alike, as on an A or a V.
+      let [du, dv] = gesture.geo.toLetter(dx, dy);
+      if (event.shiftKey) {
+        if (Math.abs(du * gesture.geo.w) > Math.abs(dv * gesture.geo.h)) dv = 0;
+        else du = 0;
+      }
+      const { n, weights } = gesture;
+      const p = gesture.own.p.map((d) => d.slice());
+      for (let k = 0; k < n * n; k++) {
+        const i = k % n;
+        const m = k - i + (n - 1 - i);
+        p[k][0] += du * (event.altKey ? weights[k] - weights[m] : weights[k]);
+        p[k][1] += dv * (event.altKey ? Math.max(weights[k], weights[m]) : weights[k]);
+      }
+      letter.shape = tidyShape({ n, p });
     } else if (gesture.mode === "whole") {
       recipe.origin = [recipe.origin[0] + dx, recipe.origin[1] + dy];
       if (recipe.source) recipe.source.at = [recipe.source.at[0] + dx, recipe.source.at[1] + dy];
@@ -1817,6 +2554,7 @@
     preview = null;
     showEndHint(false);
     if (cancelled) {
+      marquee = null;
       drawOverlay();
       return;
     }
@@ -1845,6 +2583,11 @@
       tell({ mode: "create" });
       return;
     }
+    if (gesture.mode === "letterShape" && !gesture.moved) {
+      enterShape();
+      return;
+    }
+    if (gesture.mode && gesture.mode.startsWith("point") && pointsUp(gesture, event)) return;
     showAll();
     if (gesture.moved) tell({ mode: gesture.mode, ways: gesture.ways ? Array.from(gesture.ways) : [] });
     else if (gesture.mode === "letter") tell({ mode: "pick" });
@@ -1853,10 +2596,47 @@
   const hover = (event, point) => {
     const stage = $("stage");
     if (!app.doc) return;
-    const handle = activeSfx() ? handleAt(event) : null;
+    const group = activeSfx();
+    const handle = group ? handleAt(event) : null;
     showEndHint(Boolean(handle && (handle.kind === "end0" || handle.kind === "end1")));
+    if (pointsNow(group)) {
+      const read = settledNow(app.doc, group);
+      const key = pickedLetter(group);
+      const box = read.boxes && read.boxes.find((item) => item.pose.key === key);
+      let cursor = letterAt(point) ? "pointer" : "default";
+      let brush = null;
+      if (handle) cursor = handle.kind === "pointHandle" ? "crosshair" : "move";
+      else if (box && box.letter) {
+        const contours = outlineToEdit(app.doc, box.letter, box.pose);
+        const page = contours ? Outline.mapped(contours, (u, v) => box.plain(u, v)) : null;
+        const near = page ? Outline.nearest(page, point[0], point[1]) : null;
+        const zoom = app.doc.view.zoom;
+        if (near && near.distance * zoom <= 6) cursor = "copy";
+        else if (page && ((near && near.distance * zoom <= brushSize / 2) || Outline.contains(page, point[0], point[1]))) {
+          cursor = "none";
+          brush = screen(point);
+        }
+      }
+      stage.style.cursor = cursor;
+      const changed = Boolean(brush) !== Boolean(brushAt);
+      brushAt = brush;
+      const circle = overlayGroup() && overlayGroup().querySelector(".sfx-brush");
+      if (circle && brush) {
+        circle.setAttribute("cx", brush[0]);
+        circle.setAttribute("cy", brush[1]);
+      }
+      if (circle && changed) circle.style.display = brush ? "" : "none";
+      return;
+    }
+    if (shapingNow(group)) {
+      const read = settledNow(app.doc, group);
+      const box = read.boxes && read.boxes.find((item) => item.pose.key === pickedLetter(group));
+      const onLetter = box && nearestOnLetter(box, point).far * app.doc.view.zoom <= 14;
+      stage.style.cursor = handle ? "move" : onLetter ? "grab" : letterAt(point) ? "pointer" : "default";
+      return;
+    }
     if (handle) {
-      stage.style.cursor = handle.kind === "letterTurn" ? "grab" : handle.kind === "letterSize" ? "nwse-resize" : "move";
+      stage.style.cursor = handle.kind === "letterTurn" ? "grab" : handle.kind === "letterSize" ? "nwse-resize" : handle.kind === "letterShape" ? "pointer" : "move";
       return;
     }
     stage.style.cursor = letterAt(point) ? "move" : "crosshair";
@@ -2169,6 +2949,108 @@
     }, 30);
   };
 
+  /* ----------------------------- a letter's own shape ----------------------------- */
+
+  const enterShape = () => {
+    if (pickedLetter(activeSfx()) === null) return;
+    shapeMode = true;
+    showAll();
+    tell({ mode: "shape" });
+  };
+  const leaveShape = () => {
+    shapeMode = false;
+    brushAt = null;
+    marquee = null;
+    pickPoints(null, []);
+    showAll();
+  };
+  // Ready-made shapes, each click adding to the shape the letter has: the same one twice
+  // goes twice as far, and two make one between them
+  const SHAPE_PRESETS = [
+    ["Narrow at the top", '<path d="M6 3h4l3 10H3z"/>', (u, v) => [(0.5 - u) * 0.36 * (1 - v), 0]],
+    ["Narrow at the foot", '<path d="M3 3h10l-3 10H6z"/>', (u, v) => [(0.5 - u) * 0.36 * v, 0]],
+    ["Bulge", '<path d="M5 3h6q3.5 5 0 10H5q-3.5-5 0-10z"/>', (u, v) => [(u - 0.5) * 0.4 * Math.sin(Math.PI * v), (v - 0.5) * 0.24 * Math.sin(Math.PI * u)]],
+    ["Pinch", '<path d="M3 3h10q-3 5 0 10H3q3-5 0-10z"/>', (u, v) => [-(u - 0.5) * 0.36 * Math.sin(Math.PI * v), -(v - 0.5) * 0.2 * Math.sin(Math.PI * u)]],
+    ["Arch", '<path d="M3 13V7q5-6 10 0v6z"/>', (u, v) => [0, -0.24 * Math.sin(Math.PI * u) * (1 - v)]],
+    ["Taller on the left", '<path d="M3 13V3l10 4v6z"/>', (u, v) => [0, -0.3 * (1 - u) * (1 - v)]],
+    ["Taller on the right", '<path d="M3 13V7l10-4v10z"/>', (u, v) => [0, -0.3 * u * (1 - v)]],
+  ];
+  const SHAPE_ICON = '<path d="M3 4.5q5-3 10 0v8q-5 2.5-10 0z"/><path d="M8 3v11.5M3 8.5q5-1.5 10 0"/>';
+  const shapeLetter = (key, change, name) => editLetter(key, (letter, recipe) => {
+    const n = letter.shape ? letter.shape.n : gridSize;
+    letter.shape = tidyShape(change(regrid(letter.shape, n), n, letter, recipe));
+  }, null, name || "SFX Letter Shape");
+  const addShape = (key, f) => shapeLetter(key, (own, n) => {
+    const add = gridOf(n, f);
+    return { n, p: own.p.map((d, k) => [d[0] + add.p[k][0], d[1] + add.p[k][1]]) };
+  });
+  const setGrid = (key, n) => {
+    gridSize = n;
+    writeStore("typer.web.sfx.grid", n);
+    const recipe = recipeNow(activeSfx());
+    const letter = recipe.letters.find((item) => item.key === key);
+    if (letter && letter.shape && letter.shape.n !== n) shapeLetter(key, (own) => regrid(own, n));
+    else showAll();
+  };
+  // Every letter of the word with this one's shape
+  const shapeAll = (key) => edit((recipe) => {
+    const from = recipe.letters.find((item) => item.key === key);
+    if (!from) return;
+    recipe.letters.forEach((letter) => { letter.shape = from.shape ? clone(from.shape) : null; });
+  }, null, "SFX Letter Shape");
+
+  const ROUGH = '<path d="M2.5 12.5 4 9l1.5 1.5L7 6l1.5 2L10 4l1.5 3 2-3.5"/>';
+  const FEWER = '<path d="M2.5 11.5Q8 1.5 13.5 11.5"/><rect x="1.5" y="10.5" width="2" height="2"/><rect x="12.5" y="10.5" width="2" height="2"/>';
+  const shapeOptions = (bar, recipe, group, letter, key) => {
+    iconButton(bar, BACK, T("Done with the shape"), false, leaveShape);
+    const name = el("span", "obar__hint sfx__letter-name", bar, fill(T("Shape of {letter}"), { letter: `“${letter.ch}”` }));
+    name.title = shapeTool === "points"
+      ? T("Drag a point, a handle or the outline. Drag on the letter: the brush pulls it ([ and ] size it). Double-click the outline: a new point. Alt + click a point: corner or smooth. Delete: the points picked go. Shift: straight. Tab: the next letter. Esc: done.")
+      : T("Drag a point of the grid, or any part of the letter. Shift: straight across or up and down. Alt: both sides alike. Tab: the next letter. Esc: done.");
+    // Its points, or a grid over it
+    const tools = el("span", "obar__group sfx__grids", bar);
+    [["points", T("Points"), T("The letter's own outline: pull its points, their handles, its curves, or brush over it")], ["grid", T("Grid"), T("A grid over the letter, that bends it whole")]].forEach(([tool, label, title]) => {
+      const node = button(tools, label, () => setShapeTool(tool), shapeTool === tool ? "is-on" : "");
+      node.setAttribute("aria-pressed", String(shapeTool === tool));
+      node.title = title;
+    });
+    if (shapeTool === "points") {
+      const A = App();
+      const size = A.numberInput(brushSize, 10, 400, (value) => { if (value > 0) setBrush(value); }, 1);
+      size.title = T("Size of the brush that pulls the letter ([ and ])");
+      bar.appendChild(A.scrubbed(T("Brush"), size));
+      const ready = el("span", "obar__group sfx__shapes", bar);
+      SHAPE_PRESETS.forEach(([label, inner, f]) => iconButton(ready, inner, `${T(label)} (${T("click again for more")})`, false, () => bendLetter(key, f)));
+      iconButton(ready, DICE, T("A shape by chance for this letter"), false, () => bendLetter(key, PS.meshShift(shapeByChance(0.7, () => Math.random() * 2 - 1))));
+      iconButton(ready, ROUGH, `${T("Rough edges, as drawn with a brush")} (${T("click again for more")})`, false, () => roughen(key));
+      iconButton(ready, FEWER, T("Fewer points: the same outline, smoother"), false, () => fewerPoints(key));
+      const actions = el("span", "sfx__acts", bar);
+      button(actions, T("Reset"), () => {
+        pickPoints(key, []);
+        shapeLetter(key, () => null);
+        editLetter(key, (l) => { l.outline = null; }, null, "SFX Letter Shape");
+      }).disabled = !letter.shape && !letter.outline;
+      button(actions, T("Done"), leaveShape, "btn--main");
+      helpButton(bar);
+      return;
+    }
+    const n = letter.shape ? letter.shape.n : gridSize;
+    const grids = el("span", "obar__group sfx__grids", bar);
+    grids.title = T("Points on the grid: more points, finer shapes");
+    [3, 4, 5].forEach((size) => {
+      const node = button(grids, `${size}×${size}`, () => setGrid(key, size), n === size ? "is-on" : "");
+      node.setAttribute("aria-pressed", String(n === size));
+    });
+    const ready = el("span", "obar__group sfx__shapes", bar);
+    SHAPE_PRESETS.forEach(([label, inner, f]) => iconButton(ready, inner, `${T(label)} (${T("click again for more")})`, false, () => addShape(key, f)));
+    iconButton(ready, DICE, T("A shape by chance for this letter"), false, () => addShape(key, PS.meshShift(shapeByChance(0.7, () => Math.random() * 2 - 1))));
+    const actions = el("span", "sfx__acts", bar);
+    button(actions, T("Same for every letter"), () => shapeAll(key)).title = T("Give every letter of the SFX this letter's shape");
+    button(actions, T("Reset"), () => editLetter(key, (l) => { l.shape = null; l.outline = null; }, null, "SFX Letter Shape")).disabled = !letter.shape && !letter.outline;
+    button(actions, T("Done"), leaveShape, "btn--main");
+    helpButton(bar);
+  };
+
   /* ------------------------------- the options bar ------------------------------- */
 
   const renderOptions = () => {
@@ -2181,7 +3063,7 @@
     const key = pickedLetter(group);
     const letter = key !== null ? recipe.letters.find((item) => item.key === key) : null;
     const pose = letter && app.doc ? poseNow(recipe, key) : null;
-    return JSON.stringify([group ? group.id : null, key, pose ? [round(pose.rot, 10), round(pose.size, 10)] : null, letter ? [Boolean(letter.lock), Boolean(letter.o)] : null, Boolean(selection()), recipe.text, recipe.font, shownSize(recipe, group), recipe.color, recipe.path.kind, recipe.chaos, recipe.stroke.enabled, recipe.stroke.color, recipe.stroke.size, freeDrawing, presets.length, Fonts.generation]);
+    return JSON.stringify([group ? group.id : null, key, pose ? [round(pose.rot, 10), round(pose.size, 10)] : null, letter ? [Boolean(letter.lock), Boolean(letter.o), letter.shape ? letter.shape.n : 0, Boolean(letter.outline)] : null, shapingNow(group), gridSize, shapeTool, brushSize, Boolean(selection()), recipe.text, recipe.font, shownSize(recipe, group), recipe.color, recipe.path.kind, recipe.chaos, recipe.stroke.enabled, recipe.stroke.color, recipe.stroke.size, freeDrawing, presets.length, Fonts.generation]);
   };
   const wordField = (bar, recipe, group, width) => {
     const word = el("input", "sfx__barword", bar);
@@ -2191,6 +3073,7 @@
     word.title = T("SFX text");
     word.setAttribute("aria-label", T("SFX text"));
     word.spellcheck = false;
+    word.dir = "auto";
     word.style.width = `${width}px`;
     word.addEventListener("input", () => edit((r) => relink(r, word.value), `sfx-word-${group ? group.id : 0}`, "SFX Text"));
     word.addEventListener("keydown", (event) => {
@@ -2247,6 +3130,10 @@
     const key = pickedLetter(group);
     const letter = key !== null ? recipe.letters.find((item) => item.key === key) : null;
     const pose = letter && app.doc ? poseNow(recipe, key) : null;
+    if (letter && pose && shapingNow(group)) {
+      shapeOptions(bar, recipe, group, letter, key);
+      return;
+    }
     if (letter && pose) {
       iconButton(bar, BACK, T("Back to the whole SFX"), false, () => {
         picked = null;
@@ -2262,10 +3149,12 @@
       size.title = T("Size");
       bar.appendChild(A.scrubbed(T("Size"), size));
       const actions = el("span", "sfx__acts", bar);
+      const shape = button(actions, T("Shape"), enterShape, letter.shape || letter.outline ? "is-on" : "");
+      shape.title = T("Give this letter a shape of its own: pull its points and curves one by one, or brush over it (or click its ◆)");
       const pin = button(actions, letter.lock ? T("Unpin") : T("Pin"), () => pinLetter(key, !letter.lock), letter.lock ? "is-on" : "");
       pin.title = T("A pinned letter stays as it is when the dice are thrown again");
       button(actions, T("Longer"), () => elongate(key)).title = T("Repeat this letter: BOM, BOOM, BOOOM");
-      button(actions, T("Reset"), () => editLetter(key, (l) => { l.o = null; l.lock = null; }, null, "SFX Letter")).disabled = !letter.o && !letter.lock;
+      button(actions, T("Reset"), () => editLetter(key, (l) => { l.o = null; l.lock = null; l.shape = null; l.outline = null; }, null, "SFX Letter")).disabled = !letter.o && !letter.lock && !letter.shape && !letter.outline;
       button(actions, T("Remove"), () => removeLetter(key));
       helpButton(bar);
       return;
@@ -2632,6 +3521,15 @@
     slider(chanceMore, T("Stretch"), recipe.jitter.stretch, 0, 30, 1, (value, coalesce) => edit((r) => { r.jitter.stretch = value; }, coalesce, "SFX"), "%");
     slider(chanceMore, T("Skew"), recipe.jitter.skew, 0, 15, 0.5, (value, coalesce) => edit((r) => { r.jitter.skew = value; }, coalesce, "SFX"), "°");
 
+    // The letters' shapes: by chance, and one by one
+    const shapes = section(host, T("Letter shapes"), true, "shapes");
+    slider(shapes, T("By chance"), Number(recipe.jitter.warp) || 0, 0, 100, 1, (value, coalesce) => edit((r) => { r.jitter.warp = value; }, coalesce, "SFX"), "%").title = T("Every letter pulled a little out of shape, as if drawn by hand. The dice throw it again.");
+    el("p", "sfx__hint", shapes, T("One letter: click it, then Shape. Pull its points and curves, or brush over it."));
+    if (group && recipe.letters.some((letter) => letter.shape || letter.outline)) {
+      const row = el("div", "sfx__row", shapes);
+      button(row, T("Reset every shape"), () => edit((r) => r.letters.forEach((letter) => { letter.shape = null; letter.outline = null; }), null, "SFX Letter Shape"));
+    }
+
     // The outline, then the effects given to this SFX, and a way to add one
     const look = section(host, T("Outline and effects"), true, "look");
     const strokeRow = el("div", "sfx__row", look);
@@ -2711,6 +3609,7 @@
       // A letter picked in an SFX that isn't active any more is let go
       const group = activeSfx();
       if (picked && (!group || group.id !== picked.group)) picked = null;
+      if (!picked || app.tool !== "sfx") shapeMode = false;
       followContext();
       drawOverlay();
       renderPanel(false);
@@ -2733,13 +3632,48 @@
   document.addEventListener("keydown", (event) => {
     if (app.tool !== "sfx" || !app.doc || event.target.closest("input, textarea, select, [contenteditable]")) return;
     if (!App() || App().isEditing() || document.querySelector(".modal[open], dialog[open]")) return;
-    // AltGr is Ctrl + Alt on Windows: [ and ] need it on a French keyboard
-    if ((event.ctrlKey || event.metaKey) && !event.altKey) return;
+    // AltGr is Ctrl + Alt on Windows: [ and ] need it on a French keyboard. Cmd + A picks
+    // all of a letter's points; any other shortcut is the app's.
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && !(event.key.toLowerCase() === "a" && pointsNow(activeSfx()))) return;
     const group = activeSfx();
     const key = pickedLetter(group);
     if (key === null) return;
     const step = event.shiftKey ? 10 : 1;
     const k = event.key;
+    // The letter's points: picked all, moved, taken away, let go; the brush's size
+    if (pointsNow(group)) {
+      const command = (event.ctrlKey || event.metaKey) && !event.altKey;
+      const chosen = pickedPoints(key).size > 0;
+      let done = true;
+      if (command && k.toLowerCase() === "a") {
+        pickPoints(key, allPoints(app.doc, group, key));
+        drawOverlay();
+      } else if (command) done = false;
+      else if (k === "Delete" || k === "Backspace") removePoints(key);
+      else if (k.startsWith("Arrow") && chosen) {
+        const dx = k === "ArrowLeft" ? -step : k === "ArrowRight" ? step : 0;
+        const dy = k === "ArrowUp" ? -step : k === "ArrowDown" ? step : 0;
+        nudgePoints(key, dx, dy, `sfx-points-nudge-${key}`);
+      } else if (k === "Escape" && chosen) {
+        pickPoints(key, []);
+        drawOverlay();
+      } else if (k === "[" || k === "{") setBrush(brushSize / 1.2);
+      else if (k === "]" || k === "}") setBrush(brushSize * 1.2);
+      else done = false;
+      if (done) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+    }
+    if ((event.ctrlKey || event.metaKey) && !event.altKey) return;
+    if (shapingNow(group) && (k === "Escape" || k === "Enter")) {
+      event.preventDefault();
+      event.stopPropagation();
+      leaveShape();
+      tell({ mode: "key", action: "shapeDone" });
+      return;
+    }
     if (k === "Escape") {
       picked = null;
       showAll();
@@ -2751,7 +3685,10 @@
     else if (k === "]" || k === "}") turnLetterBy(key, event.shiftKey ? 15 : 2);
     else if (k === "+" || k === "=") scaleLetterBy(key, event.shiftKey && k === "=" ? 1.2 : 1.05);
     else if (k === "-" || k === "_") scaleLetterBy(key, k === "_" ? 1 / 1.2 : 1 / 1.05);
-    else if (k === "Tab") stepLetter(group, event.shiftKey ? -1 : 1);
+    else if (k === "Tab") {
+      pickPoints(null, []);
+      stepLetter(group, event.shiftKey ? -1 : 1);
+    }
     else if (k === "Enter") retype(key);
     else if (k === "Delete" || k === "Backspace") removeLetter(key);
     else return;
@@ -2764,7 +3701,7 @@
   // A double-click on a letter: type over it
   const stageNode = $("stage");
   if (stageNode) stageNode.addEventListener("dblclick", (event) => {
-    if (app.tool !== "sfx" || !app.doc || event.altKey) return;
+    if (app.tool !== "sfx" || !app.doc || event.altKey || shapingNow(activeSfx())) return;
     const key = pickedLetter(activeSfx());
     if (key === null) return;
     retype(key);
@@ -2778,7 +3715,10 @@
       if (workspace && !window.TypeRShell.touch && !workspace.isVisible("sfx")) workspace.setVisible("sfx", true);
       renderPanel(true);
       if (window.TypeRSFXGuide) window.TypeRSFXGuide.toolChosen();
-    } else preview = null;
+    } else {
+      preview = null;
+      shapeMode = false;
+    }
     followContext();
     drawOverlay();
   };
@@ -2827,5 +3767,6 @@
       if (app.tool === "sfx") showAll();
     },
     pickedLetter: () => pickedLetter(activeSfx()),
+    shaping: () => shapingNow(activeSfx()),
   };
 })();

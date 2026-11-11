@@ -245,9 +245,57 @@
       return { L, box: p < 0.3 ? 1 : null };
     },
     "key-esc": (u) => ({ L: still(), box: phase(u) < 0.5 ? 1 : null, ends: phase(u) >= 0.5 ? [A, B] : null }),
+    // A letter's own shape: `m` reshapes it from its foot, `points` shows its outline's points
+    // (`picked`, the ones picked; `extra`, one added), `brush` the brush round the pointer
+    "shape-open": (u) => {
+      const L = still();
+      const corner = [L[1].x - 6.5 - 4, L[1].y - 9 - 4];
+      return { L, box: u < 0.2 ? 1 : null, diamond: u < 0.2, points: u >= 0.2 && u < 0.92 ? 1 : null, ptr: corner, press: between(u, 0.1, 0.18) };
+    },
+    "shape-point": (u) => {
+      const p = phase(u);
+      const L = still();
+      L[1].m = [1, 0, 0, 1 + 0.45 * p];
+      return { L, points: 1, picked: [1], ptr: [L[1].x, L[1].y - 9 - 18 * 0.45 * p], press: p > 0 };
+    },
+    "shape-bend": (u) => {
+      const p = phase(u);
+      const L = still();
+      L[1].m = [1, 0, -0.4 * p, 1];
+      return { L, points: 1, ptr: [L[1].x - 6.5 + 5.4 * p, L[1].y - 4.5], press: p > 0 };
+    },
+    "shape-pull": (u) => {
+      const p = phase(u);
+      const L = still();
+      L[1].m = [1 + 0.3 * p, 0, 0, 1];
+      return { L, points: 1, brush: true, ptr: [L[1].x + 1 + 6 * p, L[1].y], press: p > 0 };
+    },
+    "shape-add": (u) => {
+      const L = still();
+      const added = u > 0.3;
+      return { L, points: 1, extra: added ? [[0, 0.25]] : [], picked: added ? [8] : [], ptr: [L[1].x - 6.5, L[1].y - 4.5], press: between(u, 0.1, 0.14) || between(u, 0.18, 0.22) };
+    },
+    "shape-alt": (u) => {
+      const p = phase(u);
+      const L = still();
+      L[1].m = [1 + 0.4 * p, 0, 0, 1];
+      return { L, points: 1, brush: true, ptr: [L[1].x + 3 + 3 * p, L[1].y], press: p > 0 };
+    },
+    "shape-done": (u) => {
+      const L = still();
+      L[1].m = [1, 0, 0, 1.3];
+      return { L, points: phase(u) < 0.5 ? 1 : null, box: phase(u) >= 0.5 ? 1 : null };
+    },
   };
 
   const n1 = (value) => Math.round(value * 10) / 10;
+  // A letter reshaped (`m`, from its foot), as an SVG transform after its turn
+  const shaped = (l) => (l.m ? ` translate(${n1(l.x)} ${n1(l.y + 9 * l.s)}) matrix(${l.m.map((v) => Math.round(v * 1000) / 1000).join(" ")} 0 0) translate(${n1(-l.x)} ${n1(-(l.y + 9 * l.s))})` : "");
+  const shapedPoint = (l, x, y) => {
+    if (!l.m) return [l.x + x, l.y + y];
+    const fy = 9 * l.s;
+    return [l.x + l.m[0] * x + l.m[2] * (y - fy), l.y + fy + l.m[1] * x + l.m[3] * (y - fy)];
+  };
   const letterBox = (l) => `<rect x="${n1(l.x - 6.5 * l.s)}" y="${n1(l.y - 9 * l.s)}" width="${n1(13 * l.s)}" height="${n1(18 * l.s)}" transform="rotate(${n1(l.r)} ${n1(l.x)} ${n1(l.y)})" class="sfxg__box"/>`;
   const drawScene = (scene) => {
     let out = "";
@@ -256,7 +304,7 @@
     else if (scene.ends) out += `<line x1="${n1(scene.ends[0][0])}" y1="${n1(scene.ends[0][1])}" x2="${n1(scene.ends[1][0])}" y2="${n1(scene.ends[1][1])}" class="sfxg__guide"/>`;
     (scene.L || []).forEach((l) => {
       if (l.o <= 0.01) return;
-      out += `<text x="${n1(l.x)}" y="${n1(l.y)}" font-size="${n1(18 * l.s)}" opacity="${n1(l.o)}" transform="rotate(${n1(l.r)} ${n1(l.x)} ${n1(l.y)})" class="sfxg__letter">${l.ch}</text>`;
+      out += `<text x="${n1(l.x)}" y="${n1(l.y)}" font-size="${n1(18 * l.s)}" opacity="${n1(l.o)}" transform="rotate(${n1(l.r)} ${n1(l.x)} ${n1(l.y)})${shaped(l)}" class="sfxg__letter">${l.ch}</text>`;
     });
     const boxed = scene.box !== null && scene.box !== undefined ? scene.L[scene.box] : null;
     if (boxed) {
@@ -268,6 +316,36 @@
         out += `<line x1="${n1(top[0])}" y1="${n1(top[1])}" x2="${n1(knob[0])}" y2="${n1(knob[1])}" class="sfxg__stem"/><circle cx="${n1(knob[0])}" cy="${n1(knob[1])}" r="2.4" class="sfxg__knob"/>`;
       }
       if (scene.corner) out += `<rect x="${n1(boxed.x + 6.5 * boxed.s - 2)}" y="${n1(boxed.y + 9 * boxed.s - 2)}" width="4" height="4" class="sfxg__end"/>`;
+    }
+    if (scene.grid !== null && scene.grid !== undefined) {
+      const l = scene.L[scene.grid];
+      const at = (u, v) => shapedPoint(l, (u - 0.5) * 13 * l.s, (v - 0.5) * 18 * l.s);
+      const line = (points) => points.map((q, i) => `${i ? "L" : "M"}${n1(q[0])} ${n1(q[1])}`).join("");
+      let d = "";
+      [0, 0.5, 1].forEach((t) => { d += line([at(0, t), at(1, t)]) + line([at(t, 0), at(t, 1)]); });
+      out += `<path d="${d}" class="sfxg__box"/>`;
+      [0, 0.5, 1].forEach((v) => [0, 0.5, 1].forEach((u) => {
+        const [x, y] = at(u, v);
+        out += `<circle cx="${n1(x)}" cy="${n1(y)}" r="1.5" class="sfxg__end"/>`;
+      }));
+    }
+    if (scene.points !== null && scene.points !== undefined) {
+      const l = scene.L[scene.points];
+      const at = (u, v) => shapedPoint(l, (u - 0.5) * 13 * l.s, (v - 0.5) * 18 * l.s);
+      const spots = [[0, 0], [0.5, 0], [1, 0], [1, 0.5], [1, 1], [0.5, 1], [0, 1], [0, 0.5]];
+      const ring = spots.slice();
+      (scene.extra || []).forEach((spot) => { ring.splice(8, 0, spot); spots.push(spot); });
+      out += `<path d="${ring.map(([u, v], i) => { const [x, y] = at(u, v); return `${i ? "L" : "M"}${n1(x)} ${n1(y)}`; }).join("")}Z" class="sfxg__box"/>`;
+      spots.forEach(([u, v], i) => {
+        const [x, y] = at(u, v);
+        out += `<rect x="${n1(x - 1.6)}" y="${n1(y - 1.6)}" width="3.2" height="3.2" class="${(scene.picked || []).includes(i) ? "sfxg__knob" : "sfxg__end"}"/>`;
+      });
+    }
+    if (scene.brush && scene.ptr) out += `<circle cx="${n1(scene.ptr[0])}" cy="${n1(scene.ptr[1])}" r="7" class="sfxg__guide"/>`;
+    if (scene.diamond && boxed) {
+      const x = boxed.x - 6.5 * boxed.s - 4;
+      const y = boxed.y - 9 * boxed.s - 4;
+      out += `<path d="M${n1(x)} ${n1(y - 2.6)}L${n1(x + 2.6)} ${n1(y)}L${n1(x)} ${n1(y + 2.6)}L${n1(x - 2.6)} ${n1(y)}Z" class="sfxg__end"/>`;
     }
     if (scene.caret !== null && scene.caret !== undefined) {
       const l = scene.L[scene.caret];
@@ -349,6 +427,15 @@
       [["Enter"], "Type over it", "key-enter"],
       [["Backspace"], "Takes it out of the word", "key-delete"],
       [["Esc"], "Back to the whole SFX", "key-esc"],
+    ]],
+    ["A letter's shape", "A letter picked, then Shape in the bar or its ◆", [
+      [["click"], "Its ◆: the letter's points, as in Photoshop", "shape-open"],
+      [["drag"], "A point pulls that part of the letter (Shift: straight)", "shape-point"],
+      [["drag"], "The outline between two points bends", "shape-bend"],
+      [["drag"], "On the letter: the brush pulls it ([ and ]: its size)", "shape-pull"],
+      [["Alt", "drag"], "The brush on both sides alike, as on an A or a V", "shape-alt"],
+      [["dblclick"], "On the outline: a new point (Backspace takes the points picked away)", "shape-add"],
+      [["Esc", "/", "Enter"], "Done with the shape", "shape-done"],
     ]],
   ];
 
@@ -486,6 +573,18 @@
     document.body.appendChild(card);
     let at = 0;
     let passing = false;
+    let timer = 0;
+    // Back one step, from a step or from the last card
+    const back = () => {
+      if (at <= 0) return;
+      clearTimeout(timer);
+      passing = false;
+      at--;
+      render();
+    };
+    const backButton = () => {
+      if (at > 0) cardButton(foot, T("Back"), back).classList.add("sfxg-coach__back");
+    };
     const render = () => {
       const step = STEPS[at];
       count.textContent = App().fill(T("Step {n} of {total}"), { n: at + 1, total: STEPS.length });
@@ -495,6 +594,7 @@
       art.textContent = "";
       demo(art, step.demo, "sfxg__demo--big");
       foot.textContent = "";
+      backButton();
       cardButton(foot, T("Skip this step"), next);
       cardButton(foot, T("Quit"), endPractice);
       card.classList.remove("is-passed");
@@ -508,6 +608,7 @@
       text.textContent = T("You know the SFX tool. The whole list stays in Help → SFX Guide, and behind the ? of the options bar.");
       art.textContent = "";
       foot.textContent = "";
+      backButton();
       cardButton(foot, T("Keep the page"), endPractice);
       cardButton(foot, T("Close the practice page"), async () => {
         const open = app.docs.find((one) => one === page);
@@ -519,6 +620,7 @@
       }, true);
     };
     function next() {
+      clearTimeout(timer);
       passing = false;
       at++;
       if (at >= STEPS.length) finish();
@@ -531,7 +633,7 @@
       passing = true;
       card.classList.add("is-passed");
       count.textContent = T("Well done!");
-      setTimeout(next, 900);
+      timer = setTimeout(next, 900);
     });
     // The practice ends with its page
     const watch = setInterval(() => {

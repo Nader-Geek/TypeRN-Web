@@ -76,6 +76,21 @@
 .sfx-bend { fill: var(--blue); stroke: #fff; stroke-width: 1; }
 .sfx-source { fill: #f0a020; stroke: #fff; stroke-width: 1; }
 .sfx-pin { fill: #f0a020; stroke: #fff; stroke-width: 0.8; pointer-events: none; }
+/* A letter's own shape: the ◆ that opens it, then its grid and the points to pull */
+.sfx-shape { fill: #fff; stroke: var(--blue); stroke-width: 1; }
+.sfx-letter.is-shaping { opacity: 0.5; stroke-width: 1; }
+.sfx-mesh { fill: none; stroke: var(--blue); stroke-width: 1; opacity: 0.75; pointer-events: none; }
+.sfx-mesh-point { fill: #fff; stroke: var(--blue); stroke-width: 1.5; }
+/* Its points: the outline, its anchors (filled when picked), their handles, the brush */
+.sfx-path { fill: none; stroke: var(--blue); stroke-width: 1; pointer-events: none; }
+.sfx-anchor { fill: #fff; stroke: var(--blue); stroke-width: 1; shape-rendering: crispEdges; }
+.sfx-anchor.is-on { fill: var(--blue); }
+.sfx-tangent-line { stroke: var(--blue); stroke-width: 1; opacity: 0.8; pointer-events: none; }
+.sfx-tangent { fill: var(--blue); stroke: #fff; stroke-width: 1; }
+.sfx-brush { fill: rgb(var(--blue-rgb) / 0.08); stroke: var(--blue); stroke-width: 1; stroke-dasharray: 3 2; pointer-events: none; }
+.sfx-marquee { fill: rgb(var(--blue-rgb) / 0.1); stroke: var(--blue); stroke-width: 1; stroke-dasharray: 3 2; pointer-events: none; }
+.obar .sfx__grids .btn { min-width: 0; padding: 0 6px; border-radius: 0; font-variant-numeric: tabular-nums; }
+.obar .sfx__grids .btn.is-on { background: var(--blue-dark); color: var(--on-blue); }
 html.touch .pane--sfx { display: none; }
 
 /* The guide: where the practice points on the page */
@@ -127,3 +142,4 @@ html.touch .pane--sfx { display: none; }
 .sfxg-coach__art:empty { display: none; }
 .sfxg-coach__foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .sfxg-coach__foot .btn { min-height: 24px; padding: 0 10px; font-size: 12px; }
+.sfxg-coach__foot .sfxg-coach__back { margin-inline-end: auto; }

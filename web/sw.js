@@ -9,7 +9,7 @@
 const CACHE = "typer-web-1";
 // A slow connection gets the copy after this long, and the answer goes in the copy for next time
 const WAIT = 1500;
-const CORE = ["./", "app.css", "touch.css", "shell.js", "keyclick.js", "fonts.js", "fontfinder.js", "kit.js", "inpaint.js", "photoshop.js", "psd.js", "indesign.js", "psd-worker.js", "align-worker.js", "lama-worker.js", "session.js", "recent.js", "workspace.js", "generative.js", "textmask.js", "whats-new.js", "whats-new.json", "whats-new/highlights.json", "feedback.js", "onboarding.js", "app.js", "sfx.js", "retouch.js", "reshape.js", "reshape-tool.js", "sfx-guide.js", "sfx.css", "guide.js", "guide.css", "hyphenation.js", "breaks.js", "touch.js", "bridge.js", "manifest.webmanifest", "vendor/ag-psd.js", "../i18n.js", "panel/index.html"];
+const CORE = ["./", "app.css", "touch.css", "shell.js", "keyclick.js", "fonts.js", "fontfinder.js", "kit.js", "inpaint.js", "outline.js", "photoshop.js", "psd.js", "indesign.js", "psd-worker.js", "align-worker.js", "lama-worker.js", "session.js", "recent.js", "workspace.js", "generative.js", "textmask.js", "whats-new.js", "whats-new.json", "whats-new/highlights.json", "feedback.js", "onboarding.js", "app.js", "sfx.js", "retouch.js", "reshape.js", "reshape-tool.js", "sfx-guide.js", "sfx.css", "guide.js", "guide.css", "hyphenation.js", "breaks.js", "touch.js", "bridge.js", "manifest.webmanifest", "vendor/ag-psd.js", "../i18n.js", "panel/index.html"];
 
 const keyOf = (url) => {
   const { origin, pathname } = new URL(url, self.location.href);

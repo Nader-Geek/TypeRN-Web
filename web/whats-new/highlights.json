@@ -85,6 +85,13 @@
       "kind": "feat",
       "text": "Help → TypeR Tutorial teaches TypeR Studio in short lessons, done in the real workspace on a practice chapter",
       "lang": { "fr": "Aide → Tutoriel de TypeR apprend TypeR Studio en courtes leçons, faites dans le vrai espace de travail sur un chapitre d’entraînement" }
+    },
+    {
+      "id": "x-sfx-arabic",
+      "at": "2026-11-11T12:00:00+01:00",
+      "kind": "feat",
+      "text": "Arabic letters in an SFX join as in a word, and Arabic and Hebrew SFX read from the right",
+      "lang": { "fr": "Dans un SFX, les lettres arabes se lient comme dans un mot, et les SFX en arabe et en hébreu se lisent de droite à gauche" }
     }
   ]
 }
