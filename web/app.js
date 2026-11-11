@@ -13210,6 +13210,11 @@
     renderCharacter();
     if (!ui.editor.hidden) placeEditor();
   };
+  // The paragraph's alignment, as the bar's buttons set it
+  const alignText = (alignment) => {
+    applyTextPatch(null, { alignment });
+    if (!ui.editor.hidden) placeEditor();
+  };
 
   let typerBeforeHiding = true;
   const toggleAllPanels = () => {
@@ -15770,6 +15775,10 @@
     { label: "Decrease text size", keys: "Shift+Cmd+<", alias: "Cmd+<", enabled: hasText, anywhere: true, action: () => stepTextSize(-1, false) },
     { label: "Increase text size a lot", keys: "Alt+Shift+Cmd+>", enabled: hasText, anywhere: true, action: () => stepTextSize(1, true) },
     { label: "Decrease text size a lot", keys: "Alt+Shift+Cmd+<", alias: "Alt+Cmd+<", enabled: hasText, anywhere: true, action: () => stepTextSize(-1, true) },
+    // Photoshop's, while typing too. With no text, the browser keeps them (Shift+Cmd+R reloads).
+    { label: "Left align text", keys: "Shift+Cmd+L", enabled: hasText, browserWhenOff: true, anywhere: true, action: () => alignText("left") },
+    { label: "Centre text", keys: "Shift+Cmd+C", enabled: hasText, browserWhenOff: true, anywhere: true, action: () => alignText("center") },
+    { label: "Right align text", keys: "Shift+Cmd+R", enabled: hasText, browserWhenOff: true, anywhere: true, action: () => alignText("right") },
     // The − and + of the Line Breaks panel, open or not
     { label: "One line less", keys: "Alt+Cmd+-", enabled: hasText, action: () => window.TypeRBreaks && window.TypeRBreaks.fewer() },
     { label: "One line more", keys: "Alt+Cmd+=", enabled: hasText, action: () => window.TypeRBreaks && window.TypeRBreaks.more() },
@@ -16626,9 +16635,10 @@
     if (isField(active) && (isText(active) || !command)) {
       // Saving or opening would otherwise go to the browser
       const file = command && !event.defaultPrevented && anywhereItems().find((item) => item.keys && (matches(event, item.keys) || (item.alias && matches(event, item.alias))));
-      if (file) {
+      const on = file && (!file.enabled || file.enabled());
+      if (file && (on || !file.browserWhenOff)) {
         event.preventDefault();
-        if (!file.enabled || file.enabled()) file.action();
+        if (on) file.action();
       }
       return;
     }
