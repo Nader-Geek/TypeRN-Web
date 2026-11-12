@@ -11571,6 +11571,26 @@
       doc.history.length = index + 1;
       emit("history");
     },
+    // An action played as one state of history (Playback Options): what it made after the
+    // state `fromId`, as one state named `name`. The last state stays itself, with its id, so a
+    // page saved at the end stays saved. Nothing when the action changed nothing, or when the
+    // state it started from is gone (past the history's length).
+    groupHistory(doc, fromId, name) {
+      if (!doc) return false;
+      const from = doc.history.findIndex((entry) => entry.id === fromId);
+      if (from < 0 || doc.historyIndex <= from + 1) {
+        if (from >= 0 && doc.historyIndex === from + 1) doc.history[from + 1].name = name;
+        emit("history");
+        return false;
+      }
+      const last = doc.history[doc.historyIndex];
+      last.name = name;
+      last.coalesce = null;
+      doc.history.splice(from + 1, doc.history.length, last);
+      doc.historyIndex = from + 1;
+      emit("history");
+      return true;
+    },
     jump(index) {
       const doc = app.doc;
       const before = sizeOf(doc);

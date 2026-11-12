@@ -71,12 +71,30 @@
     return defaultSets();
   };
   let sets = load();
+  // Playback Options, as Photoshop's: how fast an action plays (accelerated; step by step, a
+  // second between two steps; or that and `pause` seconds more), and whether it makes one state
+  // of history or one per step
+  const PERFORMANCES = ["accelerated", "step", "pause"];
+  const loadPlayback = () => {
+    const playback = { performance: "accelerated", pause: 1, single: true };
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(STORE));
+      const kept = saved && saved.playback;
+      if (kept && PERFORMANCES.includes(kept.performance)) playback.performance = kept.performance;
+      if (kept && Number.isInteger(kept.pause) && kept.pause >= 1 && kept.pause <= 60) playback.pause = kept.pause;
+      if (kept && typeof kept.single === "boolean") playback.single = kept.single;
+    } catch (error) {
+      // As by default
+    }
+    return playback;
+  };
+  const playback = loadPlayback();
   let saveTimer = 0;
   const keep = () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       try {
-        window.localStorage.setItem(STORE, JSON.stringify({ version: 1, sets }));
+        window.localStorage.setItem(STORE, JSON.stringify({ version: 1, sets, playback }));
       } catch (error) {
         console.warn("TypeR web: could not keep the actions", error);
         A.toast(T("The actions could not be kept: the browser's storage is full."), true);
@@ -1140,6 +1158,21 @@
   let running = null;
   const ask = async (title, body, ok, cancel) => Boolean(await A.dialog({ title, body, ok, cancel }));
 
+  // Playback Options' pace: before each step but the first, a second, and the Pause's seconds.
+  // Played on several pages, or by Batch Save, an action plays at once.
+  const pace = async (run) => {
+    if (run.many || playback.performance === "accelerated") return;
+    if (!run.pace.started) {
+      run.pace.started = true;
+      return;
+    }
+    const until = Date.now() + 1000 + (playback.performance === "pause" ? playback.pause * 1000 : 0);
+    while (Date.now() < until) {
+      if (run.cancelled()) throw new Stopped();
+      await new Promise((done) => setTimeout(done, Math.min(100, until - Date.now())));
+    }
+  };
+
   // The steps of an action, one after the other, each a step of the page's history. Throws
   // Stopped when the user stops it.
   const playSteps = async (action, run) => {
@@ -1155,6 +1188,7 @@
         if (harmless(item)) continue;
         throw new Unplayable(item);
       }
+      await pace(run);
       if (run.doc && app.doc !== run.doc) {
         if (!app.docs.includes(run.doc)) throw new StepError(T("The page was closed."));
         A.switchDoc(run.doc);
@@ -1177,11 +1211,25 @@
     }
   };
 
+  // Playback Options' single state of history: where each open page's history stood, and,
+  // once played, what the action made on each as one state named after it (on a page it
+  // opened, all but its first state)
+  const historyMarks = () => new Map(app.docs.map((d) => [d, d.history[d.historyIndex].id]));
+  const groupHistory = (marks, action, only) => {
+    if (!playback.single) return;
+    const name = fill(T("Action: {name}"), { name: ATN.displayName(action.name) });
+    app.docs.forEach((d) => {
+      if (only && d !== only && marks.has(d)) return;
+      const from = marks.has(d) ? marks.get(d) : d.history[0] && d.history[0].id;
+      if (from) ops.groupHistory(d, from, name);
+    });
+  };
+
   const newSummary = () => ({ played: 0, disabled: 0, errors: [] });
 
   // Esc, or the Stop button, ends a run between two steps
   const startRun = (action, many) => {
-    const run = { action, many, depth: 0, stop: false, summary: newSummary() };
+    const run = { action, many, depth: 0, stop: false, pace: { started: false }, summary: newSummary() };
     run.cancelled = () => run.stop;
     running = run;
     render();
@@ -1217,6 +1265,7 @@
     host.cancelTransform();
     const run = startRun(action, false);
     run.doc = app.doc;
+    const marks = historyMarks();
     const part = from ? Object.assign({}, action, { items: action.items.slice(from) }) : action;
     let stopped = false;
     let unplayed = null;
@@ -1230,6 +1279,7 @@
         A.toast(error.message || String(error), true);
       }
     } finally {
+      groupHistory(marks, action);
       endRun();
     }
     if (unplayed) await sayUnplayable(unplayed);
@@ -1261,6 +1311,7 @@
         A.switchDoc(page);
         run.doc = page;
         await host.nextPaint();
+        const marks = historyMarks();
         try {
           await playSteps(action, run);
           report.done++;
@@ -1272,6 +1323,8 @@
             break;
           }
           report.failed.push(`${page.name}: ${error.message || error}`);
+        } finally {
+          groupHistory(marks, action, page);
         }
       }
     } finally {
@@ -1290,13 +1343,16 @@
   // For Batch Save: an action on one page, quietly, with what went wrong as text (null if
   // nothing did). Batch Save checks first that every step plays (unplayable()).
   const playForBatch = async (action, page) => {
-    const run = { action, many: true, depth: 0, stop: false, doc: page, summary: newSummary(), cancelled: () => false };
+    const run = { action, many: true, depth: 0, stop: false, doc: page, pace: { started: false }, summary: newSummary(), cancelled: () => false };
     if (app.doc !== page) A.switchDoc(page);
+    const from = page.history[page.historyIndex].id;
     try {
       await playSteps(action, run);
       return { error: null, summary: run.summary };
     } catch (error) {
       return { error: error.message || String(error), summary: run.summary };
+    } finally {
+      if (playback.single) ops.groupHistory(page, from, fill(T("Action: {name}"), { name: ATN.displayName(action.name) }));
     }
   };
 
@@ -2200,6 +2256,57 @@
     choose({ step });
     changed();
   };
+  // Playback Options…: the speed, as Photoshop's three choices, and the single state of history
+  const playbackOptions = async () => {
+    const body = make("div", "playback");
+    make("p", "playback__heading", body, T("Speed"));
+    const speeds = make("div", "playback__speeds", body);
+    speeds.setAttribute("role", "radiogroup");
+    speeds.setAttribute("aria-label", T("Speed"));
+    const seconds = document.createElement("input");
+    seconds.type = "number";
+    seconds.min = "1";
+    seconds.max = "60";
+    seconds.step = "1";
+    seconds.value = String(playback.pause);
+    seconds.setAttribute("aria-label", T("Pause For"));
+    const radios = [["accelerated", T("Accelerated")], ["step", T("Step by Step")], ["pause", T("Pause For")]].map(([value, text]) => {
+      const row = make("label", "playback__speed", speeds);
+      const input = make("input", "", row);
+      input.type = "radio";
+      input.name = "playback-speed";
+      input.value = value;
+      input.checked = playback.performance === value;
+      make("span", "", row, text);
+      if (value === "pause") {
+        row.appendChild(seconds);
+        make("span", "playback__unit", row, "s");
+      }
+      return input;
+    });
+    const sync = () => { seconds.disabled = !radios[2].checked; };
+    radios.forEach((input) => input.addEventListener("change", sync));
+    // Typing the seconds is choosing the pause
+    seconds.addEventListener("focus", () => {
+      radios[2].checked = true;
+      sync();
+    });
+    sync();
+    const single = make("label", "playback__single", body);
+    const singleBox = make("input", "", single);
+    singleBox.type = "checkbox";
+    singleBox.checked = playback.single;
+    make("span", "", single, T("Create a single history state"));
+    make("p", "modal__hint playback__hint", body, fill(T("One {keys} undoes the whole action."), { keys: host.keyLabel("Cmd+Z") }));
+    const values = await A.dialog({ title: T("Playback Options"), body, ok: "OK" });
+    if (!values) return;
+    const chosen = radios.find((input) => input.checked);
+    if (chosen && PERFORMANCES.includes(chosen.value)) playback.performance = chosen.value;
+    const pause = Math.round(Number(seconds.value));
+    if (pause >= 1) playback.pause = Math.min(60, pause);
+    playback.single = singleBox.checked;
+    keep();
+  };
   const playOn = (which) => {
     const action = chosenAction();
     if (!action || recorder.on) return null;
@@ -2222,6 +2329,7 @@
       { label: "Stop Recording", enabled: () => recorder.on, action: stopRecording },
       { label: "Insert Stop…", enabled: () => !running && Boolean(action), action: insertStop },
       { label: "Action Options…", enabled: () => !running && Boolean(action), action: editAction },
+      { label: "Playback Options…", enabled: () => !running, action: playbackOptions },
       null,
       { label: "Play on All Open Pages", enabled: () => idle && Boolean(action) && app.docs.length > 0, action: () => playOn("all") },
       { label: "Play on Picked Pages", enabled: () => idle && Boolean(action) && host.pickedDocs().length > 1, action: () => playOn("picked") },
