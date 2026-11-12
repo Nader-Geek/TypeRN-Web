@@ -2188,7 +2188,7 @@
       event.preventDefault();
       event.stopPropagation();
       deleteChosen();
-    } else if (event.key === "Enter" && chosenAction()) {
+    } else if (event.key === "Enter" && chosenAction() && !recorder.on && !running) {
       event.preventDefault();
       event.stopPropagation();
       playChosen();
