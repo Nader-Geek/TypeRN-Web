@@ -7,7 +7,8 @@
 //
 //   the store     the user's sets, in localStorage (typer.web.actions), as atn.js's sets
 //   the player    an event and its descriptor → TypeR's operation (PLAYERS); a step without
-//                 one is kept and skipped, said once at the end
+//                 one stays in its action, and the action isn't played while it's on (but
+//                 for steps that change nothing on the page: harmless())
 //   the recorder  each command done while recording becomes the event Photoshop records for
 //                 it, with its real values: from the command itself (COMMAND_STEPS), from the
 //                 operation it ends in (OP_STEPS, `ops` wrapped below), or from the dialog that
@@ -966,19 +967,31 @@
       };
     },
     play(item) {
-      const refs = refsOf(get(item.descriptor, "null"));
-      if (!refs || refs.length < 2) return null;
-      const actionName = refs.find((r) => same(r.classId, "Actn"));
-      const setName = refs.find((r) => same(r.classId, "ASet"));
-      if (!actionName || !setName || actionName.form !== "name" || setName.form !== "name") return null;
+      const called = calledBy(item);
+      if (!called) return null;
       return async (step, run) => {
-        const set = sets.find((one) => ATN.displayName(one.name) === ATN.displayName(setName.value));
-        const action = set && set.actions.find((one) => ATN.displayName(one.name) === ATN.displayName(actionName.value));
-        need(Boolean(action), fill(T("The action “{action}” of “{set}” isn't in the Actions panel."), { action: actionName.value, set: setName.value }));
+        const action = called.find();
+        need(Boolean(action), fill(T("The action “{action}” of “{set}” isn't in the Actions panel."), { action: called.action, set: called.set }));
         need(run.depth < MAX_DEPTH, T("Too many actions playing each other."));
         await playSteps(action, Object.assign({}, run, { depth: run.depth + 1 }));
       };
     },
+  };
+  // The action a Play step calls, by its name and its set's: { action, set, find() }
+  const calledBy = (item) => {
+    const refs = refsOf(get(item.descriptor, "null"));
+    if (!refs || refs.length < 2) return null;
+    const actionName = refs.find((r) => same(r.classId, "Actn"));
+    const setName = refs.find((r) => same(r.classId, "ASet"));
+    if (!actionName || !setName || actionName.form !== "name" || setName.form !== "name") return null;
+    return {
+      action: actionName.value,
+      set: setName.value,
+      find: () => {
+        const set = sets.find((one) => ATN.displayName(one.name) === ATN.displayName(setName.value));
+        return (set && set.actions.find((one) => ATN.displayName(one.name) === ATN.displayName(actionName.value))) || null;
+      },
+    };
   };
   const showOrHide = (item, shown) => {
     const list = get(item.descriptor, "null");
@@ -1080,6 +1093,47 @@
   };
   const playable = (item) => Boolean(planOf(item));
 
+  // Steps that change nothing on the page, played or not: a tool TypeR doesn't have, the view,
+  // Photoshop's timeline. Passed over when TypeR can't play them.
+  const harmless = (item) => {
+    const info = ATN.eventInfo(item);
+    const name = info ? info.stringId : sid(item.event);
+    if (name === "animationFramesFromLayers") return true;
+    if (name !== "select") return false;
+    const refs = refsOf(get(item.descriptor, "null"));
+    const r = refs && refs[0];
+    return Boolean(r && ((r.form === "Clss" && /Tool$/.test(sid(r.classId))) || same(r.classId, "Mn  ")));
+  };
+  // The first step on the way (from the step `from`, into the actions it calls) that TypeR can't
+  // play and that would change the page. Photoshop stops there; TypeR doesn't start: nothing is
+  // left half done.
+  const firstUnplayable = (action, from = 0, seen = new Set()) => {
+    if (!action || seen.has(action)) return null;
+    seen.add(action);
+    for (const item of action.items.slice(from)) {
+      if (!item.enabled) continue;
+      if (!planOf(item)) {
+        if (!harmless(item)) return item;
+        continue;
+      }
+      const called = isStudio(item) ? null : calledBy(item);
+      const inner = called && firstUnplayable(called.find(), 0, seen);
+      if (inner) return inner;
+    }
+    return null;
+  };
+  class Unplayable extends StepError {
+    constructor(item) {
+      super(fill(T("“{step}” can't be played in TypeR Studio. Turn this step off in the Actions panel to play the action without it."), { step: stepTitle(item) }));
+      this.item = item;
+    }
+  }
+  // Said, and the step shown in the panel
+  const sayUnplayable = async (error) => {
+    choose({ step: error.item });
+    await ask(T("Actions"), error.message, "OK", false);
+  };
+
   /* --------------------------------- playing --------------------------------- */
 
   // The run under way: { action, cancelled, many, depth, summary }
@@ -1098,14 +1152,8 @@
       const label = stepTitle(item);
       const plan = planOf(item);
       if (!plan) {
-        run.summary.skipped.push(label);
-        // Asked once in a run on one page; never during a run on several
-        if (!run.many && !run.asked) {
-          run.asked = true;
-          const goOn = await ask(T("Actions"), fill(T("“{step}” can't be played in TypeR Studio: it is kept in the action and skipped. Continue?"), { step: label }), T("Continue"), T("Stop"));
-          if (!goOn) throw new Stopped();
-        }
-        continue;
+        if (harmless(item)) continue;
+        throw new Unplayable(item);
       }
       if (run.doc && app.doc !== run.doc) {
         if (!app.docs.includes(run.doc)) throw new StepError(T("The page was closed."));
@@ -1115,7 +1163,7 @@
         await plan(item, run);
         run.summary.played++;
       } catch (error) {
-        if (error instanceof Stopped) throw error;
+        if (error instanceof Stopped || error instanceof Unplayable) throw error;
         const why = (error && error.message) || "";
         if (!(error instanceof StepError)) console.warn("TypeR web: an action's step failed", error);
         const message = fill(T("The command “{step}” is not currently available."), { step: label }) + (why ? ` ${why}` : "");
@@ -1129,18 +1177,11 @@
     }
   };
 
-  const newSummary = () => ({ played: 0, disabled: 0, skipped: [], errors: [] });
-  const sayVerdict = (summary, extra) => {
-    const parts = [];
-    if (extra) parts.push(extra);
-    const unique = Array.from(new Set(summary.skipped));
-    if (unique.length) parts.push(fill(T("Skipped, as TypeR Studio can't play them: {steps}."), { steps: unique.join(", ") }));
-    if (parts.length) A.toast(parts.join(" "), true);
-  };
+  const newSummary = () => ({ played: 0, disabled: 0, errors: [] });
 
   // Esc, or the Stop button, ends a run between two steps
   const startRun = (action, many) => {
-    const run = { action, many, depth: 0, asked: false, stop: false, summary: newSummary() };
+    const run = { action, many, depth: 0, stop: false, summary: newSummary() };
     run.cancelled = () => run.stop;
     running = run;
     render();
@@ -1166,6 +1207,11 @@
       A.toast(T("Open a page first."));
       return null;
     }
+    const unplayable = firstUnplayable(action, from);
+    if (unplayable) {
+      await sayUnplayable(new Unplayable(unplayable));
+      return null;
+    }
     const set = setOfAction(action);
     if (recorder.on && set) addSteps([ATN.make.play({ action: action.name, set: set.name })]);
     host.cancelTransform();
@@ -1173,29 +1219,38 @@
     run.doc = app.doc;
     const part = from ? Object.assign({}, action, { items: action.items.slice(from) }) : action;
     let stopped = false;
+    let unplayed = null;
     try {
       await playSteps(part, run);
     } catch (error) {
       stopped = true;
-      if (!(error instanceof Stopped)) {
+      if (error instanceof Unplayable) unplayed = error;
+      else if (!(error instanceof Stopped)) {
         console.warn("TypeR web: the action stopped", error);
         A.toast(error.message || String(error), true);
       }
     } finally {
       endRun();
     }
-    sayVerdict(run.summary, stopped ? T("The action was stopped.") : "");
+    if (unplayed) await sayUnplayable(unplayed);
+    else if (stopped) A.toast(T("The action was stopped."), true);
     return run.summary;
   };
 
   // Plays an action on several pages, each in its own history: one summary at the end
   const playOnPages = async (action, docs) => {
     if (running || !docs.length) return null;
+    const unplayable = firstUnplayable(action);
+    if (unplayable) {
+      await sayUnplayable(new Unplayable(unplayable));
+      return null;
+    }
     host.cancelTransform();
     const run = startRun(action, true);
     const front = app.doc;
     const report = { done: 0, failed: [], total: docs.length };
     const task = host.background(T("Actions"));
+    let unplayed = null;
     try {
       for (const [index, page] of docs.entries()) {
         if (run.stop) break;
@@ -1211,6 +1266,11 @@
           report.done++;
         } catch (error) {
           if (error instanceof Stopped) break;
+          // The same on every page: the run ends here
+          if (error instanceof Unplayable) {
+            unplayed = error;
+            break;
+          }
           report.failed.push(`${page.name}: ${error.message || error}`);
         }
       }
@@ -1219,15 +1279,16 @@
       endRun();
       if (front && app.docs.includes(front) && app.doc !== front) A.switchDoc(front);
     }
+    if (unplayed) await sayUnplayable(unplayed);
     const said = [fill(T("“{action}” played on {done} of {total} pages."), { action: action.name, done: report.done, total: report.total })];
-    if (run.stop) said.push(T("The action was stopped."));
+    if (run.stop || unplayed) said.push(T("The action was stopped."));
     if (report.failed.length) said.push(fill(T("Errors: {list}"), { list: report.failed.join(" · ") }));
-    sayVerdict(run.summary, said.join(" "));
-    return Object.assign(report, { summary: run.summary, stopped: run.stop });
+    A.toast(said.join(" "), true);
+    return Object.assign(report, { summary: run.summary, stopped: run.stop || Boolean(unplayed) });
   };
 
   // For Batch Save: an action on one page, quietly, with what went wrong as text (null if
-  // nothing did)
+  // nothing did). Batch Save checks first that every step plays (unplayable()).
   const playForBatch = async (action, page) => {
     const run = { action, many: true, depth: 0, stop: false, doc: page, summary: newSummary(), cancelled: () => false };
     if (app.doc !== page) A.switchDoc(page);
@@ -2263,6 +2324,11 @@
       return (set && set.actions.find((one) => ATN.displayName(one.name) === actionName)) || null;
     },
     playForBatch,
+    // The step that keeps an action from playing, if any: Batch Save says it before it starts
+    unplayable: (action) => {
+      const item = firstUnplayable(action);
+      return item ? { step: stepTitle(item), message: new Unplayable(item).message } : null;
+    },
     // For scripts and tests
     get sets() {
       return sets;

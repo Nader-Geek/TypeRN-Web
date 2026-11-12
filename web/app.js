@@ -12523,6 +12523,12 @@
     const choice = await askBatchSave();
     if (!choice) return;
     const { settings, items, root, keepTree, action } = choice;
+    // A step TypeR can't play: no page is saved half done
+    const unplayable = action && window.TypeRActions.unplayable(action);
+    if (unplayable) {
+      await dialog({ title: T("Batch Save"), body: unplayable.message, ok: "OK", cancel: false });
+      return;
+    }
     // A dropped folder can be read, not yet written to
     if (root && root.queryPermission && (await root.queryPermission({ mode: "readwrite" })) !== "granted" && (await root.requestPermission({ mode: "readwrite" })) !== "granted") return;
     const formats = BATCH_FORMATS.filter((format) => settings.formats[format.id]);
@@ -12601,7 +12607,6 @@
     // With an action: each image in front while it plays, the page in front now back at the end
     const front = app.doc;
     const actionErrors = [];
-    const skippedSteps = new Set();
     // Written aside: the pages stay free meanwhile. Each open page is saved as it is when its
     // turn comes; one closed before then is left out.
     const task = background(T("Batch Save"));
@@ -12620,7 +12625,6 @@
           // An image of the folder becomes a page for as long as the action plays
           if (!item.doc) PS.setActiveDoc(doc);
           const outcome = await window.TypeRActions.playForBatch(action, doc);
-          outcome.summary.skipped.forEach((name) => skippedSteps.add(name));
           if (outcome.error) actionErrors.push(`${item.name}: ${outcome.error}`);
         }
         for (const output of outputs) {
@@ -12666,10 +12670,7 @@
       if (onDisk) ops.fileWritten(doc, onDisk);
       ops.markSaved(doc, savedId);
     });
-    const actionSaid = [
-      actionErrors.length ? fill(T("The action stopped on: {list}"), { list: actionErrors.join(" · ") }) : "",
-      skippedSteps.size ? fill(T("Skipped, as TypeR Studio can't play them: {steps}."), { steps: Array.from(skippedSteps).join(", ") }) : "",
-    ].filter(Boolean).join(" ");
+    const actionSaid = actionErrors.length ? fill(T("The action stopped on: {list}"), { list: actionErrors.join(" · ") }) : "";
     if (failed.length) toast(`${fill(T("Saved: {saved}. Could not save: {names}"), { saved, names: failed.join(", ") })} ${actionSaid}`.trim(), true);
     else toast(`${fill(T("Images saved: {count}."), { count: saved })} ${actionSaid}`.trim(), Boolean(actionSaid));
   };
