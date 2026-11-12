@@ -485,7 +485,7 @@
         h = Math.max(1, Math.round(h));
         const anchor = (v, low, high) => (!v ? 0.5 : same(v.value, low) ? 0 : same(v.value, high) ? 1 : 0.5);
         const color = get(d, "canvasExtensionColorType");
-        const paint = !color ? hex(app.bg) : { FrgC: hex(app.fg), Wht: "#ffffff", Blck: "#000000", Gry: "#808080" }[ATN.charId(color.value) || color.value] || hex(app.bg);
+        const paint = !color ? hex(app.bg) : { FrgC: hex(app.fg), "Wht ": "#ffffff", Blck: "#000000", "Gry ": "#808080" }[ATN.charId(color.value) || color.value] || hex(app.bg);
         need(host.pageFits(w, h));
         host.settleForResize();
         ops.resizeCanvas(w, h, anchor(get(d, "Hrzn"), "Left", "Rght"), anchor(get(d, "Vrtc"), "Top ", "Btom"), paint);
@@ -901,7 +901,7 @@
         const adapt = get(d, "contentAwareColorAdaptationFill");
         return () => host.playContentAwareFill(adapt ? Boolean(adapt.value) : undefined);
       }
-      const pick = { FrgC: () => app.fg, BckC: () => app.bg, Blck: () => ({ r: 0, g: 0, b: 0 }), Wht: () => ({ r: 255, g: 255, b: 255 }), "Gry ": () => ({ r: 128, g: 128, b: 128 }) }[ATN.charId(using.value) || using.value];
+      const pick = { FrgC: () => app.fg, BckC: () => app.bg, Blck: () => ({ r: 0, g: 0, b: 0 }), "Wht ": () => ({ r: 255, g: 255, b: 255 }), "Gry ": () => ({ r: 128, g: 128, b: 128 }) }[ATN.charId(using.value) || using.value];
       const given = same(using.value, "Clr ") ? colorOf(get(d, "Clr ")) : null;
       if (!pick && !given) return null;
       return () => {
@@ -1300,7 +1300,8 @@
     flatten: () => [ATN.make.flattenImage()],
     mergeSelected: () => [ATN.make.mergeLayers()],
     toggleLayer: ([id], was) => {
-      const layer = layerById(id, was.doc);
+      // As it was: shown, it's hidden now
+      const layer = was.state.layers.find((one) => one.id === id);
       if (!layer) return null;
       const target = was.sole ? {} : { name: was.names.get(id) };
       return [layer.visible === false ? ATN.make.showLayer(target) : ATN.make.hideLayer(target)];
