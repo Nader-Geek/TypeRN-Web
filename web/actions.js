@@ -383,6 +383,8 @@
 
   const TOOLS = { moveTool: "move", marqueeRectTool: "rectangle", marqueeEllipTool: "ellipse", lassoTool: "lasso", polySelTool: "polygon", magicWandTool: "wand", quickSelectTool: "wand", cropTool: "crop", eyedropperTool: "eyedropper", spotHealingBrushTool: "heal", paintbrushTool: "brush", cloneStampTool: "stamp", eraserTool: "eraser", magicEraserTool: "magicEraser", gradientTool: "gradient", blurTool: "blur", sharpenTool: "sharpen", smudgeTool: "smudge", typeCreateOrEditTool: "text", handTool: "hand", zoomTool: "zoom" };
 
+  const VIEW_ITEMS = { FtOn: "View:Fit on Screen", ZmIn: "View:Zoom In", ZmOt: "View:Zoom Out", ActP: "View:100%" };
+
   // Each event TypeR plays: plan(item) gives the function that plays the step, or null when
   // this step (in this shape) is beyond TypeR. Functions get the step and the run's context.
   const PLAYERS = {
@@ -611,6 +613,11 @@
       if (!r) return null;
       // A tool
       if (r.form === "Clss" && TOOLS[sid(r.classId)]) return () => A.setTool(TOOLS[sid(r.classId)]);
+      // A command of the View menu
+      if (same(r.classId, "Mn  ") && r.form === "Enmr") {
+        const view = Object.keys(VIEW_ITEMS).find((key) => same(r.value, key));
+        return view ? () => runCommand(VIEW_ITEMS[view]) : null;
+      }
       // Undo and Redo, as recorded: the previous or the next history state
       if (same(r.classId, "HstS") && r.form === "Enmr") {
         if (r.value === "Prvs") return () => need(ops.undo());
