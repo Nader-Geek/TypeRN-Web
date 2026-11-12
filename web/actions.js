@@ -129,6 +129,9 @@
     const group = same(r.classId, "layerSection");
     if (r.form === "prop" && same(r.key, "fsel")) return say("{event} Selection");
     if (r.form === "prop" && same(r.key, "Lefx")) return T("Set Layer Style");
+    if (r.form === "prop" && same(r.key, "TxtS")) return T("Set current text style");
+    if (r.form === "prop" && same(r.key, "paragraphStyle")) return T("Set current paragraph style");
+    if (r.form === "Enmr" && same(r.classId, "TxLr") && same(ATN.eventInfo(item) ? ATN.eventInfo(item).stringId : "", "set")) return T("Set current text layer");
     if (r.form === "name" && same(r.classId, "Styl")) return say("{event} “{name}”", { name: r.value });
     if (r.form === "Enmr" && same(r.classId, "HstS") && (r.value === "Prvs" || r.value === "Nxt ")) return say(r.value === "Prvs" ? "{event} previous history state" : "{event} next history state");
     if (r.form === "Enmr" && same(r.classId, "Dcmn")) return say("{event} document");
@@ -258,6 +261,81 @@
     return null;
   };
   const rgbValue = (c) => ATN.obj("RGBC", { "Rd  ": ATN.num(Math.round(c.r)), "Grn ": ATN.num(Math.round(c.g)), "Bl  ": ATN.num(Math.round(c.b)) });
+
+  /* ------------------------------ text styles ------------------------------ */
+
+  // A text layer's character and paragraph styles as Photoshop's "Set current text style" and
+  // "Set current paragraph style" steps, and back. Sizes are in points, as TypeR keeps them.
+  const points = (v) => {
+    if (!v) return undefined;
+    const n = Number(v.value);
+    if (v.type !== "UntF") return n;
+    const resolution = (doc() && doc().resolution) || 72;
+    if (v.unit === "#Pxl") return (n * 72) / resolution;
+    if (v.unit === "#Mlm") return (n * 72) / 25.4;
+    return n;
+  };
+  const pt = (n) => ATN.unit("#Pnt", n);
+  // TypeR's key → [Photoshop's key, to the descriptor, from it]
+  const TEXT_KEYS = {
+    fontPostScriptName: ["fontPostScriptName", (v) => ATN.text(v), (v) => (v.type === "TEXT" ? v.value : undefined)],
+    fontName: ["FntN", (v) => ATN.text(v), (v) => (v.type === "TEXT" ? v.value : undefined)],
+    fontStyleName: ["FntS", (v) => ATN.text(v), (v) => (v.type === "TEXT" ? v.value : undefined)],
+    size: ["Sz  ", pt, points],
+    autoLeading: ["autoLeading", ATN.bool, (v) => (v.type === "bool" ? v.value : undefined)],
+    leading: ["Ldng", pt, points],
+    tracking: ["Trck", ATN.int, (v) => Number(v.value)],
+    horizontalScale: ["HrzS", ATN.num, (v) => Number(v.value)],
+    verticalScale: ["VrtS", ATN.num, (v) => Number(v.value)],
+    baselineShift: ["Bsln", pt, points],
+    syntheticBold: ["syntheticBold", ATN.bool, (v) => (v.type === "bool" ? v.value : undefined)],
+    syntheticItalic: ["syntheticItalic", ATN.bool, (v) => (v.type === "bool" ? v.value : undefined)],
+    color: ["Clr ", (c) => rgbValue({ r: c.red, g: c.green, b: c.blue }), (v) => {
+      const c = colorOf(v);
+      return c ? { red: Math.round(c.r), green: Math.round(c.g), blue: Math.round(c.b) } : undefined;
+    }],
+  };
+  const ALIGNMENTS = { left: "Left", center: "Cntr", right: "Rght" };
+  const PARAGRAPH_KEYS = {
+    alignment: ["Algn", (v) => ATN.enumv("Alg ", ALIGNMENTS[v] || v), (v) => {
+      if (v.type !== "enum") return undefined;
+      return Object.keys(ALIGNMENTS).find((name) => same(ALIGNMENTS[name], v.value)) || sid(v.value);
+    }],
+    hyphenate: ["hyphenate", ATN.bool, (v) => (v.type === "bool" ? v.value : undefined)],
+  };
+  const textRef = (key) => ATN.ref(ATN.refProp("Prpr", key), ATN.refEnum("TxLr", "Ordn", "Trgt"));
+  // The step for the keys that changed on any of the layers ([before, after] styles), or null
+  const textStep = (pairs, keys, ref, classId, feature) => {
+    const items = [["textOverrideFeatureName", ATN.int(feature)]];
+    if (classId === "TxtS") items.push(["typeStyleOperationType", ATN.int(3)]);
+    let any = false;
+    Object.keys(keys).forEach((name) => {
+      const pair = pairs.find(([before, after]) => after && after[name] !== undefined && after[name] !== null && JSON.stringify(after[name]) !== JSON.stringify(before && before[name]));
+      if (!pair) return;
+      const v = pair[1][name];
+      try {
+        items.push([keys[name][0], keys[name][1](v)]);
+        any = true;
+      } catch (error) {
+        // A value Photoshop has no word for: not part of the step
+      }
+    });
+    return any ? ATN.step("set", { null: textRef(ref), "T   ": ATN.obj(classId, items) }) : null;
+  };
+  // A step's values as TypeR's style, or null when it says nothing TypeR uses
+  const patchOf = (to, keys) => {
+    const patch = {};
+    Object.keys(keys).forEach((name) => {
+      const v = get(to, keys[name][0]);
+      if (!v) return;
+      const value = keys[name][2](v);
+      if (value !== undefined && !(typeof value === "number" && !Number.isFinite(value))) patch[name] = value;
+    });
+    if (patch.size) patch.impliedFontSize = patch.size;
+    if (patch.leading) patch.impliedLeading = patch.leading;
+    if (patch.leading !== undefined && patch.autoLeading === undefined) patch.autoLeading = false;
+    return Object.keys(patch).length ? patch : null;
+  };
 
   /* ------------------------------ layer styles ------------------------------ */
 
@@ -606,6 +684,35 @@
           if (same(r.key, "FrgC")) app.fg = c;
           else app.bg = c;
           host.showColors();
+        };
+      }
+      // The text style or the paragraph style of the text layers
+      if (r.form === "prop" && (same(r.key, "TxtS") || same(r.key, "paragraphStyle")) && to.type === "Objc") {
+        const paragraph = same(r.key, "paragraphStyle");
+        const patch = patchOf(to, paragraph ? PARAGRAPH_KEYS : TEXT_KEYS);
+        if (!patch) return null;
+        return async () => {
+          needDoc();
+          const ids = activeIds().filter((id) => layerById(id) && layerById(id).kind === "text");
+          need(ids.length > 0, T("Select a text layer first."));
+          // The font loaded first, so that the text is laid out with it (not long: a font
+          // that isn't here is drawn with another, as when a page is opened)
+          const Fonts = window.TypeRFonts;
+          if (patch.fontPostScriptName && Fonts) await Promise.race([Fonts.ready([patch.fontPostScriptName]).catch(() => null), new Promise((done) => setTimeout(done, 5000))]);
+          if (paragraph) ops.setTextStyle(ids, null, patch);
+          else ops.setTextStyle(ids, patch, null);
+        };
+      }
+      // The text layers' anti-aliasing
+      if (r.form === "Enmr" && same(r.classId, "TxLr") && to.type === "Objc" && same(to.classId, "TxLr")) {
+        const aa = get(to, "AntA");
+        const value = aa && aa.type === "enum" ? sid(aa.value) : "";
+        if (!/^antiAlias(None|Sharp|Crisp|Strong|Smooth)$/.test(value) || to.items.length !== 1) return null;
+        return () => {
+          needDoc();
+          const ids = activeIds().filter((id) => layerById(id) && layerById(id).kind === "text");
+          need(ids.length > 0, T("Select a text layer first."));
+          ops.setTextAntiAlias(ids, value);
         };
       }
       // The layer style
@@ -1252,6 +1359,27 @@
       if (sameColor(app.bg)) return [ATN.make.fill({ using: "BckC" })];
       return [ATN.make.fill({ color: { red: color.r, green: color.g, blue: color.b } })];
     },
+    setTextStyle: ([ids, patch, paragraphPatch, coalesce, range], was) => {
+      // Letters picked in the text being typed: Photoshop doesn't record them either
+      if (range) return null;
+      // Each text layer, before and after
+      const layers = (ids || []).map((id) => [was.state.layers.find((layer) => layer.id === id), layerById(id)]).filter(([before, after]) => before && after && after.kind === "text");
+      if (!layers.length) return null;
+      const lt = (layer) => layer.params.layerText;
+      const steps = [];
+      if (patch) {
+        const step = textStep(layers.map(([before, after]) => [lt(before).textStyleRange[0].textStyle, lt(after).textStyleRange[0].textStyle]), TEXT_KEYS, "TxtS", "TxtS", 808465458);
+        if (step) steps.push(step);
+      }
+      if (paragraphPatch) {
+        const step = textStep(layers.map(([before, after]) => [lt(before).paragraphStyleRange[0].paragraphStyle, lt(after).paragraphStyleRange[0].paragraphStyle]), PARAGRAPH_KEYS, "paragraphStyle", "paragraphStyle", 808464691);
+        if (step) steps.push(step);
+      }
+      if (!steps.length) return null;
+      // One step for a colour dragged in its picker, a size typed digit by digit…
+      return { steps, key: steps.length === 1 ? (patch ? "text" : "paragraph") : undefined };
+    },
+    setTextAntiAlias: ([ids, value]) => (typeof value === "string" ? { steps: [ATN.step("set", { null: ATN.ref(ATN.refEnum("TxLr", "Ordn", "Trgt")), "T   ": ATN.obj("TxLr", [["AntA", ATN.enumv("Annt", value)]]) })], key: "antiAlias" } : null),
     setLayerEffects: ([ids]) => styleStep(ids),
     setTextStroke: ([ids]) => styleStep(ids),
   };
