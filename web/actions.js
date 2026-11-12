@@ -261,54 +261,19 @@
 
   /* ------------------------------ layer styles ------------------------------ */
 
-  // TypeR's effects and stroke as Photoshop's Lefx, and back: the drop shadow, the glows, the
-  // inner shadow, the colour overlay and the stroke. A gradient overlay isn't carried over.
-  const LEFX_KNOWN = new Set(["scale", "globalLightingAngle", "dropShadow", "innerShadow", "outerGlow", "innerGlow", "solidFill", "frameFX", "masterFXSwitch"].map((id) => id));
-  const SHAPE_LINEAR = () => ATN.obj("ShpC", { "Nm  ": "Linear" });
-  const fxCommon = (fx) => [["enab", ATN.bool(fx.enabled !== false)], ["Md  ", ATN.enumv("BlnM", BLENDS[fx.blend] || "Nrml")], ["Clr ", rgbValue(fx.color || { r: 0, g: 0, b: 0 })], ["Opct", ATN.pct(fx.opacity === undefined ? 100 : fx.opacity)]];
+  // TypeR's effects and stroke as Photoshop's Lefx, and back, as the Styles panel does it
+  // (asl.js and psd.js): one place knows how Photoshop's effects map onto TypeR's
   const lefxOf = (layer) => {
-    const fx = layer.effects || {};
-    const entries = [["Scl ", ATN.pct(100)]];
-    if (fx.dropShadow) entries.push(["DrSh", ATN.obj("DrSh", fxCommon(fx.dropShadow).concat([["uglg", ATN.bool(false)], ["lagl", ATN.angle(fx.dropShadow.angle || 0)], ["Dstn", ATN.px(fx.dropShadow.distance || 0)], ["Ckmt", ATN.px(fx.dropShadow.spread || 0)], ["blur", ATN.px(fx.dropShadow.size || 0)], ["Nose", ATN.pct(0)], ["AntA", ATN.bool(false)], ["TrnS", SHAPE_LINEAR()], ["layerConceals", ATN.bool(fx.dropShadow.knockout !== false)]]))]);
-    if (fx.innerShadow) entries.push(["IrSh", ATN.obj("IrSh", fxCommon(fx.innerShadow).concat([["uglg", ATN.bool(false)], ["lagl", ATN.angle(fx.innerShadow.angle || 0)], ["Dstn", ATN.px(fx.innerShadow.distance || 0)], ["Ckmt", ATN.px(fx.innerShadow.choke || 0)], ["blur", ATN.px(fx.innerShadow.size || 0)], ["Nose", ATN.pct(0)], ["AntA", ATN.bool(false)], ["TrnS", SHAPE_LINEAR()]]))]);
-    if (fx.outerGlow) entries.push(["OrGl", ATN.obj("OrGl", fxCommon(fx.outerGlow).concat([["GlwT", ATN.enumv("BETE", "SfBL")], ["Ckmt", ATN.px(fx.outerGlow.spread || 0)], ["blur", ATN.px(fx.outerGlow.size || 0)], ["Nose", ATN.pct(0)], ["ShdN", ATN.pct(0)], ["AntA", ATN.bool(false)], ["TrnS", SHAPE_LINEAR()], ["Inpr", ATN.pct(50)]]))]);
-    if (fx.innerGlow) entries.push(["IrGl", ATN.obj("IrGl", fxCommon(fx.innerGlow).concat([["GlwT", ATN.enumv("BETE", "SfBL")], ["Ckmt", ATN.px(fx.innerGlow.choke || 0)], ["blur", ATN.px(fx.innerGlow.size || 0)], ["ShdN", ATN.pct(0)], ["Nose", ATN.pct(0)], ["AntA", ATN.bool(false)], ["TrnS", SHAPE_LINEAR()], ["Inpr", ATN.pct(50)], ["glwS", ATN.enumv("IGSr", "SrcE")]]))]);
-    if (fx.colorOverlay) entries.push(["SoFi", ATN.obj("SoFi", fxCommon(fx.colorOverlay))]);
-    const s = layer.stroke;
-    if (s && s.enabled !== false && s.size > 0) {
-      entries.push(["FrFX", ATN.obj("FrFX", [["enab", ATN.bool(true)], ["Styl", ATN.enumv("FStl", { outer: "OutF", inner: "InsF", center: "CtrF" }[s.position] || "OutF")], ["PntT", ATN.enumv("FrFl", "SClr")], ["Md  ", ATN.enumv("BlnM", "Nrml")], ["Opct", ATN.pct(s.opacity === undefined ? 100 : s.opacity)], ["Sz  ", ATN.px(s.size)], ["Clr ", rgbValue(s.color || { r: 0, g: 0, b: 0 })]])]);
-    }
-    return ATN.obj("Lefx", entries);
+    const ASL = window.TypeRASL;
+    return get(ASL.toStyle({ effects: layer.effects, stroke: layer.stroke }), "Lefx");
   };
+  // { effects, stroke, leftOut }: leftOut, what TypeR doesn't draw of it ({ label: count })
   const effectsOfLefx = (lefx) => {
-    const scale = (pixels(get(lefx, "Scl "), 1) || 100) / 100 || 1;
-    const effects = {};
-    const n = (fx, key, fallback = 0) => {
-      const v = get(fx, key);
-      return v === undefined ? fallback : Number(v.value);
-    };
-    const common = (fx) => ({ enabled: get(fx, "enab") ? get(fx, "enab").value !== false : true, blend: blendOf(get(fx, "Md  ")) || "normal", color: colorOf(get(fx, "Clr ")) || { r: 0, g: 0, b: 0 }, opacity: n(fx, "Opct", 100) });
-    const one = (key) => {
-      const fx = get(lefx, key);
-      return fx && (fx.type === "Objc" || fx.type === "GlbO") ? fx : null;
-    };
-    let fx = one("DrSh");
-    if (fx) effects.dropShadow = Object.assign(common(fx), { angle: n(fx, "lagl", 120), distance: n(fx, "Dstn") * scale, spread: n(fx, "Ckmt"), size: n(fx, "blur") * scale }, get(fx, "layerConceals") && get(fx, "layerConceals").value === false ? { knockout: false } : null);
-    fx = one("IrSh");
-    if (fx) effects.innerShadow = Object.assign(common(fx), { angle: n(fx, "lagl", 120), distance: n(fx, "Dstn") * scale, choke: n(fx, "Ckmt"), size: n(fx, "blur") * scale });
-    fx = one("OrGl");
-    if (fx) effects.outerGlow = Object.assign(common(fx), { spread: n(fx, "Ckmt"), size: n(fx, "blur") * scale });
-    fx = one("IrGl");
-    if (fx) effects.innerGlow = Object.assign(common(fx), { choke: n(fx, "Ckmt"), size: n(fx, "blur") * scale });
-    fx = one("SoFi");
-    if (fx) effects.colorOverlay = common(fx);
-    fx = one("FrFX");
-    let stroke = null;
-    if (fx && (!get(fx, "PntT") || same(get(fx, "PntT").value, "SClr"))) {
-      const style = get(fx, "Styl");
-      stroke = { enabled: get(fx, "enab") ? get(fx, "enab").value !== false : true, size: n(fx, "Sz  ", 3) * scale, opacity: n(fx, "Opct", 100), position: style && same(style.value, "InsF") ? "inner" : style && same(style.value, "CtrF") ? "center" : "outer", color: colorOf(get(fx, "Clr ")) || { r: 0, g: 0, b: 0 } };
-    }
-    return { effects: Object.keys(effects).length ? effects : undefined, stroke };
+    const ASL = window.TypeRASL;
+    const PSD = window.TypeRPSD;
+    if (!ASL || !PSD) return null;
+    const { effects, leftOut } = ASL.fromStyle(ATN.desc("Styl", [["Lefx", lefx]]));
+    return { effects: PSD.effectsFromPsd(effects, undefined), stroke: PSD.strokeFromEffects(effects), leftOut };
   };
 
   /* --------------------------------- the player --------------------------------- */
@@ -645,9 +610,11 @@
       }
       // The layer style
       if (r.form === "prop" && same(r.key, "Lefx")) {
-        // Only the effects TypeR draws: a bevel, a satin, a pattern or a gradient would be lost
-        if (to.type !== "Objc" || to.items.some(([key, v]) => !LEFX_KNOWN.has(sid(key)) && !(v && v.type === "bool"))) return null;
-        const { effects, stroke } = effectsOfLefx(to);
+        // Only the effects TypeR draws: one it doesn't, shown, would be lost (a hidden one isn't)
+        if (to.type !== "Objc") return null;
+        const read = effectsOfLefx(to);
+        if (!read || Object.keys(read.leftOut).length) return null;
+        const { effects, stroke } = read;
         return () => {
           needDoc();
           const texts = activeIds().map((id) => layerById(id)).filter((layer) => layer && layer.kind === "text");
