@@ -6,7 +6,7 @@
 
 "use strict";
 
-const CACHE = "typer-web-2";
+const CACHE = "typer-web-3";
 // A slow connection gets the copy after this long, and the answer goes in the copy for next time
 const WAIT = 1500;
 const CORE = ["./", "app.css", "touch.css", "shell.js", "keyclick.js", "fonts.js", "fontfinder.js", "kit.js", "inpaint.js", "outline.js", "photoshop.js", "psd.js", "atn.js", "asl.js", "indesign.js", "psd-worker.js", "align-worker.js", "lama-worker.js", "session.js", "recent.js", "workspace.js", "generative.js", "detect.js", "manhuarm.js", "autoplace.js", "vendor/ort/ort.wasm.min.js", "vendor/ort/ort-wasm-simd-threaded.mjs", "vendor/ort/ort-wasm-simd-threaded.wasm", "textmask.js", "whats-new.js", "whats-new.json", "whats-new/highlights.json", "feedback.js", "onboarding.js", "app.js", "actions.js", "styles.js", "sfx.js", "retouch.js", "reshape.js", "reshape-tool.js", "sfx-guide.js", "sfx.css", "guide.js", "guide.css", "hyphenation.js", "breaks.js", "touch.js", "bridge.js", "manifest.webmanifest", "vendor/ag-psd.js", "../i18n.js", "panel/index.html"];
@@ -67,7 +67,8 @@ self.addEventListener("activate", (event) => {
 });
 
 // Only what the app itself uses: the rest of the site goes on without this worker
-const isOurs = (url) => url.origin === self.location.origin && /^\/(web\/|assets\/|images\/|i18n\.js$)/.test(url.pathname) && !url.pathname.startsWith("/web/sw.js");
+const APP_SCOPE = new URL(self.registration.scope).pathname;
+const isOurs = (url) => url.origin === self.location.origin && url.pathname.startsWith(APP_SCOPE) && !url.pathname.endsWith("/sw.js");
 
 self.addEventListener("message", (event) => {
   if (!event.data || !Array.isArray(event.data.keep)) return;
