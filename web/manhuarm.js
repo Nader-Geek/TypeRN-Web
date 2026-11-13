@@ -23,7 +23,7 @@
   }
   function boundsOf(r, W, H) {
     const points = pointsBounds(pointsOf(r));
-    let b = first(r, ["bounds","bbox","boundingBox","bounding_box","rect","box"]);
+    let b = first(r, ["bounds","bbox","boundingBox","bounding_box","rect","box","coordinates"]);
     let x=null,y=null,w=null,h=null;
     if (points && points.w>0 && points.h>0) ({x,y,w,h}=points);
     if (x===null && Array.isArray(b) && b.length>=4) {
@@ -94,7 +94,7 @@
       }
       rawPages=Array.from(groups.entries()).map(([key,regions])=>({file:key,regions}));
     }
-    if (!rawPages.length) throw new Error("لم أجد صفحات أو نصوص OCR داخل ملف Manhuarm JSON.");
+    if (!rawPages.length) throw new Error("لم أجد صفحات أو نصوص OCR داخل ملف ManhuaRMTL JSON.");
     const pages=[];
     let hasTranslation=false;
     for(let i=0;i<rawPages.length;i++){
@@ -153,7 +153,7 @@
       reading_order:str(root.reading_order||root.readingOrder||"rtl"),
       translated:Boolean(root.translated||hasTranslation),
       detected:true,
-      source:"Manhuarm OCR JSON",
+      source:"ManhuaRMTL OCR JSON",
       pages
     };
   }
@@ -181,7 +181,7 @@
         if(!response.ok)throw new Error("HTTP "+response.status);
         html=await response.text();
       }catch(e){
-        throw new Error("تعذّر قراءة صفحة Manhuarm من المتصفح (قد يمنع الموقع CORS). نزّل ملف OCR JSON من الصفحة وأرفقه مباشرة، أو أدخل رابط JSON المباشر.");
+        throw new Error("تعذّر قراءة صفحة ManhuaRMTL من المتصفح (قد يمنع الموقع CORS). نزّل ملف OCR JSON من الصفحة وأرفقه مباشرة، أو أدخل رابط JSON المباشر.");
       }
       const marker=html.toLowerCase().indexOf("id=\"chapterinput\"");
       const marker2=html.toLowerCase().indexOf("id='chapterinput'");
@@ -197,12 +197,12 @@
           id=attr(chunk,"data-id")||attr(chunk,"data-chapter-id");
         }
       }
-      if(!id)throw new Error("لم أجد chapterInput data-id في صفحة Manhuarm. أرفق ملف OCR JSON مباشرة.");
+      if(!id)throw new Error("لم أجد chapterInput data-id في صفحة ManhuaRMTL. أرفق ملف OCR JSON مباشرة.");
       jsonUrl=new URL("/wp-content/uploads/ocr-data/"+encodeURIComponent(id)+".json",url.origin);
     }
     let response;
-    try{response=await fetch(jsonUrl.href,{mode:"cors",credentials:"omit"});}catch(_){throw new Error("المتصفح منع الوصول إلى ملف OCR في Manhuarm بسبب CORS. نزّل JSON من الموقع ثم استورده مع صور الصفحات.");}
-    if(!response.ok)throw new Error("تعذّر تحميل OCR JSON من Manhuarm (HTTP "+response.status+").");
+    try{response=await fetch(jsonUrl.href,{mode:"cors",credentials:"omit"});}catch(_){throw new Error("المتصفح منع الوصول إلى ملف OCR في ManhuaRMTL بسبب CORS. نزّل JSON من الموقع ثم استورده مع صور الصفحات.");}
+    if(!response.ok)throw new Error("تعذّر تحميل OCR JSON من ManhuaRMTL (HTTP "+response.status+").");
     let data;
     try{data=await response.json();}catch(_){throw new Error("الملف الذي أعاده Manhuarm ليس JSON صالحًا.");}
     return normalize(data,files);

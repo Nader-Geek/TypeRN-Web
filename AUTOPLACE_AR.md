@@ -19,7 +19,7 @@ https://github.com/amirwolf5122/Manga-AutoTranslate/releases/tag/models) — ي�
 
 ## استيراد OCR من ManhuaRMTL
 
-من File → Auto-place from OCR / Manhuarm…:
+من File → Auto-place from OCR / ManhuaRMTL…:
 
 1. أدخل رابط صفحة الفصل في ManhuaRMTL، أو رابط ملف OCR JSON المباشر.
 2. أرفق صور صفحات الفصل بالترتيب، أو أرفق ملف JSON معها.

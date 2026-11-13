@@ -15789,7 +15789,7 @@
       { label: "Export as WebP…", enabled: () => hasDoc() && canWriteWebp, action: () => exportImage("image/webp") },
       { label: "Export for InDesign (IDML)…", enabled: hasDoc, action: exportInDesign },
       { label: "Batch Save…", action: batchSave },
-      { label: "Auto-place from OCR / Manhuarm…", action: () => window.TypeRAutoPlace.openDialog() },
+      { label: "Auto-place from OCR / ManhuaRMTL…", action: () => window.TypeRAutoPlace.openDialog() },
       // The desktop app only, once its own part knows how
       ...(Studio ? [{ label: "Open in Photoshop…", enabled: hasDoc, action: openInPhotoshop }] : []),
       null,

@@ -87,7 +87,7 @@
     }
     if (!json) throw new Error("لم أجد ملف JSON داخل الاختيار.");
     if (json.format !== "manga-autotranslate/typer-job") {
-      if (!window.TypeRManhuarm) throw new Error("Manhuarm OCR importer is not loaded.");
+      if (!window.TypeRManhuarm) throw new Error("ManhuaRMTL OCR importer is not loaded.");
       return window.TypeRManhuarm.normalize(json, Array.from(images.values()));
     }
     const pages = json.pages.map((pg) => {
@@ -321,9 +321,9 @@
     wrap.innerHTML = `
       <div style="background:#2b2b2b;color:#eee;border-radius:8px;padding:18px;width:min(560px,94vw);max-height:90vh;overflow:auto;box-shadow:0 10px 40px #000a">
         <h3 style="margin:0 0 10px">Auto-place (Manga-AutoTranslate)</h3>
-        <p style="margin:0 0 8px;opacity:.8">1) Choose page images, a Manga-AutoTranslate ZIP, or Manhuarm OCR JSON + its page images.<br>2) Optionally paste a Manhuarm chapter URL / OCR JSON URL. If OCR data has coordinates, bubbles are placed without manual X/Y/W/H.<br>3) Paste the translation script, or leave it empty when the JSON already contains translations.</p>
+        <p style="margin:0 0 8px;opacity:.8">1) Choose page images, a Manga-AutoTranslate ZIP, or ManhuaRMTL OCR JSON + its page images.<br>2) Optionally paste a ManhuaRMTL chapter URL / OCR JSON URL. If OCR data has coordinates, bubbles are placed without manual X/Y/W/H.<br>3) Paste the translation script, or leave it empty when the JSON already contains translations.</p>
         <input id="ap-files" type="file" multiple accept=".zip,.json,.png,.jpg,.jpeg,.webp" style="width:100%;margin-bottom:8px">
-        <input id="ap-source-url" type="url" placeholder="Manhuarm chapter URL or direct OCR JSON URL (optional)" style="width:100%;box-sizing:border-box;margin:0 0 8px;padding:8px;background:#1b1b1b;color:#eee;border:1px solid #555;border-radius:4px">
+        <input id="ap-source-url" type="url" placeholder="ManhuaRMTL chapter URL or direct OCR JSON URL (optional)" style="width:100%;box-sizing:border-box;margin:0 0 8px;padding:8px;background:#1b1b1b;color:#eee;border:1px solid #555;border-radius:4px">
         <div id="ap-det" style="margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <label>Detection model: <input id="ap-model" type="file" accept=".onnx"></label>
           <label>Reading order: <select id="ap-order"><option value="rtl">right-to-left (manga)</option><option value="ltr">left-to-right</option></select></label>
@@ -348,7 +348,7 @@
         const isJob = picked.some((f) => /\.(zip|json)$/i.test(f.name));
         let job;
         if (sourceUrl) {
-          st.textContent = "Loading Manhuarm OCR…";
+          st.textContent = "Loading ManhuaRMTL OCR…";
           job = await window.TypeRManhuarm.fromUrl(sourceUrl, picked);
         } else if (isJob) {
           st.textContent = "Loading job…";
