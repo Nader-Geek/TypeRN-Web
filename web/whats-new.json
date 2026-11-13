@@ -1,4 +1,5 @@
 {"notes": [
+  {"id":"4045a6923cc1","at":"2026-11-13T07:17:57+01:00","kind":"fix","text":"Smart Paste fills three joined bubbles in order from the one you click","lang":{"fr":"Le Collage intelligent remplit trois bulles collées dans l'ordre à partir de celle où l'on clique"}},
   {"id":"588097af7877","at":"2026-11-12T15:51:37+01:00","kind":"feat","text":"Undo a whole action at once, or play it step by step (Playback Options…)","lang":{"fr":"Annuler une action entière d’un coup, ou la lire pas à pas (Options d’exécution…)"}},
   {"id":"8afdb7553730","at":"2026-11-12T15:51:37+01:00","kind":"fix","text":"An action with a step TypeR Studio can't play names it before playing, instead of skipping it (Batch Save too)","lang":{"fr":"Une action avec une étape que TypeR Studio ne peut pas lire la nomme avant de démarrer, au lieu de l’ignorer (Enregistrer par lot aussi)"}},
   {"id":"34ab3b311a89","at":"2026-11-12T15:51:37+01:00","kind":"feat","text":"Actions play Fit on Screen, Zoom In, Zoom Out and 100% steps","lang":{"fr":"Les actions lisent les étapes Ajuster à l’écran, Zoom avant, Zoom arrière et 100 %"}},
@@ -147,6 +148,5 @@
   {"id":"6a1ac0ef15ef","at":"2026-11-02T20:13:07+01:00","kind":"feat","text":"Offer TypeR Studio and the Photoshop extension from a Download button","lang":{"fr":"Un bouton Télécharger propose TypeR Studio et l’extension Photoshop"}},
   {"id":"6f30ed945c46","at":"2026-11-02T08:10:19+01:00","kind":"fix","text":"Always place new text on top of its folder or document","lang":{"fr":"Un nouveau texte est toujours placé en haut de son dossier ou du document"}},
   {"id":"c6d754c35d26","at":"2026-11-02T07:55:21+01:00","kind":"fix","text":"Make the wheel zoom on a Mac","lang":{"fr":"La molette zoome sur Mac"}},
-  {"id":"de76aa2bf310","at":"2026-11-02T07:55:21+01:00","kind":"feat","text":"Set the wand aside with Ctrl or Cmd","lang":{"fr":"Mettre la baguette de côté avec Ctrl ou Cmd"}},
-  {"id":"78e7db038821","at":"2026-11-02T07:39:10+01:00","kind":"feat","text":"Faster on big pages, lighter on memory, and a chapter workflow","lang":{"fr":"Plus rapide sur les grandes pages, moins gourmand en mémoire, et un mode chapitre"}}
+  {"id":"de76aa2bf310","at":"2026-11-02T07:55:21+01:00","kind":"feat","text":"Set the wand aside with Ctrl or Cmd","lang":{"fr":"Mettre la baguette de côté avec Ctrl ou Cmd"}}
 ]}
